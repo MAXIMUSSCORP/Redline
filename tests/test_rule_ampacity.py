@@ -20,7 +20,7 @@ def _project(val, temp=75, **over):
         "conductor_material": val("Cu"),
         "insulation_temp_c": val(temp),
         "conductors_in_raceway": val(3),
-        "ambient_c": val(30),
+        "ambient_c": val(25),
     }
     c = Circuit(panel="LP-1", number="7", source=SRC, **{**fields, **over})
     return Project("t", panels=[Panel("LP-1", SRC, circuits=[c])])
@@ -62,10 +62,10 @@ def test_rule_ampacity_termination_limits_column(test_cfg, cfg_set, val):
 
 def test_rule_ampacity_next_standard_size(test_cfg, cfg_set, val):
     cfg = _cfg(test_cfg, cfg_set, 15)
-    cfg = cfg_set(cfg, ("tables", "standard_breaker_ratings", "values_a"), [10, 20, 30])
+    cfg = cfg_set(cfg, ("tables", "standard_breaker_ratings", "values_a"), [7, 13, 29])
     cfg = cfg_set(cfg, ("tables", "allow_next_standard_size", "enabled"), True)
     assert engine.run(_project(val), cfg, [SPEC]).findings == ()
-    cfg = cfg_set(cfg, ("tables", "standard_breaker_ratings", "values_a"), [10, 12])
+    cfg = cfg_set(cfg, ("tables", "standard_breaker_ratings", "values_a"), [7, 11])
     assert engine.run(_project(val), cfg, [SPEC]).findings[0].severity.value == "VIOLATION"
 
 

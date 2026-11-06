@@ -14,7 +14,7 @@ def _project(val, va=1500, **over):
         "load_type": val("continuous"),
         "breaker_a": val(20),
         "load_va": val(va),
-        "poles": val(1),
+        "poles": val(2),
     }
     c = Circuit(panel="LP-1", number="7", source=SRC, **{**fields, **over})
     return Project("t", panels=[Panel("LP-1", SRC, voltage_v=val(100), circuits=[c])])
