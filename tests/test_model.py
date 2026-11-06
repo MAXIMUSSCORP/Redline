@@ -1,11 +1,15 @@
+import pytest
+
 from redline.findings import Severity, input_gate, inputs_used
 from redline.model import (
+    MAX_INT,
     Circuit,
     Confidence,
     Method,
     Panel,
     Source,
     Value,
+    check_value,
     derived,
     effective_voltage,
     is_mlo,
@@ -244,3 +248,23 @@ def test_effective_voltage_blank_own_voltage_uses_panel(val):
     for blank in (Value(None, _src(), None), Value(None, _src(), "")):
         c = Circuit("LP-1", "1", _src(), poles=val(2), voltage_v=blank)
         assert effective_voltage(c, p).value == 208
+
+
+@pytest.mark.parametrize("poles", [0, 4, 2.5, -1, 10_000_000, float("nan")])
+def test_poles_out_of_range_not_usable(poles):
+    v = check_value("poles", Value(poles, _src()))
+    assert not v.usable and v.confidence == Confidence.LOW and v.source.note
+    assert check_value("poles", Value(3, _src())).usable
+
+
+def test_demand_va_supplied_zero_not_usable():
+    v = check_value("demand_va_supplied", Value(0, _src()))
+    assert not v.usable and "zero" in v.source.note
+
+
+def test_check_value_huge_int_raises_type_error():
+    with pytest.raises(TypeError):
+        check_value("breaker_a", Value(MAX_INT + 1, _src()))
+    with pytest.raises(TypeError):
+        check_value("conductor_size", Value(5, _src()))
+    assert check_value("breaker_a", Value(MAX_INT, _src())).usable

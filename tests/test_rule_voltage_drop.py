@@ -1,5 +1,7 @@
+from dataclasses import replace
+
 from redline import engine
-from redline.model import Circuit, Confidence, Feeder, Method, Panel, Project, Source
+from redline.model import Circuit, Confidence, Feeder, Method, Panel, Project, Source, Value
 from redline.rules.voltage_drop import SPEC
 
 SRC = Source("test.csv", "row 7", Method.CSV, Confidence.HIGH)
@@ -203,3 +205,25 @@ def test_rule_voltage_drop_open_chain_wording(test_cfg, cfg_set, val):
     project.panels = [project.panels[0]]
     (g,) = _run(project, cfg)
     assert "Broken link" in g.message and "Show the missing link" in g.suggested_fix
+
+
+def test_rule_voltage_drop_unparsed_fed_from_broken_link(test_cfg, cfg_set, val):
+    project = _chain_project(val)
+    project.panels[0].fed_from = Value(None, SRC, "TBD")
+    (f,) = _run(project, _cfg(test_cfg, cfg_set))
+    assert f.severity.value == "NOT_CHECKED"
+    assert "Broken link" in f.message and "LP-1" in f.message
+
+
+def test_rule_voltage_drop_ambiguous_feeder_broken_link(test_cfg, cfg_set, val):
+    cfg = _cfg(test_cfg, cfg_set)
+    twice = _chain_project(val)
+    twice.feeders.append(replace(twice.feeders[0], id="F-2", length_m=val(0.1)))
+    (f,) = _run(twice, cfg)
+    assert f.severity.value == "NOT_CHECKED"
+    assert "Broken link" in f.message and "2 feeders feed LP-1" in f.message
+    wrong = _chain_project(val)
+    wrong.feeders[0].from_panel = val("ELSEWHERE")
+    (g,) = _run(wrong, cfg)
+    assert g.severity.value == "NOT_CHECKED"
+    assert "Broken link" in g.message and "from_panel disagrees" in g.message

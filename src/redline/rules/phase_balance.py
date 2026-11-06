@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 
 from redline.config import Config, lookup, rule_ref
@@ -16,14 +17,17 @@ def _phases(c: Circuit, pattern: list | None) -> tuple[Value, bool]:
     """Phase letters for a circuit: the column when shown, else its position (MEDIUM at best)."""
     col = c.phases_used
     if col.source is not None:
-        ok = col.value and set(col.value) <= set("ABC")
+        why = ""
+        if col.value and not set(col.value) <= set("ABC"):
+            why = "phase letters not A, B or C"
         # Letters that disagree with a usable pole count cannot both be right.
-        if ok and c.poles.usable and len(col.value) != c.poles.value:
+        elif col.value and c.poles.usable and len(col.value) != c.poles.value:
             why = "phases shown disagree with poles"
+        if why:
             note = f"{col.source.note}; {why}" if col.source.note else why
             low = replace(col.source, confidence=Confidence.LOW, note=note)
             return Value(", ".join(col.value), low, col.raw), False
-        return Value(", ".join(col.value) if ok else None, col.source, col.raw), False
+        return Value(", ".join(col.value) if col.value else None, col.source, col.raw), False
     num = c.number.strip()
     if not (pattern and num.isdigit() and c.poles.usable):
         return Value.missing(), False
@@ -72,12 +76,17 @@ def _panel(p: Panel, cfg: Config, ref: str) -> list[Finding]:
         for ph in letters:
             totals[ph] += c.load_va.value / len(letters)
     mean = sum(totals.values()) / len(totals)
+    worst = max(totals, key=lambda k: abs(totals[k] - mean))
+    dev = abs(totals[worst] - mean) * 100 / mean if mean else 0
+    if not all(math.isfinite(x) for x in (*totals.values(), mean, dev)):
+        msg = f"{unit}: not checked. Phase balance could not be computed."
+        return [
+            Finding(ID, Severity.NEEDS_REVIEW, msg, ref, p.source, inputs_used(req), NOT_RUN_FIX)
+        ]
     table = ", ".join(f"{k} {v:.0f} VA" for k, v in totals.items())
     note = f" {by_position} circuits placed by position, MEDIUM at best." if by_position else ""
     info = f"{unit}: load per phase: {table}.{note}"
     out = [Finding(ID, Severity.INFO, info, ref, p.source, inputs_used(req), "")]
-    worst = max(totals, key=lambda k: abs(totals[k] - mean))
-    dev = abs(totals[worst] - mean) * 100 / mean if mean else 0
     if dev > limit:
         heavy = max(totals, key=totals.get)
         cands = [label(c) for c, v in placed if v == [heavy]]

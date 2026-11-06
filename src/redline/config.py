@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Any
 import yaml
 
 from redline.findings import Finding, Severity
-from redline.model import Confidence, Method, Source, Value
+from redline.model import MAX_INT, Confidence, Method, Source, Value
 
 TEST_EDITION_LABEL = "TEST EDITION, NOT CEC"
 TEST_SOURCE_LABEL = "TEST ONLY, NOT CEC VALUES"
@@ -40,11 +41,110 @@ def sha256_file(path: str | Path) -> str:
 def _read(path: Path) -> dict[str, Any]:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError, RecursionError) as e:
+    except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as e:
         raise ConfigError(f"{path.name}: cannot read config file ({type(e).__name__})") from e
     if not isinstance(data, dict):
         raise ConfigError(f"{path.name}: expected a mapping at the top level")
     return data
+
+
+_NUM, _STR, _BOOL = "a finite number", "a string", "true or false"
+_SCALAR = "a string or number"
+_ROW = (_NUM, _NUM)  # a tuple is a list of exactly that shape, "*" in a dict is any key
+_VD_PHASE = {"single": _NUM, "three": _NUM}
+# Expected type of every config leaf a rule reads. A null is allowed anywhere: it makes the
+# table unverified. Keys not named here are not read by any rule and are left alone.
+_SHAPE = {
+    "defaults": {
+        "*": _SCALAR,
+        "conductors_in_raceway": _NUM,
+        "ambient_c": _NUM,
+        "termination_temp_c": _NUM,
+    },
+    "completeness": {
+        "placeholder_texts": [_STR],
+        "spare_keywords": [_STR],
+        **{f"require_{k}": _BOOL for k in ("description", "load", "breaker", "conductor_size")},
+    },
+    "tables": {
+        "conductor_ampacity": {"values": {"*": {"*": {"*": _NUM}}}},
+        "ambient_temp_correction": {"values": {"*": [_ROW]}},
+        "conductor_count_correction": {"values": [_ROW]},
+        "continuous_load": {"max_fraction_of_breaker": _NUM},
+        "standard_breaker_ratings": {"values_a": [_NUM]},
+        "allow_next_standard_size": {"enabled": _BOOL},
+        "bonding_conductor_size": {
+            "values": [{"max_ocpd_a": _NUM, "copper_size": _STR, "aluminum_size": _STR}]
+        },
+        "conductor_size_order": {"values": [_STR]},
+        "voltage_drop": {
+            "method": _STR,
+            "current_basis": _STR,
+            "show_passing": _BOOL,
+            **{k: _NUM for k in ("branch_max_pct", "feeder_max_pct", "total_max_pct")},
+            "k_factor": {
+                "constant_by_material": {"*": _NUM},
+                "area_by_size": {"*": _NUM},
+                "phase_multiplier": _VD_PHASE,
+            },
+            "impedance": {
+                "power_factor": _NUM,
+                "phase_multiplier": _VD_PHASE,
+                "per_size": {"*": {"*": {"r": _NUM, "x": _NUM}}},
+            },
+        },
+        "demand_factors": {
+            "by_load_type": {"*": [{"up_to_va": _NUM, "factor": _NUM}]},
+            **{
+                k: _NUM
+                for k in (
+                    "bus_loading_limit_fraction",
+                    "main_loading_limit_fraction",
+                    "supplied_vs_computed_tolerance_pct",
+                )
+            },
+        },
+        "phase_balance": {"max_deviation_pct": _NUM, "min_circuits_to_check": _NUM},
+        "phase_layout": {"three_phase_pattern": [_STR]},
+    },
+}
+
+
+_LEAF = {
+    _NUM: lambda x: isinstance(x, int | float) and not isinstance(x, bool),
+    _STR: lambda x: isinstance(x, str),
+    _BOOL: lambda x: isinstance(x, bool),
+    _SCALAR: lambda x: isinstance(x, str | int | float) and not isinstance(x, bool),
+}
+
+
+def _conform(node: Any, shape: Any, path: str, seen: set | None = None) -> None:
+    """Raise ConfigError where a leaf is not the type the rules read."""
+    seen = set() if seen is None else seen
+    if node is None or (id(node), id(shape)) in seen:  # a shared alias is checked once
+        return
+    seen.add((id(node), id(shape)))
+    if isinstance(shape, str):
+        ok, want = _LEAF[shape](node), shape
+        if isinstance(node, float) and not math.isfinite(node):
+            ok = False
+        if isinstance(node, int) and abs(node) > MAX_INT:
+            ok = False
+    elif isinstance(shape, dict):
+        ok, want = isinstance(node, dict), "a mapping"
+    else:
+        ok, want = isinstance(node, list), "a list"
+        if isinstance(shape, tuple) and ok and len(node) != len(shape):
+            ok = False
+    if not ok:
+        raise ConfigError(f"cec_tables.yaml: {path} must be {want}")
+    if isinstance(shape, dict):
+        for k, v in node.items():
+            if sub := shape.get(k, shape.get("*")):
+                _conform(v, sub, f"{path}.{k}", seen)
+    elif not isinstance(shape, str):
+        for i, v in enumerate(node):
+            _conform(v, shape[i] if isinstance(shape, tuple) else shape[0], f"{path}[{i}]", seen)
 
 
 def _check_cec(cec: dict[str, Any]) -> None:
@@ -65,6 +165,12 @@ def _check_cec(cec: dict[str, Any]) -> None:
     comp = cec.get("completeness")
     if not isinstance(comp, dict):
         raise ConfigError("cec_tables.yaml: completeness must be a mapping")
+    for key in ("code_edition", "config_version"):
+        if not isinstance(cec.get(key), str):
+            raise ConfigError(f"cec_tables.yaml: {key} must be a string")
+    if not all(isinstance(v, str) for v in (cec.get("rule_refs") or {}).values()):
+        raise ConfigError("cec_tables.yaml: every rule_refs value must be a string")
+    _conform(cec, _SHAPE, "cec_tables.yaml")
     sev = str(comp.get("severity")).upper()
     if sev not in Severity.__members__ or sev == Severity.VIOLATION:
         raise ConfigError(
@@ -90,9 +196,11 @@ def _check_ai(ai: dict[str, Any]) -> None:
     for name in sorted(set(models) | role_names):
         if name.startswith(_RF_DETR) and name[len(_RF_DETR) :] not in RF_DETR_SIZES:
             raise ConfigError(f"ai.yaml: {name} is not an allowed RF-DETR size")
+    tier = ai.get("tier")
+    if not isinstance(tier, str):
+        raise ConfigError("ai.yaml: tier must be a string")
     if ai.get("enabled") is not True:
         return
-    tier = ai.get("tier")
     for role, by_tier in roles.items():
         for name in by_tier.get(tier) or []:
             if not (models.get(name) or {}).get("weights_sha256"):
