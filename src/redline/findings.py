@@ -60,7 +60,8 @@ def _bad_part(n: str, v: Value) -> str:
         return f"{n} (missing)"
     if v.value is None and v.raw:
         return f'{n} shown as "{v.raw}" (not parsed, at {v.source.locator})'
-    return f"{n} ({v.confidence.name}, at {v.source.locator})"
+    note = f", {v.source.note}" if v.source.note else ""
+    return f"{n} ({v.confidence.name}{note}, at {v.source.locator})"
 
 
 def input_gate(

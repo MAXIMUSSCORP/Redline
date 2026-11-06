@@ -78,3 +78,11 @@ def test_input_gate_shows_raw_for_failed_parse(val):
     f = input_gate("r", "ref", "DP-1 ckt 3", None, {"load_va": bad, "x": Value(None, None)}, "fix")
     assert 'load_va shown as "TBD" (not parsed, at row 4 load_va)' in f.message
     assert "HIGH" not in f.message and "x (missing)" in f.message
+
+
+def test_input_gate_prints_source_note():
+    from redline.findings import input_gate
+
+    src = Source("t.csv", "row 4 length_m", Method.CSV, Confidence.LOW, "negative quantity")
+    f = input_gate("r", "ref", "LP-1 ckt 7", None, {"length_m": Value(-3, src)}, "fix")
+    assert "length_m (LOW, negative quantity, at row 4 length_m)" in f.message

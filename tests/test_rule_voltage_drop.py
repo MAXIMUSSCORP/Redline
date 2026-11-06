@@ -26,7 +26,7 @@ def _cfg(cfg, cfg_set, show_passing=False):
 def _run(project, cfg):
     """Findings without the per-panel note that a panel's own feed is not shown."""
     out = engine.run(project, cfg, [SPEC]).findings
-    return tuple(f for f in out if "feed source not shown" not in f.message)
+    return tuple(f for f in out if "Supply above" not in f.message)
 
 
 def _circuit(val, length, **over):
@@ -163,7 +163,7 @@ def test_rule_voltage_drop_total_unknown_source_panel_not_checked(test_cfg, cfg_
 def test_rule_voltage_drop_total_missing_fed_from_not_checked(test_cfg, cfg_set, val):
     (f,) = _raw(_project(val), _cfg(test_cfg, cfg_set))
     assert f.severity.value == "NOT_CHECKED"
-    assert "LP-1" in f.message and "feed source not shown" in f.message
+    assert "LP-1" in f.message and "Supply above LP-1 is not shown" in f.message
 
 
 def test_rule_voltage_drop_total_cites_feeder_inputs(test_cfg, cfg_set, val):
@@ -177,7 +177,7 @@ def test_rule_voltage_drop_total_within_limit_open_chain_not_checked(test_cfg, c
     cfg = cfg_set(cfg, (*VD, "total_max_pct"), 50)
     out = _raw(_chain_project(val), cfg)
     note = [f for f in out if f.severity.value == "NOT_CHECKED"]
-    assert len(note) == 1 and "feed source not shown for MDP" in note[0].message
+    assert len(note) == 1 and "Supply above MDP is not shown" in note[0].message
     assert not any("total voltage drop" in f.message and f.severity.value == "INFO" for f in out)
 
 
@@ -186,3 +186,20 @@ def test_rule_voltage_drop_total_over_limit_open_chain_violation(test_cfg, cfg_s
     (v,) = [f for f in out if f.severity.value == "VIOLATION"]
     assert "at least 3.00%" in v.message
     assert any(f.severity.value == "NOT_CHECKED" for f in out)
+
+
+def test_rule_voltage_drop_non_finite_result_needs_review(test_cfg, cfg_set, val):
+    (f,) = _run(_project(val, 1e308), _cfg(test_cfg, cfg_set))
+    assert f.severity.value == "NEEDS_REVIEW"
+    assert "could not be computed" in f.message and "LP-1 ckt 7" in f.message
+
+
+def test_rule_voltage_drop_open_chain_wording(test_cfg, cfg_set, val):
+    cfg = _cfg(test_cfg, cfg_set)
+    (f,) = [f for f in _raw(_chain_project(val), cfg) if f.severity.value == "NOT_CHECKED"]
+    assert "Supply above MDP is not shown" in f.message and "lower bound" in f.message
+    assert "Broken link" not in f.message and "above MDP" in f.suggested_fix
+    project = _chain_project(val)
+    project.panels = [project.panels[0]]
+    (g,) = _run(project, cfg)
+    assert "Broken link" in g.message and "Show the missing link" in g.suggested_fix

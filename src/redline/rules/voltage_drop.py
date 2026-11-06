@@ -78,6 +78,10 @@ def _unit(
     if missing:
         msg = f"{name}: not checked. Table entry missing: {', '.join(missing)}."
         return None, Finding(ID, Severity.NEEDS_REVIEW, msg, ref, src, inputs_used(req), TABLE_FIX)
+    if not math.isfinite(pct):
+        msg = f"{name}: not checked. Voltage drop could not be computed."
+        fix = "Reviewer to check this unit by hand."
+        return None, Finding(ID, Severity.NEEDS_REVIEW, msg, ref, src, inputs_used(req), fix)
     return pct, None
 
 
@@ -112,31 +116,35 @@ def _judge(
 
 def _chain(
     project: Project, panel: Panel, drops: dict[str, float | None]
-) -> tuple[float | None, list[Feeder], str]:
-    """Feeder drops summed up the fed_from chain: (percent, feeders used, broken link)."""
+) -> tuple[float | None, list[Feeder], str, str]:
+    """Feeder drops summed up the fed_from chain.
+
+    Returns (percent, feeders used, why it stopped, top panel). The top panel is set only
+    when the chain ends cleanly where no feed source is shown, not at a real break.
+    """
     total, used, cur, seen = 0.0, [], panel, set()
     while cur.fed_from.value:
         if cur.name in seen:
-            return None, used, f"{label(cur)} feeds itself"
+            return None, used, f"{label(cur)} feeds itself", ""
         seen.add(cur.name)
         if not cur.fed_from.usable:
-            return None, used, f"the feed source of {label(cur)} is not usable"
+            return None, used, f"the feed source of {label(cur)} is not usable", ""
         feeder = next((f for f in project.feeders if f.to_panel.value == cur.name), None)
         if feeder is None:
-            return None, used, f"no feeder shown into {label(cur)}"
+            return None, used, f"no feeder shown into {label(cur)}", ""
         if not feeder.to_panel.usable:
-            return None, used, f"{label(feeder)} feeder to_panel is LOW"
+            return None, used, f"{label(feeder)} feeder to_panel is LOW", ""
         if drops.get(feeder.id) is None:
-            return None, used, f"{label(feeder)} voltage drop was not computed"
+            return None, used, f"{label(feeder)} voltage drop was not computed", ""
         total += drops[feeder.id]
         used.append(feeder)
         src = cur.fed_from.value
         cur = next((q for q in project.panels if q.name == src), None)
         if cur is None:
-            return None, used, f"source panel {src} not in project"
+            return None, used, f"source panel {src} not in project", ""
     # The chain ends where no feed source is shown. The drops only add, so the partial sum
     # is a lower bound: over the limit it is still a violation, within it nothing is proven.
-    return (total if used else None), used, f"feed source not shown for {label(cur)}"
+    return (total if used else None), used, f"feed source not shown for {label(cur)}", cur.name
 
 
 def _req(
@@ -176,10 +184,18 @@ def check(project: Project, cfg: Config) -> list[Finding]:
         found = bad or _judge(cfg, ref, label(f), f.source, req, pct, "feeder_max_pct", "feeder")
         out += [found] if found else []
     for p in project.panels:
-        chain, used, why = _chain(project, p, drops)
+        chain, used, why, top = _chain(project, p, drops)
         if why and any(not c.is_spare for c in p.circuits):
-            msg = f"{label(p)}: total voltage drop not checked. Broken link: {why}."
-            fix = "Show the missing link or correct the feeder, then re-run."
+            if top:
+                lower = ", so the feeder part is a lower bound" if used else ""
+                msg = (
+                    f"{label(p)}: total voltage drop within the limit is not confirmed. "
+                    f"Supply above {top} is not shown{lower}."
+                )
+                fix = f"Reviewer to add the supply conductor drop above {top} by hand."
+            else:
+                msg = f"{label(p)}: total voltage drop not checked. Broken link: {why}."
+                fix = "Show the missing link or correct the feeder, then re-run."
             out.append(Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, (), fix))
         for c in p.circuits:
             if c.is_spare:

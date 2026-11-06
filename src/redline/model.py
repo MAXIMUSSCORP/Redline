@@ -195,7 +195,7 @@ def label(unit: Panel | Circuit | Feeder) -> str:
 
 def effective_voltage(c: Circuit, p: Panel) -> Value:
     # A voltage the circuit showed stays its own, even when it did not parse.
-    if c.voltage_v.value is not None or c.voltage_v.source is not None:
+    if c.voltage_v.value is not None or c.voltage_v.raw:
         return c.voltage_v
     # Panel voltage is line to line. Only a circuit of 2 or more poles sees it.
     if c.poles.usable and isinstance(c.poles.value, int | float) and c.poles.value >= 2:
@@ -220,7 +220,49 @@ def _dict(d: Any, what: str) -> dict:
 _SOURCE_KEYS = {f.name for f in fields(Source)}
 _VALUE_KEYS = {"value", "source", "raw"}
 # Numeric fields that may be negative. Every other number must be zero or more.
-_SIGNED = {"ambient_c", "insulation_temp_c", "x", "y"}
+_SIGNED = {"ambient_c", "x", "y"}
+# Numeric fields found from the dataclass types, so a new field is covered at once.
+_NUMERIC = {
+    f.name
+    for cls in (Panel, Circuit, Feeder, Device)
+    for f in fields(cls)
+    if f.type in ("Value[float]", "Value[int]")
+}
+# Ratings and divisors: zero is not a reading.
+_NONZERO = {
+    "breaker_a",
+    "ocpd_a",
+    "voltage_v",
+    "sets_in_parallel",
+    "bus_rating_a",
+    "main_breaker_a",
+}
+MAX_INT = 2**53
+
+
+def check_value(name: str, v: Value) -> Value:
+    """The one semantic check on a Value: wrong type raises, a bad reading becomes LOW.
+
+    The JSON loader calls it for every Value. M1 parsers must call it too.
+    """
+    val = v.value
+    why = ""
+    if name in _NUMERIC and val is not None:
+        if not isinstance(val, int | float):
+            raise TypeError(f"{name} must be a number")
+        if not math.isfinite(val):
+            why = "not a finite number"
+        elif val < 0 and name not in _SIGNED:
+            why = "negative quantity"
+        elif val == 0 and name in _NONZERO:
+            why = "zero"
+    elif name == "load_type" and val is not None and val not in LOAD_TYPES:
+        why = "not a known load type"
+    if not why or v.source is None:
+        return v
+    note = f"{v.source.note}; {why}" if v.source.note else why
+    low = replace(v.source, confidence=min(v.source.confidence, Confidence.LOW), note=note)
+    return replace(v, source=low)
 
 
 def _text(v: Any, what: str, required: bool = False) -> Any:
@@ -264,11 +306,7 @@ def _value(d: Any, name: str = "") -> Value:
         raise TypeError("value must not be true or false")
     src = d.get("source")
     out = Value(val, None if src is None else _source(src), _text(d.get("raw"), "value raw"))
-    if out.source is not None and name not in _SIGNED and isinstance(val, int | float) and val < 0:
-        # A negative quantity is not a reading. The input gate then names it.
-        low = replace(out.source, confidence=Confidence.LOW, note="negative quantity")
-        out = replace(out, source=low)
-    return out
+    return check_value(name, out)
 
 
 def _build(cls: type, d: Any, extra: tuple[str, ...] = ()) -> Any:
@@ -310,14 +348,23 @@ def project_from_dict(data: Any) -> Project:
     for pd in _list(data, "panels"):
         p = _build(Panel, {k: v for k, v in _dict(pd, "Panel").items() if k != "circuits"})
         p.circuits = [_build(Circuit, c) for c in _list(pd, "circuits")]
+        if bad := next((c.panel for c in p.circuits if c.panel != p.name), None):
+            raise ValueError(f"circuit names panel {bad} but sits under panel {p.name}")
         panels.append(p)
+    feeders = [_build(Feeder, f) for f in _list(data, "feeders")]
+    for kind, names in (
+        ("panel name", [p.name for p in panels]),
+        ("feeder id", [f.id for f in feeders]),
+    ):
+        if dup := next((n for n in names if names.count(n) > 1), None):
+            raise ValueError(f"repeated {kind}: {dup}")
     ri = data.get("run_info")
     return Project(
         name=data["name"],
         code_edition=data.get("code_edition", ""),
         inputs=list(_list(data, "inputs")),
         panels=panels,
-        feeders=[_build(Feeder, f) for f in _list(data, "feeders")],
+        feeders=feeders,
         devices=[_build(Device, x) for x in _list(data, "devices")],
         unparsed=[_build(Unparsed, u) for u in _list(data, "unparsed")],
         coverage=[CoverageEntry(**_dict(c, "coverage")) for c in _list(data, "coverage")],
