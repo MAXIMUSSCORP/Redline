@@ -34,7 +34,7 @@ def _circuit(val, length, **over):
         "length_m": val(length),
         "conductor_size": val("12 AWG"),
         "conductor_material": val("Cu"),
-        "poles": val(1),
+        "poles": val(2),
         "load_va": val(1000),
     }
     return Circuit(panel="LP-1", number="7", source=SRC, **{**fields, **over})
