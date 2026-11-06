@@ -19,7 +19,7 @@ class InputUsed:
     field: str
     value: str
     locator: str  # "config default" for config.default_value inputs
-    confidence: Confidence
+    confidence: Confidence | None
     model: str | None = None
 
 
@@ -43,10 +43,15 @@ def _locator(v: Value) -> str:
 def inputs_used(fields: Mapping[str, Value]) -> tuple[InputUsed, ...]:
     out = []
     for name, v in fields.items():
-        text = str(v.value) if v.value is not None else (v.raw or "")
-        out.append(
-            InputUsed(name, text, _locator(v), v.confidence, v.source.model if v.source else None)
-        )
+        model = v.source.model if v.source else None
+        if v.value is None and v.raw:
+            # No confidence word: a parse failure must not read as a good value.
+            shown = f'shown as "{v.raw}" (not parsed)'
+            out.append(InputUsed(name, shown, _locator(v), None, model))
+            continue
+        val = v.value
+        text = ", ".join(map(str, val)) if isinstance(val, tuple | list) else str(val)
+        out.append(InputUsed(name, "" if val is None else text, _locator(v), v.confidence, model))
     return tuple(out)
 
 
