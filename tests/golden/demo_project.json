@@ -1,0 +1,1324 @@
+{
+ "name": "Demo project (synthetic)",
+ "code_edition": "TEST EDITION, NOT CEC",
+ "inputs": [
+  "demo_panels.csv",
+  "demo_feeders.csv"
+ ],
+ "panels": [
+  {
+   "name": "DP-1",
+   "source": {
+    "file": "demo_panels.csv",
+    "locator": "panel DP-1",
+    "method": "csv",
+    "confidence": "HIGH"
+   },
+   "voltage_v": {
+    "value": 100,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "DP-1 voltage",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "phases": {
+    "value": 1,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "DP-1 phases",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "wires": {
+    "value": 2,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "DP-1 wires",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "bus_rating_a": {
+    "value": 100,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "DP-1 bus",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "main_breaker_a": {
+    "value": 100,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "DP-1 main",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "circuits": [
+    {
+     "panel": "DP-1",
+     "number": "1",
+     "source": {
+      "file": "demo_panels.csv",
+      "locator": "row 2",
+      "method": "csv",
+      "confidence": "HIGH"
+     },
+     "poles": {
+      "value": 1,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 poles",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "phases_used": {
+      "value": "A",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 phases_used",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "breaker_a": {
+      "value": 20,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 breaker_a",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_size": {
+      "value": "12 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 conductor_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_material": {
+      "value": "Cu",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 conductor_material",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "insulation_temp_c": {
+      "value": 75,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 insulation_temp_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductors_in_raceway": {
+      "value": 3,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 conductors_in_raceway",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "ambient_c": {
+      "value": 30,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 ambient_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "length_m": {
+      "value": 0.2,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 length_m",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_va": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 load_va",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_type": {
+      "value": "noncontinuous",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 load_type",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "description": {
+      "value": "Lighting",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 description",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "bonding_size": {
+      "value": "14 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     }
+    },
+    {
+     "panel": "DP-1",
+     "number": "2",
+     "source": {
+      "file": "demo_panels.csv",
+      "locator": "row 3",
+      "method": "csv",
+      "confidence": "HIGH"
+     },
+     "poles": {
+      "value": 1,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 poles",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "phases_used": {
+      "value": "A",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 phases_used",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "breaker_a": {
+      "value": 20,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 breaker_a",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_size": {
+      "value": "12 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 conductor_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_material": {
+      "value": "Cu",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 conductor_material",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "insulation_temp_c": {
+      "value": 75,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 insulation_temp_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductors_in_raceway": {
+      "value": 3,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 conductors_in_raceway",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "ambient_c": {
+      "value": 30,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 ambient_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "length_m": {
+      "value": 0.2,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 length_m",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_va": {
+      "value": 100,
+      "raw": "1OO",
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 load_va",
+       "method": "ocr",
+       "confidence": "LOW"
+      }
+     },
+     "load_type": {
+      "value": "noncontinuous",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 load_type",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "description": {
+      "value": "Receptacles",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 description",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "bonding_size": {
+      "value": "14 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     }
+    },
+    {
+     "panel": "DP-1",
+     "number": "3",
+     "source": {
+      "file": "demo_panels.csv",
+      "locator": "row 4",
+      "method": "csv",
+      "confidence": "HIGH"
+     },
+     "poles": {
+      "value": 1,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 poles",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "phases_used": {
+      "value": "A",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 phases_used",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "breaker_a": {
+      "value": 20,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 breaker_a",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_size": {
+      "value": "12 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 conductor_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_material": {
+      "value": "Cu",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 conductor_material",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "insulation_temp_c": {
+      "value": 75,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 insulation_temp_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductors_in_raceway": {
+      "value": 3,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 conductors_in_raceway",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "ambient_c": {
+      "value": 30,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 ambient_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "length_m": {
+      "value": 0.2,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 length_m",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_va": {
+      "value": null,
+      "raw": "TBD",
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 load_va",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_type": {
+      "value": "unknown",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 load_type",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "description": {
+      "value": "",
+      "raw": "",
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 description",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "bonding_size": {
+      "value": "14 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     }
+    },
+    {
+     "panel": "DP-1",
+     "number": "4",
+     "source": {
+      "file": "demo_panels.csv",
+      "locator": "row 5",
+      "method": "csv",
+      "confidence": "HIGH"
+     },
+     "is_spare": true
+    }
+   ]
+  },
+  {
+   "name": "LP-1",
+   "source": {
+    "file": "demo_panels.csv",
+    "locator": "panel LP-1",
+    "method": "csv",
+    "confidence": "HIGH"
+   },
+   "voltage_v": {
+    "value": 100,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "LP-1 voltage",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "phases": {
+    "value": 3,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "LP-1 phases",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "wires": {
+    "value": 4,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "LP-1 wires",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "bus_rating_a": {
+    "value": 100,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "LP-1 bus",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "main_breaker_a": {
+    "value": 100,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "LP-1 main",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "fed_from": {
+    "value": "DP-1",
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "LP-1 fed from",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "demand_va_supplied": {
+    "value": 20000,
+    "raw": null,
+    "source": {
+     "file": "demo_panels.csv",
+     "locator": "LP-1 demand",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "circuits": [
+    {
+     "panel": "LP-1",
+     "number": "1",
+     "source": {
+      "file": "demo_panels.csv",
+      "locator": "row 2",
+      "method": "csv",
+      "confidence": "HIGH"
+     },
+     "poles": {
+      "value": 1,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 poles",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "phases_used": {
+      "value": "A",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 phases_used",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "breaker_a": {
+      "value": 30,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 breaker_a",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_size": {
+      "value": "12 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 conductor_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_material": {
+      "value": "Cu",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 conductor_material",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "insulation_temp_c": {
+      "value": 75,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 insulation_temp_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductors_in_raceway": {
+      "value": 3,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 conductors_in_raceway",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "ambient_c": {
+      "value": 30,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 ambient_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "length_m": {
+      "value": 0.2,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 length_m",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_va": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 load_va",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_type": {
+      "value": "noncontinuous",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 load_type",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "description": {
+      "value": "Corridor lighting",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 description",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "bonding_size": {
+      "value": "12 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     }
+    },
+    {
+     "panel": "LP-1",
+     "number": "2",
+     "source": {
+      "file": "demo_panels.csv",
+      "locator": "row 3",
+      "method": "csv",
+      "confidence": "HIGH"
+     },
+     "poles": {
+      "value": 1,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 poles",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "phases_used": {
+      "value": "B",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 phases_used",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "breaker_a": {
+      "value": 20,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 breaker_a",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_size": {
+      "value": "12 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 conductor_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_material": {
+      "value": "Cu",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 conductor_material",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "insulation_temp_c": {
+      "value": 75,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 insulation_temp_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductors_in_raceway": {
+      "value": 3,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 conductors_in_raceway",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "ambient_c": {
+      "value": 30,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 ambient_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "length_m": {
+      "value": 0.02,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 length_m",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_va": {
+      "value": 1500,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 load_va",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_type": {
+      "value": "continuous",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 load_type",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "description": {
+      "value": "Signage",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 description",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "bonding_size": {
+      "value": "14 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     }
+    },
+    {
+     "panel": "LP-1",
+     "number": "3",
+     "source": {
+      "file": "demo_panels.csv",
+      "locator": "row 4",
+      "method": "csv",
+      "confidence": "HIGH"
+     },
+     "poles": {
+      "value": 1,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 poles",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "phases_used": {
+      "value": "C",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 phases_used",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "breaker_a": {
+      "value": 20,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 breaker_a",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_size": {
+      "value": "12 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 conductor_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_material": {
+      "value": "Cu",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 conductor_material",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "insulation_temp_c": {
+      "value": 75,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 insulation_temp_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductors_in_raceway": {
+      "value": 3,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 conductors_in_raceway",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "ambient_c": {
+      "value": 30,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 ambient_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "length_m": {
+      "value": 0.6,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 length_m",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_va": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 load_va",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_type": {
+      "value": "noncontinuous",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 load_type",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "description": {
+      "value": "Far receptacles",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 description",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "bonding_size": {
+      "value": "14 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     }
+    },
+    {
+     "panel": "LP-1",
+     "number": "4",
+     "source": {
+      "file": "demo_panels.csv",
+      "locator": "row 5",
+      "method": "csv",
+      "confidence": "HIGH"
+     },
+     "poles": {
+      "value": 1,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 poles",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "phases_used": {
+      "value": "A",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 phases_used",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "breaker_a": {
+      "value": 40,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 breaker_a",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_size": {
+      "value": "10 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 conductor_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductor_material": {
+      "value": "Cu",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 conductor_material",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "insulation_temp_c": {
+      "value": 75,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 insulation_temp_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "conductors_in_raceway": {
+      "value": 3,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 conductors_in_raceway",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "ambient_c": {
+      "value": 30,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 ambient_c",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "length_m": {
+      "value": 0.2,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 length_m",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_va": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 load_va",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "load_type": {
+      "value": "noncontinuous",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 load_type",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "description": {
+      "value": "Heater",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 description",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "bonding_size": {
+      "value": "14 AWG",
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "feeders": [
+  {
+   "id": "F-1",
+   "source": {
+    "file": "demo_feeders.csv",
+    "locator": "row 2",
+    "method": "csv",
+    "confidence": "HIGH"
+   },
+   "from_panel": {
+    "value": "DP-1",
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 from",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "to_panel": {
+    "value": "LP-1",
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 to",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "ocpd_a": {
+    "value": 100,
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 ocpd",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "conductor_size": {
+    "value": "6 AWG",
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 size",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "conductor_material": {
+    "value": "Cu",
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 material",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "insulation_temp_c": {
+    "value": 75,
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 temp",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "sets_in_parallel": {
+    "value": 1,
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 sets",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "conductors_in_raceway": {
+    "value": 3,
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 count",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "ambient_c": {
+    "value": 30,
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 ambient",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "length_m": {
+    "value": 0.04,
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 length",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "voltage_v": {
+    "value": 100,
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 voltage",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "phases": {
+    "value": 3,
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 phases",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "bonding_size": {
+    "value": "10 AWG",
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 bonding",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   },
+   "load_va": {
+    "value": 10000,
+    "raw": null,
+    "source": {
+     "file": "demo_feeders.csv",
+     "locator": "row 2 load",
+     "method": "csv",
+     "confidence": "HIGH"
+    }
+   }
+  }
+ ],
+ "devices": [],
+ "unparsed": [
+  {
+   "kind": "column",
+   "raw": "Notes",
+   "reason": "no mapping for this column",
+   "source": {
+    "file": "demo_panels.csv",
+    "locator": "header row",
+    "method": "csv",
+    "confidence": "HIGH"
+   }
+  }
+ ],
+ "coverage": [
+  {
+   "file": "demo_panels.csv",
+   "unit": "panels DP-1, LP-1",
+   "what_read": "8 circuits and 2 panel headers",
+   "method": "csv",
+   "confidence_summary": "HIGH except 1 LOW value"
+  },
+  {
+   "file": "demo_feeders.csv",
+   "unit": "feeder F-1",
+   "what_read": "1 feeder row",
+   "method": "csv",
+   "confidence_summary": "HIGH"
+  }
+ ]
+}
