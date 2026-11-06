@@ -56,7 +56,12 @@ def _check_cec(cec: dict[str, Any]) -> None:
             raise ConfigError(f"cec_tables.yaml: table {name} needs a verified true or false")
         if not isinstance(t.get("source"), str):
             raise ConfigError(f"cec_tables.yaml: table {name} needs a source string")
-    sev = (cec.get("completeness") or {}).get("severity")
+    if not isinstance(cec.get("code_edition_verified"), bool):
+        raise ConfigError("cec_tables.yaml: code_edition_verified needs true or false")
+    comp = cec.get("completeness") or {}
+    if not isinstance(comp, dict):
+        raise ConfigError("cec_tables.yaml: completeness must be a mapping")
+    sev = comp.get("severity")
     if str(sev).upper() == Severity.VIOLATION:
         raise ConfigError("cec_tables.yaml: completeness severity cannot be VIOLATION")
 
@@ -64,6 +69,17 @@ def _check_cec(cec: dict[str, Any]) -> None:
 def _check_ai(ai: dict[str, Any]) -> None:
     models = ai.get("models") or {}
     roles = ai.get("roles") or {}
+    bad = "ai.yaml: models and roles must be mappings of the expected shape"
+    if not isinstance(models, dict) or not isinstance(roles, dict):
+        raise ConfigError(bad)
+    if not all(isinstance(k, str) and isinstance(v, dict) for k, v in models.items()):
+        raise ConfigError(bad)
+    for r in roles.values():
+        if not isinstance(r, dict) or not all(
+            isinstance(names, list) and all(isinstance(n, str) for n in names)
+            for names in r.values()
+        ):
+            raise ConfigError(bad)
     role_names = {n for r in roles.values() for names in r.values() for n in names}
     for name in sorted(set(models) | role_names):
         if name.startswith(_RF_DETR) and name[len(_RF_DETR) :] not in RF_DETR_SIZES:
@@ -72,7 +88,7 @@ def _check_ai(ai: dict[str, Any]) -> None:
         return
     tier = ai.get("tier")
     for role, by_tier in roles.items():
-        for name in by_tier.get(tier, []):
+        for name in by_tier.get(tier) or []:
             if not (models.get(name) or {}).get("weights_sha256"):
                 raise ConfigError(
                     f"ai.yaml: AI cannot be enabled, {name} (role {role}) has no weights hash"
@@ -110,13 +126,36 @@ def _has_null(node: Any) -> bool:
     return False
 
 
+def _has_bad_null(name: str, t: dict) -> bool:
+    if name == "demand_factors":
+        t = dict(t)
+        tiers = t.pop("by_load_type", None)
+        if _has_null(t):
+            return True
+        if not isinstance(tiers, dict):
+            return _has_null(tiers)
+        for tier in tiers.values():
+            if not isinstance(tier, list):
+                return _has_null(tier)
+            for i, row in enumerate(tier):
+                if isinstance(row, dict) and i == len(tier) - 1:
+                    row = {k: v for k, v in row.items() if k != "up_to_va"}
+                if _has_null(row):
+                    return True
+        return False
+    if name == "voltage_drop":
+        method = t.get("method")
+        t = {k: v for k, v in t.items() if k not in ("k_factor", "impedance") or k == method}
+    return _has_null(t)
+
+
 def table_verified(cfg: Config, name: str) -> bool:
     t = cfg.cec["tables"].get(name)
     return (
         isinstance(t, dict)
         and t.get("verified") is True
         and bool(str(t.get("source") or "").strip())
-        and not _has_null(t)
+        and not _has_bad_null(name, t)
     )
 
 

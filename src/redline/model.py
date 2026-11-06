@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field, fields
 from enum import IntEnum, StrEnum
@@ -55,6 +56,8 @@ class Value[T]:
 
     @property
     def usable(self) -> bool:
+        if isinstance(self.value, float) and not math.isfinite(self.value):
+            return False
         return self.confidence >= Confidence.MEDIUM and self.value is not None
 
     @staticmethod
@@ -191,7 +194,12 @@ def label(unit: Panel | Circuit | Feeder) -> str:
 
 
 def effective_voltage(c: Circuit, p: Panel) -> Value:
-    return c.voltage_v if c.voltage_v.value is not None else p.voltage_v
+    if c.voltage_v.value is not None:
+        return c.voltage_v
+    # Panel voltage is line to line. Only a circuit of 2 or more poles sees it.
+    if c.poles.usable and isinstance(c.poles.value, int | float) and c.poles.value >= 2:
+        return p.voltage_v
+    return Value.missing()
 
 
 def is_mlo(p: Panel) -> bool:
@@ -199,12 +207,26 @@ def is_mlo(p: Panel) -> bool:
     return m.value is None and m.source is not None and m.source.note == "MLO"
 
 
-def _source(d: dict) -> Source:
+_AI_METHODS = (Method.OCR, Method.VLM, Method.DETECTOR)
+
+
+def _dict(d: Any, what: str) -> dict:
+    if not isinstance(d, dict):
+        raise TypeError(f"{what} must be an object")
+    return d
+
+
+def _source(d: Any) -> Source:
+    d = _dict(d, "source")
+    method = Method(d["method"])
+    conf = Confidence[d["confidence"]]
+    if method in _AI_METHODS:
+        conf = min(conf, Confidence.LOW)
     return Source(
         file=d["file"],
         locator=d["locator"],
-        method=Method(d["method"]),
-        confidence=Confidence[d["confidence"]],
+        method=method,
+        confidence=conf,
         note=d.get("note", ""),
         crop_path=d.get("crop_path"),
         model=d.get("model"),
@@ -212,14 +234,19 @@ def _source(d: dict) -> Source:
     )
 
 
-def _value(d: dict | None) -> Value:
+def _value(d: Any) -> Value:
     if not d:
         return Value.missing()
+    d = _dict(d, "value")
     src = d.get("source")
     return Value(d.get("value"), _source(src) if src else None, d.get("raw"))
 
 
-def _build(cls: type, d: dict) -> Any:
+def _build(cls: type, d: Any, extra: tuple[str, ...] = ()) -> Any:
+    d = _dict(d, cls.__name__)
+    names = {f.name for f in fields(cls)}
+    if unknown := sorted(set(d) - names - set(extra)):
+        raise ValueError(f"unknown key in {cls.__name__}: {', '.join(unknown)}")
     kw: dict[str, Any] = {}
     for f in fields(cls):
         if f.name not in d:
@@ -234,21 +261,34 @@ def _build(cls: type, d: dict) -> Any:
     return cls(**kw)
 
 
-def project_from_dict(data: dict) -> Project:
+def _list(d: dict, key: str) -> list:
+    v = d.get(key, [])
+    if not isinstance(v, list):
+        raise TypeError(f"{key} must be a list")
+    return v
+
+
+_PROJECT_KEYS = {f.name for f in fields(Project)}
+
+
+def project_from_dict(data: Any) -> Project:
+    data = _dict(data, "project")
+    if unknown := sorted(set(data) - _PROJECT_KEYS):
+        raise ValueError(f"unknown key in project: {', '.join(unknown)}")
     panels = []
-    for pd in data.get("panels", []):
-        p = _build(Panel, {k: v for k, v in pd.items() if k != "circuits"})
-        p.circuits = [_build(Circuit, c) for c in pd.get("circuits", [])]
+    for pd in _list(data, "panels"):
+        p = _build(Panel, {k: v for k, v in _dict(pd, "Panel").items() if k != "circuits"})
+        p.circuits = [_build(Circuit, c) for c in _list(pd, "circuits")]
         panels.append(p)
     ri = data.get("run_info")
     return Project(
         name=data["name"],
         code_edition=data.get("code_edition", ""),
-        inputs=list(data.get("inputs", [])),
+        inputs=list(_list(data, "inputs")),
         panels=panels,
-        feeders=[_build(Feeder, f) for f in data.get("feeders", [])],
-        devices=[_build(Device, x) for x in data.get("devices", [])],
-        unparsed=[_build(Unparsed, u) for u in data.get("unparsed", [])],
-        coverage=[CoverageEntry(**c) for c in data.get("coverage", [])],
-        run_info=RunInfo(**ri) if ri else None,
+        feeders=[_build(Feeder, f) for f in _list(data, "feeders")],
+        devices=[_build(Device, x) for x in _list(data, "devices")],
+        unparsed=[_build(Unparsed, u) for u in _list(data, "unparsed")],
+        coverage=[CoverageEntry(**_dict(c, "coverage")) for c in _list(data, "coverage")],
+        run_info=RunInfo(**_dict(ri, "run_info")) if ri else None,
     )
