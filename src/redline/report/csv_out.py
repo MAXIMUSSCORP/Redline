@@ -29,7 +29,11 @@ def _safe(cell: object) -> str:
     # Spreadsheet formula injection. A lone "-" is a plain dash, not a formula.
     # Leading whitespace (incl. no-break space) is skipped when finding the trigger character.
     text = str(cell)
-    if text != "-" and (text[:1] in "=+-@\t\r" or text.lstrip()[:1] in ("=", "+", "-", "@")):
+    if (
+        text
+        and text != "-"
+        and (text[:1] in "=+-@\t\r" or text.lstrip()[:1] in ("=", "+", "-", "@"))
+    ):
         return "'" + text
     return text
 
