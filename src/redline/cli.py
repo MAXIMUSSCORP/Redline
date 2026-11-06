@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
 from redline import __version__
-from redline.config import ConfigError, load_config
+from redline.config import CONFIG_FILES, ConfigError, load_config
 from redline.engine import run
-from redline.model import RunInfo, project_from_dict
+from redline.model import MAX_INT, RunInfo, project_from_dict
 from redline.registry import RULES
 from redline.report.csv_out import write_findings_csv
 from redline.report.html import render_html
@@ -44,7 +45,7 @@ def _finite(text: str) -> float:
 
 def _int(text: str) -> int:
     n = int(text)
-    if abs(n) > 2**53:
+    if abs(n) > MAX_INT:
         raise ValueError(f"{text[:20]} is too large a number")
     return n
 
@@ -56,6 +57,10 @@ def _no_repeat(pairs: list[tuple[str, object]]) -> dict:
             raise ValueError(f"repeated key {k}")
         out[k] = v
     return out
+
+
+def _same(a: Path, b: Path) -> bool:
+    return a.resolve() == b.resolve() or (a.exists() and b.exists() and os.path.samefile(a, b))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -87,16 +92,25 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out)
     try:
         # Windows drops trailing dots and spaces, and ':' opens a stream of the same file.
-        alias = ":" in out.name or out.name.rstrip(" .").lower() == "findings.csv"
-        if alias or out.is_dir() or out.resolve() == (out.parent / "findings.csv").resolve():
+        # A '~' may be an 8.3 short name of another file.
+        alias = ":" in out.name or "~" in out.name
+        alias = alias or out.name.rstrip(" .").lower() == "findings.csv"
+        inputs = [Path(args.demo_project), *(cfg.dir / f for f in CONFIG_FILES)]
+        if (
+            alias
+            or out.is_dir()
+            or any(_same(out, p) for p in (out.parent / "findings.csv", *inputs))
+        ):
             return _fail(
-                f"--out {args.out} must be a new report file, not a directory or findings.csv."
+                f"--out {args.out} must be a new report file, not a directory, an input "
+                "or findings.csv."
             )
         project.run_info = RunInfo(tool_version=__version__, config_hashes=dict(cfg.hashes))
         result = run(project, cfg, RULES, args.skip_rule)
         html = render_html(project, result, cfg)
+        html.encode("utf-8")
         out.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
+    except (OSError, UnicodeError) as e:
         return _fail(f"cannot write {args.out}: {type(e).__name__}.")
     # The CSV goes first, so a report is never left without its findings.
     for path, write in (
@@ -105,7 +119,11 @@ def main(argv: list[str] | None = None) -> int:
     ):
         try:
             write(path)
-        except OSError as e:
+            if path != out and out.exists() and os.path.samefile(path, out):
+                raise OSError("same file as the CSV")
+        except (OSError, UnicodeError) as e:
+            if isinstance(e, UnicodeError):
+                path.unlink(missing_ok=True)
             return _fail(f"cannot write {path}: {type(e).__name__}.")
     return 0
 

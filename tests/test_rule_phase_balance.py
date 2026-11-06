@@ -103,3 +103,17 @@ def test_rule_phase_balance_poles_phases_mismatch_says_why(val, test_cfg):
     (f,) = _run(panel, test_cfg)
     assert f.severity == Severity.NEEDS_REVIEW
     assert "phases shown disagree with poles" in f.message
+
+
+def test_rule_phase_balance_bad_letter_says_why(val, test_cfg):
+    panel = _panel(val, [1000, 1000, 1000])
+    panel.circuits[1].phases_used = val("X")
+    (f,) = _run(panel, test_cfg)
+    assert f.severity == Severity.NEEDS_REVIEW
+    assert "phase letters not A, B or C" in f.message and "LP-1 ckt 2 phase" in f.message
+
+
+def test_rule_phase_balance_non_finite_result_needs_review(val, test_cfg):
+    (f,) = _run(_panel(val, [1e308, 1e308, 1e308, 1e308, 1e308, 1e308]), test_cfg)
+    assert f.severity == Severity.NEEDS_REVIEW
+    assert "could not be computed" in f.message and "LP-1" in f.message
