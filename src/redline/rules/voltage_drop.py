@@ -91,6 +91,7 @@ def _judge(
     limit_key: str,
     what: str,
     extra: str = "",
+    at_least: bool = False,
 ) -> Finding | None:
     limit = _vd(cfg, limit_key)
     if limit is None:
@@ -102,7 +103,10 @@ def _judge(
         sev, rel, fix = Severity.INFO, "within", "No change needed from this rule."
     else:
         return None
-    msg = f"{name}: {what} voltage drop {pct:.2f}% is {rel} the {limit:g}% limit.{extra} {ref}"
+    floor = "at least " if at_least else ""
+    msg = (
+        f"{name}: {what} voltage drop {floor}{pct:.2f}% is {rel} the {limit:g}% limit.{extra} {ref}"
+    )
     return Finding(ID, sev, msg, ref, src, inputs_used(req), fix)
 
 
@@ -130,9 +134,9 @@ def _chain(
         cur = next((q for q in project.panels if q.name == src), None)
         if cur is None:
             return None, used, f"source panel {src} not in project"
-    if not used:
-        return None, used, f"feed source not shown for {label(panel)}"
-    return total, used, ""
+    # The chain ends where no feed source is shown. The drops only add, so the partial sum
+    # is a lower bound: over the limit it is still a violation, within it nothing is proven.
+    return (total if used else None), used, f"feed source not shown for {label(cur)}"
 
 
 def _req(
@@ -190,6 +194,8 @@ def check(project: Project, cfg: Config) -> list[Finding]:
             found = [_judge(cfg, ref, label(c), c.source, req, pct, "branch_max_pct", "branch")]
             if chain is not None:
                 extra = f" Branch part {pct:.2f}%, feeder part {chain:.2f}%."
+                if why:
+                    extra += " Feeder part is partial: the chain stops at a panel with no feed source shown."
                 fused = {f"{label(fd)} {k}": v for fd in used for k, v in freqs[fd.id].items()}
                 found.append(
                     _judge(
@@ -202,8 +208,12 @@ def check(project: Project, cfg: Config) -> list[Finding]:
                         "total_max_pct",
                         "total",
                         extra,
+                        at_least=bool(why),
                     )
                 )
+            # An open chain proves nothing when within the limit. The panel note says so.
+            if why and len(found) == 2 and found[1] and found[1].severity == Severity.INFO:
+                found.pop()
             out += [f for f in found if f]
     return out
 

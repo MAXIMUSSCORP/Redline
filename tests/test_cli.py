@@ -128,3 +128,62 @@ def test_out_is_directory_exits_2(tmp_path, capsys):
     d.mkdir()
     rc, err = _run(tmp_path, Path(DEMO).read_text(encoding="utf-8"), capsys, d)
     assert rc == 2 and "Traceback" not in err and not (tmp_path / "findings.csv").exists()
+
+
+def _demo_edit(tmp_path, capsys, edit):
+    rc, err = _run(tmp_path, _demo_text(edit), capsys)
+    assert "Traceback" not in err
+    return rc, err
+
+
+def test_demo_project_source_text_fields_must_be_str(tmp_path, capsys):
+    def edit(d):
+        d["panels"][0]["voltage_v"]["source"]["model"] = ["x"]
+
+    assert _demo_edit(tmp_path, capsys, edit)[0] == 2
+
+
+def test_demo_project_unknown_value_or_source_key_exits_2(tmp_path, capsys):
+    rc, err = _demo_edit(tmp_path, capsys, lambda d: d["panels"][0]["voltage_v"].update(unit="V"))
+    assert rc == 2 and "unit" in err
+    rc, err = _demo_edit(
+        tmp_path, capsys, lambda d: d["panels"][0]["voltage_v"]["source"].update(page=3)
+    )
+    assert rc == 2 and "page" in err
+
+
+@pytest.mark.parametrize("bad", [0, [], "x", 5])
+def test_demo_project_value_not_object_exits_2(tmp_path, capsys, bad):
+    rc, _ = _demo_edit(tmp_path, capsys, lambda d: d["panels"][0].update(voltage_v=bad))
+    assert rc == 2
+
+
+def test_value_bool_number_exits_2(tmp_path, capsys):
+    def edit(d):
+        d["panels"][0]["circuits"][0]["breaker_a"]["value"] = True
+
+    assert _demo_edit(tmp_path, capsys, edit)[0] == 2
+
+
+@pytest.mark.parametrize("bad", ["no", 0, None])
+def test_is_spare_must_be_bool_exits_2(tmp_path, capsys, bad):
+    rc, _ = _demo_edit(
+        tmp_path, capsys, lambda d: d["panels"][0]["circuits"][0].update(is_spare=bad)
+    )
+    assert rc == 2
+
+
+def test_demo_project_overflow_float_exits_2(tmp_path, capsys):
+    text = _demo_text(lambda d: d["panels"][0]["voltage_v"].update(value=1))
+    text = text.replace('"value": 1,', '"value": 1e999,', 1)
+    rc, err = _run(tmp_path, text, capsys)
+    assert rc == 2 and "Traceback" not in err
+
+
+def test_out_unwritable_exits_2(tmp_path, capsys):
+    blocker = tmp_path / "file.txt"
+    blocker.write_text("x", encoding="utf-8")
+    rc, err = _run(
+        tmp_path, Path(DEMO).read_text(encoding="utf-8"), capsys, blocker / "sub" / "r.html"
+    )
+    assert rc == 2 and "Traceback" not in err

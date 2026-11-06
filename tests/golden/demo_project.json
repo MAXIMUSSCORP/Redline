@@ -75,7 +75,7 @@
       "confidence": "HIGH"
      },
      "poles": {
-      "value": 2,
+      "value": 1,
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
@@ -195,11 +195,21 @@
       }
      },
      "bonding_size": {
-      "value": "14 AWG",
+      "value": "12 AWG",
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
        "locator": "row 2 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "voltage_v": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 voltage_v",
        "method": "csv",
        "confidence": "HIGH"
       }
@@ -215,7 +225,7 @@
       "confidence": "HIGH"
      },
      "poles": {
-      "value": 2,
+      "value": 1,
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
@@ -335,11 +345,21 @@
       }
      },
      "bonding_size": {
-      "value": "14 AWG",
+      "value": "12 AWG",
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
        "locator": "row 3 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "voltage_v": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 voltage_v",
        "method": "csv",
        "confidence": "HIGH"
       }
@@ -355,7 +375,7 @@
       "confidence": "HIGH"
      },
      "poles": {
-      "value": 2,
+      "value": 1,
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
@@ -475,11 +495,21 @@
       }
      },
      "bonding_size": {
-      "value": "14 AWG",
+      "value": "12 AWG",
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
        "locator": "row 4 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "voltage_v": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 voltage_v",
        "method": "csv",
        "confidence": "HIGH"
       }
@@ -587,7 +617,7 @@
       "confidence": "HIGH"
      },
      "poles": {
-      "value": 2,
+      "value": 1,
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
@@ -715,6 +745,16 @@
        "method": "csv",
        "confidence": "HIGH"
       }
+     },
+     "voltage_v": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 2 voltage_v",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
      }
     },
     {
@@ -727,7 +767,7 @@
       "confidence": "HIGH"
      },
      "poles": {
-      "value": 2,
+      "value": 1,
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
@@ -847,11 +887,21 @@
       }
      },
      "bonding_size": {
-      "value": "14 AWG",
+      "value": "12 AWG",
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
        "locator": "row 3 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "voltage_v": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 3 voltage_v",
        "method": "csv",
        "confidence": "HIGH"
       }
@@ -867,7 +917,7 @@
       "confidence": "HIGH"
      },
      "poles": {
-      "value": 2,
+      "value": 1,
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
@@ -987,11 +1037,21 @@
       }
      },
      "bonding_size": {
-      "value": "14 AWG",
+      "value": "12 AWG",
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
        "locator": "row 4 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "voltage_v": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 4 voltage_v",
        "method": "csv",
        "confidence": "HIGH"
       }
@@ -1007,7 +1067,7 @@
       "confidence": "HIGH"
      },
      "poles": {
-      "value": 2,
+      "value": 1,
       "raw": null,
       "source": {
        "file": "demo_panels.csv",
@@ -1132,6 +1192,16 @@
       "source": {
        "file": "demo_panels.csv",
        "locator": "row 5 bonding_size",
+       "method": "csv",
+       "confidence": "HIGH"
+      }
+     },
+     "voltage_v": {
+      "value": 100,
+      "raw": null,
+      "source": {
+       "file": "demo_panels.csv",
+       "locator": "row 5 voltage_v",
        "method": "csv",
        "confidence": "HIGH"
       }

@@ -171,3 +171,32 @@ def test_inputs_used_and_input_gate(val):
     assert "b (LOW, at row=4)" in f.message and "c (missing)" in f.message
     assert "a (" not in f.message
     assert f.suggested_fix == "fix" and f.rule_ref == "ref"
+
+
+def _one_circuit(**cells):
+    src = {"file": "t.csv", "locator": "r1", "method": "csv", "confidence": "HIGH"}
+    circuit = {"panel": "P", "number": "1", "source": src}
+    circuit.update({k: {"value": v, "source": src} for k, v in cells.items()})
+    panel = {"name": "P", "source": src, "circuits": [circuit]}
+    return project_from_dict({"name": "x", "panels": [panel]}).panels[0].circuits[0]
+
+
+def test_negative_quantity_not_usable():
+    c = _one_circuit(breaker_a=-20, load_va=-5, ambient_c=-10, length_m=3)
+    assert not c.breaker_a.usable and not c.load_va.usable
+    assert c.ambient_c.usable and c.length_m.usable
+    assert _one_circuit(breaker_a=0).breaker_a.usable
+
+
+def test_demo_project_model_set_capped_low():
+    src = {"file": "t.csv", "locator": "r1", "method": "csv", "confidence": "HIGH", "model": "m"}
+    p = {"name": "x", "panels": [{"name": "P", "source": src}]}
+    assert project_from_dict(p).panels[0].source.confidence == Confidence.LOW
+
+
+def test_effective_voltage_unparsed_own_voltage_not_replaced(val):
+    p = Panel("LP-1", _src(), voltage_v=val(208))
+    own = Value(None, _src(), "abc")
+    c = Circuit("LP-1", "1", _src(), poles=val(2), voltage_v=own)
+    assert effective_voltage(c, p) is own
+    assert effective_voltage(Circuit("LP-1", "2", _src(), poles=val(2)), p).value == 208
