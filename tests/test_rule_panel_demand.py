@@ -78,7 +78,7 @@ def test_rule_panel_demand_null_table_entry(val, test_cfg, cfg_set):
     assert f.severity == Severity.NEEDS_REVIEW and "Table entry missing" in f.message
 
 
-def test_rule_panel_demand_duplicate_label_low_input_gated(val, test_cfg):
+def test_rule_panel_demand_duplicate_label_low_load_gated(val, test_cfg):
     p = _panel(val, [4000, 4000])
     p.circuits[1].number = "1"
     p.circuits[0].load_va = val(4000, Confidence.LOW, locator="row 1 load")

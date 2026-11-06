@@ -70,7 +70,7 @@ def test_rule_phase_balance_single_phase_panel_not_checked(val, test_cfg):
     assert f.suggested_fix and "move" not in f.suggested_fix.lower()
 
 
-def test_rule_phase_balance_duplicate_label_low_input_gated(val, test_cfg):
+def test_rule_phase_balance_duplicate_label_low_load_gated(val, test_cfg):
     p = _panel(val, [1000, 1000, 1000])
     p.circuits[1].number = "1"
     p.circuits[0].load_va = val(1000, Confidence.LOW, locator="row 1 load")
