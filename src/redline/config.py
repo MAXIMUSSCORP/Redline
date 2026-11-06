@@ -56,6 +56,10 @@ def _check_cec(cec: dict[str, Any]) -> None:
             raise ConfigError(f"cec_tables.yaml: table {name} needs a verified true or false")
         if not isinstance(t.get("source"), str):
             raise ConfigError(f"cec_tables.yaml: table {name} needs a source string")
+        _has_bad_null(name, t)
+    for key in ("defaults", "rule_refs"):
+        if cec.get(key) is not None and not isinstance(cec[key], dict):
+            raise ConfigError(f"cec_tables.yaml: {key} must be a mapping")
     if not isinstance(cec.get("code_edition_verified"), bool):
         raise ConfigError("cec_tables.yaml: code_edition_verified needs true or false")
     comp = cec.get("completeness") or {}
@@ -116,13 +120,18 @@ def is_test_config(cfg: Config) -> bool:
     return any(t.get("source") == TEST_SOURCE_LABEL for t in cfg.cec["tables"].values())
 
 
-def _has_null(node: Any) -> bool:
+_MAX_DEPTH = 100
+
+
+def _has_null(node: Any, depth: int = 0) -> bool:
+    if depth > _MAX_DEPTH:
+        raise ConfigError("cec_tables.yaml: nested too deep, or a recursive anchor")
     if node is None:
         return True
     if isinstance(node, dict):
-        return any(_has_null(v) for v in node.values())
+        return any(_has_null(v, depth + 1) for v in node.values())
     if isinstance(node, list):
-        return any(_has_null(v) for v in node)
+        return any(_has_null(v, depth + 1) for v in node)
     return False
 
 
@@ -133,10 +142,10 @@ def _has_bad_null(name: str, t: dict) -> bool:
         if _has_null(t):
             return True
         if not isinstance(tiers, dict):
-            return _has_null(tiers)
+            return True
         for tier in tiers.values():
             if not isinstance(tier, list):
-                return _has_null(tier)
+                return True
             for i, row in enumerate(tier):
                 if isinstance(row, dict) and i == len(tier) - 1:
                     row = {k: v for k, v in row.items() if k != "up_to_va"}

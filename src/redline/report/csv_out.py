@@ -20,7 +20,8 @@ CSV_COLUMNS = (
 
 def format_inputs(f: Finding) -> str:
     return "; ".join(
-        f"{i.field}={i.value} @ {i.locator}" + (f" ({i.confidence.name})" if i.confidence else "")
+        f"{i.field}={i.value} @ {i.locator}"
+        + (f" ({i.confidence.name})" if i.confidence is not None else "")
         for i in f.inputs_used
     )
 

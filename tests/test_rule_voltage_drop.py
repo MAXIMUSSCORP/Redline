@@ -124,7 +124,7 @@ def test_total_fails_while_parts_pass(test_cfg, cfg_set, val):
     result = _run(_project(val, 1.5, feeder_length=1.5), _cfg(test_cfg, cfg_set))
     (f,) = result
     assert f.severity.value == "VIOLATION"
-    assert "total voltage drop 3.00%" in f.message
+    assert "total voltage drop at least 3.00%" in f.message
     assert "LP-1 ckt 7" in f.message
 
 
@@ -170,3 +170,19 @@ def test_rule_voltage_drop_total_cites_feeder_inputs(test_cfg, cfg_set, val):
     (f,) = _run(_chain_project(val), _cfg(test_cfg, cfg_set))
     assert f.severity.value == "VIOLATION"
     assert any(i.field.startswith("Feeder F-1") for i in f.inputs_used)
+
+
+def test_rule_voltage_drop_total_within_limit_open_chain_not_checked(test_cfg, cfg_set, val):
+    cfg = _cfg(test_cfg, cfg_set, show_passing=True)
+    cfg = cfg_set(cfg, (*VD, "total_max_pct"), 50)
+    out = _raw(_chain_project(val), cfg)
+    note = [f for f in out if f.severity.value == "NOT_CHECKED"]
+    assert len(note) == 1 and "feed source not shown for MDP" in note[0].message
+    assert not any("total voltage drop" in f.message and f.severity.value == "INFO" for f in out)
+
+
+def test_rule_voltage_drop_total_over_limit_open_chain_violation(test_cfg, cfg_set, val):
+    out = _raw(_chain_project(val), _cfg(test_cfg, cfg_set))
+    (v,) = [f for f in out if f.severity.value == "VIOLATION"]
+    assert "at least 3.00%" in v.message
+    assert any(f.severity.value == "NOT_CHECKED" for f in out)
