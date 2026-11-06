@@ -19,7 +19,7 @@ class InputUsed:
     field: str
     value: str
     locator: str  # "config default" for config.default_value inputs
-    confidence: Confidence
+    confidence: Confidence | None
     model: str | None = None
 
 
@@ -43,11 +43,24 @@ def _locator(v: Value) -> str:
 def inputs_used(fields: Mapping[str, Value]) -> tuple[InputUsed, ...]:
     out = []
     for name, v in fields.items():
-        text = str(v.value) if v.value is not None else (v.raw or "")
-        out.append(
-            InputUsed(name, text, _locator(v), v.confidence, v.source.model if v.source else None)
-        )
+        model = v.source.model if v.source else None
+        if v.value is None and v.raw:
+            # No confidence word: a parse failure must not read as a good value.
+            shown = f'shown as "{v.raw}" (not parsed)'
+            out.append(InputUsed(name, shown, _locator(v), None, model))
+            continue
+        val = v.value
+        text = ", ".join(map(str, val)) if isinstance(val, tuple | list) else str(val)
+        out.append(InputUsed(name, "" if val is None else text, _locator(v), v.confidence, model))
     return tuple(out)
+
+
+def _bad_part(n: str, v: Value) -> str:
+    if v.source is None:
+        return f"{n} (missing)"
+    if v.value is None and v.raw:
+        return f'{n} shown as "{v.raw}" (not parsed, at {v.source.locator})'
+    return f"{n} ({v.confidence.name}, at {v.source.locator})"
 
 
 def input_gate(
@@ -61,12 +74,7 @@ def input_gate(
     bad = [(n, v) for n, v in required.items() if not v.usable]
     if not bad:
         return None
-    parts = [
-        f"{n} (missing)"
-        if v.source is None
-        else f"{n} ({v.confidence.name}, at {v.source.locator})"
-        for n, v in bad
-    ]
+    parts = [_bad_part(n, v) for n, v in bad]
     return Finding(
         rule_id,
         Severity.NEEDS_REVIEW,

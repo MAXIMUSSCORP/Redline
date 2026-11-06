@@ -1,6 +1,7 @@
 from redline.engine import RuleSpec, run
 from redline.findings import Finding, Severity
-from redline.model import Project
+from redline.model import Confidence, Method, Project, Source, Value
+from redline.report.csv_out import format_inputs
 
 
 def _violating(project, cfg):
@@ -44,7 +45,7 @@ def test_gate_applies_to_every_rule(test_cfg, cfg_unverify):
 
 
 def test_skeleton_downgrades_all(skeleton_cfg):
-    spec = RuleSpec("v", "V", _violating, tables_used=("ampacity",))
+    spec = RuleSpec("v", "V", _violating, tables_used=("conductor_ampacity",))
     result = run(Project("p"), skeleton_cfg, [spec])
     assert all(f.severity != Severity.VIOLATION for f in result.findings)
 
@@ -54,3 +55,26 @@ def test_order_and_ran(test_cfg):
     result = run(Project("p"), test_cfg, specs)
     assert result.ran == ("b", "a")
     assert result.unverified == {}
+
+
+def test_inputs_used_shows_raw_for_failed_parse(val):
+    from redline.findings import inputs_used
+
+    bad = Value(None, Source("t.csv", "row 4 load_va", Method.CSV, Confidence.HIGH), "TBD")
+    got = inputs_used({"load_va": bad, "phases": val(("A",)), "pp": val(("A", "B"))})
+    assert got[0].value == 'shown as "TBD" (not parsed)'
+    assert got[0].confidence is None
+    assert "HIGH" not in format_inputs(Finding("r", Severity.INFO, "m", "", None, got[:1]))
+    assert format_inputs(Finding("r", Severity.INFO, "m", "", None, got[:1])) == (
+        'load_va=shown as "TBD" (not parsed) @ row 4 load_va'
+    )
+    assert (got[1].value, got[2].value) == ("A", "A, B")
+
+
+def test_input_gate_shows_raw_for_failed_parse(val):
+    from redline.findings import input_gate
+
+    bad = Value(None, Source("t.csv", "row 4 load_va", Method.CSV, Confidence.HIGH), "TBD")
+    f = input_gate("r", "ref", "DP-1 ckt 3", None, {"load_va": bad, "x": Value(None, None)}, "fix")
+    assert 'load_va shown as "TBD" (not parsed, at row 4 load_va)' in f.message
+    assert "HIGH" not in f.message and "x (missing)" in f.message

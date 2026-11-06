@@ -20,13 +20,16 @@ CSV_COLUMNS = (
 
 def format_inputs(f: Finding) -> str:
     return "; ".join(
-        f"{i.field}={i.value} @ {i.locator} ({i.confidence.name})" for i in f.inputs_used
+        f"{i.field}={i.value} @ {i.locator}" + (f" ({i.confidence.name})" if i.confidence else "")
+        for i in f.inputs_used
     )
 
 
-def _safe(text: str) -> str:
+def _safe(cell: object) -> str:
     # Spreadsheet formula injection. A lone "-" is a plain dash, not a formula.
-    if text and text != "-" and text[0] in "=+-@\t\r":
+    # Leading whitespace (incl. no-break space) is skipped when finding the trigger character.
+    text = str(cell)
+    if text != "-" and (text[:1] in "=+-@\t\r" or text.lstrip()[:1] in ("=", "+", "-", "@")):
         return "'" + text
     return text
 
