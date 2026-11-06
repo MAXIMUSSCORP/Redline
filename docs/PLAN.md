@@ -924,4 +924,7 @@ End of week 2: the M0 demo passes, verification results are written down, the ti
 | 23 | 2026-11-06 | `pytest` only, with `monkeypatch` as the only mocking tool | Few moving parts | `unittest.mock`, other plugins | A test cannot be written without more |
 | 24 | 2026-11-06 | `DEV-PLAYBOOK.md` governs the process. Section 0 applies it | One source of process truth | Duplicating the process here | The owner revises the playbook |
 
+| 25 | 2026-11-06 | M0 owner decisions: Python 3.12.10, venv at `%LOCALAPPDATA%\redline\venv`, TEST config edition label `TEST EDITION, NOT CEC` | Stage 1 answers for M0 | Naming a real edition in the TEST config | The venv path is unreachable outside the Claude app (MSIX redirect to `AppData\Local\Packages\Claude_*\LocalCache`) |
+| 26 | 2026-11-06 | The HTML report follows `DESIGN.md` sections 4, 6 and 7, with system fonts | The owner added `DESIGN.md` as the design philosophy; the report is the only visual surface | A plain unstyled report; voice rules only | Reviewers need colour for print workflows |
+
 New dependencies and any reversal of a row above get a new row, never an edit of the old one.
