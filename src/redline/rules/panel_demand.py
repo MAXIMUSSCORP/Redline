@@ -47,6 +47,8 @@ def _computed(p: Panel, cfg: Config) -> Value | Finding:
     sums: dict[str, float] = {}
     for c in live:
         sums[c.load_type.value] = sums.get(c.load_type.value, 0) + c.load_va.value
+    if not all(math.isfinite(v) for v in sums.values()):
+        return _nr(cfg, p, "Demand could not be computed.", req)
     total = 0
     for kind, va in sums.items():
         tiers = lookup(cfg, "demand_factors", "by_load_type", kind)
@@ -76,6 +78,9 @@ def _panel(p: Panel, cfg: Config) -> list[Finding]:
         demand, how = comp, "computed"
     va = demand.value
     amps = va / (p.voltage_v.value * (math.sqrt(3) if p.phases.value == 3 else 1))
+    nums = [va, amps, *([comp.value] if isinstance(comp, Value) else [])]
+    if not all(math.isfinite(x) for x in nums):
+        return [_nr(cfg, p, "Demand could not be computed.", base)]
     bus = p.bus_rating_a.value
     bus_f = lookup(cfg, "demand_factors", "bus_loading_limit_fraction")
     main_f = lookup(cfg, "demand_factors", "main_loading_limit_fraction")

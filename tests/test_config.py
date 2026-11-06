@@ -173,7 +173,7 @@ def test_missing_file_rejected(tmp_path):
 
 
 def test_lookup_null_returns_none(test_cfg, skeleton_cfg, cfg_set):
-    assert lookup(test_cfg, "conductor_ampacity", "values", "copper", "12 AWG", "75") == 23
+    assert lookup(test_cfg, "conductor_ampacity", "values", "copper", "12 AWG", "75") == 23.3
     assert lookup(skeleton_cfg, "conductor_ampacity", "values", "copper", "12 AWG", "75") is None
     assert lookup(test_cfg, "conductor_ampacity", "values", "copper", "99 AWG", "75") is None
     assert lookup(test_cfg, "no_such_table", "values") is None
@@ -287,19 +287,32 @@ def test_config_deep_nesting_raises_config_error(tmp_path):
         load_config(cfg_dir)
 
 
+def _bomb(depth=8):
+    out = "b0: &b0 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n"
+    for i in range(1, depth + 1):
+        out += f"b{i}: &b{i} [{', '.join([f'*b{i - 1}'] * 10)}]\n"
+    return out
+
+
 def test_config_alias_bomb_bounded(tmp_path):
     cfg_dir = _copy_edit(tmp_path, "cec_tables.yaml", lambda d: None)
     p = cfg_dir / "cec_tables.yaml"
-    bomb = "    verified: true\n    source: x\n"
-    bomb += "    b0: &b0 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n"
-    for i in range(1, 9):
-        bomb += f"    b{i}: &b{i} [{', '.join([f'*b{i - 1}'] * 10)}]\n"
+    body = "".join(f"    {x}\n" for x in _bomb().splitlines())
+    bomb = "    verified: true\n    source: x\n" + body
     text = p.read_text(encoding="utf-8").replace("\ntables:\n", "\ntables:\n  bomb:\n" + bomb, 1)
     p.write_text(text, encoding="utf-8")
-    try:
+    cfg = load_config(cfg_dir)  # bounded work, and a table nothing reads is left alone
+    assert table_verified(cfg, "bomb")
+
+
+def test_config_alias_bomb_in_text_field_raises(tmp_path):
+    cfg_dir = _copy_edit(tmp_path, "cec_tables.yaml", lambda d: None)
+    p = cfg_dir / "cec_tables.yaml"
+    text = p.read_text(encoding="utf-8")
+    text = text.replace("  ampacity: TEST Rule AMP-1", "  ampacity: *b8", 1)
+    p.write_text(_bomb() + text, encoding="utf-8")
+    with pytest.raises(ConfigError, match="rule_refs"):
         load_config(cfg_dir)
-    except ConfigError:
-        pass
 
 
 @pytest.mark.parametrize(
@@ -313,5 +326,135 @@ def test_config_alias_bomb_bounded(tmp_path):
     ],
 )
 def test_config_completeness_block_validated(tmp_path, edit):
+    with pytest.raises(ConfigError):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", edit))
+
+
+def test_config_non_utf8_raises_config_error(tmp_path):
+    cfg_dir = _copy_edit(tmp_path, "ai.yaml", lambda d: None)
+    (cfg_dir / "ai.yaml").write_bytes(b"enabled: false\ntier: \xff\xfe\n")
+    with pytest.raises(ConfigError, match="ai.yaml"):
+        load_config(cfg_dir)
+
+
+@pytest.mark.parametrize("tier", [["cpu"], 5, {"a": 1}, None])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_config_ai_tier_must_be_str(tmp_path, tier, enabled):
+    def edit(d):
+        d["tier"], d["enabled"] = tier, enabled
+
+    with pytest.raises(ConfigError, match="tier"):
+        load_config(_copy_edit(tmp_path, "ai.yaml", edit))
+
+
+def _put(path, value):
+    def edit(d):
+        node = d
+        for k in path[:-1]:
+            node = node[k]
+        node[path[-1]] = value
+
+    return edit
+
+
+_NAN, _INF = float("nan"), float("inf")
+_T = "tables"
+_AMP = (_T, "conductor_ampacity", "values", "copper", "12 AWG", "75")
+_VD = (_T, "voltage_drop")
+_DF = (_T, "demand_factors")
+_LEAF_CASES = [
+    *[(_AMP, v) for v in ("23", [1], True, _NAN, _INF, {"a": 1}, 10**20)],
+    ((_T, "conductor_ampacity", "values", "copper", "12 AWG"), 5),
+    ((_T, "conductor_ampacity", "values", "copper"), [1]),
+    ((_T, "ambient_temp_correction", "values", "75"), "x"),
+    ((_T, "ambient_temp_correction", "values", "75"), [[25, "x"]]),
+    ((_T, "ambient_temp_correction", "values", "75"), [[25, 1.0, 3]]),
+    ((_T, "ambient_temp_correction", "values", "75"), [[25, True]]),
+    ((_T, "conductor_count_correction", "values"), [[4, _NAN]]),
+    ((_T, "conductor_count_correction", "values"), {"a": 1}),
+    *[((_T, "continuous_load", "max_fraction_of_breaker"), v) for v in (_NAN, True, "0.5", [1])],
+    ((_T, "standard_breaker_ratings", "values_a"), "7"),
+    ((_T, "standard_breaker_ratings", "values_a"), [7, "13"]),
+    ((_T, "allow_next_standard_size", "enabled"), 1),
+    ((_T, "allow_next_standard_size", "enabled"), "yes"),
+    ((_T, "bonding_conductor_size", "values"), [{"max_ocpd_a": "x", "copper_size": "6 AWG"}]),
+    ((_T, "bonding_conductor_size", "values"), [{"max_ocpd_a": 5, "copper_size": 6}]),
+    ((_T, "bonding_conductor_size", "values"), ["x"]),
+    ((_T, "conductor_size_order", "values"), [1, 2]),
+    ((_T, "conductor_size_order", "values"), "14 AWG"),
+    ((*_VD, "branch_max_pct"), "2"),
+    ((*_VD, "total_max_pct"), _INF),
+    ((*_VD, "show_passing"), "no"),
+    ((*_VD, "method"), 5),
+    ((*_VD, "current_basis"), ["load"]),
+    ((*_VD, "k_factor", "constant_by_material", "copper"), "x"),
+    ((*_VD, "k_factor", "area_by_size", "12 AWG"), True),
+    ((*_VD, "k_factor", "phase_multiplier", "single"), []),
+    ((*_VD, "impedance", "power_factor"), _NAN),
+    ((*_VD, "impedance", "per_size", "copper", "12 AWG", "r"), "2"),
+    ((*_DF, "by_load_type", "continuous"), [{"up_to_va": "x", "factor": 1}]),
+    ((*_DF, "by_load_type", "continuous"), "x"),
+    ((*_DF, "by_load_type", "continuous"), [5]),
+    ((*_DF, "bus_loading_limit_fraction"), _NAN),
+    ((*_DF, "main_loading_limit_fraction"), "0.5"),
+    ((*_DF, "supplied_vs_computed_tolerance_pct"), True),
+    ((_T, "phase_balance", "max_deviation_pct"), "10"),
+    ((_T, "phase_balance", "min_circuits_to_check"), True),
+    ((_T, "phase_layout", "three_phase_pattern"), [1]),
+    (("defaults", "ambient_c"), "25"),
+    (("defaults", "termination_temp_c"), True),
+    (("defaults", "conductors_in_raceway"), _NAN),
+]
+
+
+@pytest.mark.parametrize(("path", "bad"), _LEAF_CASES)
+def test_config_table_leaf_types_validated(tmp_path, path, bad):
+    with pytest.raises(ConfigError):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", _put(path, bad)))
+
+
+@pytest.mark.parametrize(
+    "path", [p for p, _ in _LEAF_CASES[:1]] + [(_T, "phase_balance", "max_deviation_pct")]
+)
+def test_config_null_leaf_still_loads_unverified(tmp_path, path):
+    cfg = load_config(_copy_edit(tmp_path, "cec_tables.yaml", _put(path, None)))
+    assert not table_verified(cfg, path[1])
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        _put(("rule_refs", "ampacity"), ["x"]),
+        _put(("rule_refs", "ampacity"), 5),
+        _put(("rule_refs", "ampacity"), None),
+        _put(("code_edition",), 5),
+        _put(("code_edition",), ["TEST"]),
+        _put(("config_version",), 1.5),
+        _put(("config_version",), {"a": 1}),
+        _put(("defaults", "conductor_material"), ["Cu"]),
+        _put(("defaults", "voltage_v"), {"a": 1}),
+        _put(("defaults", "power_factor"), True),
+        _put(("defaults", "extra"), [1]),
+    ],
+)
+def test_config_text_fields_must_be_str(tmp_path, edit):
+    with pytest.raises(ConfigError):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", edit))
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        _put(("completeness", "placeholder_texts"), "TBD"),
+        _put(("completeness", "placeholder_texts"), ["TBD", 5]),
+        _put(("completeness", "spare_keywords"), "SPARE"),
+        _put(("completeness", "spare_keywords"), [["SPARE"]]),
+        _put(("completeness", "require_load"), "yes"),
+        _put(("completeness", "require_description"), 1),
+        _put(("completeness", "require_breaker"), [True]),
+        _put(("completeness", "require_conductor_size"), "false"),
+    ],
+)
+def test_config_completeness_lists_and_flags_validated(tmp_path, edit):
     with pytest.raises(ConfigError):
         load_config(_copy_edit(tmp_path, "cec_tables.yaml", edit))

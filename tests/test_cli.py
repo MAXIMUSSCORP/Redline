@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -251,3 +252,72 @@ def test_out_csv_unwritable_names_csv(tmp_path, capsys):
     (tmp_path / "findings.csv").mkdir()
     rc, err = _run(tmp_path, Path(DEMO).read_text(encoding="utf-8"), capsys)
     assert rc == 2 and "findings.csv" in err and not (tmp_path / "r.html").exists()
+
+
+_SRC = {"file": "f.csv", "locator": "r1", "method": "csv", "confidence": "HIGH"}
+
+
+def _set(path, bad):
+    def edit(d):
+        node = d
+        for k in path[:-1]:
+            node = node[k]
+        node[path[-1]] = bad
+
+    return edit
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        _set(("name",), 5),
+        _set(("panels", 0, "name"), 5),
+        _set(("panels", 0, "circuits", 0, "panel"), []),
+        _set(("panels", 0, "circuits", 0, "number"), 7),
+        _set(("panels", 1, "fed_from", "value"), 5),
+        _set(("panels", 0, "circuits", 0, "conductor_size", "value"), 12),
+        _set(("panels", 0, "circuits", 0, "load_type", "value"), ["continuous"]),
+        _set(("panels", 0, "circuits", 0, "description", "value"), {"a": 1}),
+        _set(("feeders", 0, "id"), 1),
+        _set(("feeders", 0, "from_panel", "value"), 3),
+        _set(("feeders", 0, "bonding_size", "value"), 3),
+        _set(("unparsed",), [{"kind": "row", "raw": "x", "reason": 5, "source": _SRC}]),
+        _set(("devices",), [{"type": 5, "source": _SRC}]),
+        _set(("coverage",), [{"file": 1, "unit": "u", "what_read": "w", "method": "m"}]),
+    ],
+)
+def test_demo_project_text_field_wrong_type_exits_2(tmp_path, capsys, edit):
+    rc, err = _demo_edit(tmp_path, capsys, edit)
+    assert rc == 2 and "Traceback" not in err
+    assert not (tmp_path / "r.html").exists() and not (tmp_path / "findings.csv").exists()
+
+
+def test_demo_project_lone_surrogate_exits_2(tmp_path, capsys):
+    for edit in (
+        _set(("panels", 0, "circuits", 0, "description", "raw"), "\ud800"),
+        _set(("panels", 0, "circuits", 0, "description", "value"), "x\udc00"),
+        _set(("name",), "a\ud800b"),
+    ):
+        rc, err = _demo_edit(tmp_path, capsys, edit)
+        assert rc == 2 and "Traceback" not in err
+        assert not (tmp_path / "r.html").exists() and not (tmp_path / "findings.csv").exists()
+
+
+def test_out_cannot_overwrite_inputs_exits_2(tmp_path):
+    demo = tmp_path / "p.json"
+    demo.write_text(Path(DEMO).read_text(encoding="utf-8"), encoding="utf-8")
+    cfg = tmp_path / "cfg"
+    shutil.copytree(TEST_CFG, cfg)
+    before = (demo.read_bytes(), (cfg / "ai.yaml").read_bytes())
+    for target in (demo, cfg / "ai.yaml", tmp_path / "sub" / ".." / "p.json"):
+        argv = ["check", "--demo-project", str(demo), "--config", str(cfg), "--out", str(target)]
+        assert main(argv) == 2
+    assert before == (demo.read_bytes(), (cfg / "ai.yaml").read_bytes())
+    assert not (tmp_path / "findings.csv").exists()
+
+
+def test_out_short_name_alias_refused(tmp_path, capsys):
+    text = Path(DEMO).read_text(encoding="utf-8")
+    rc, err = _run(tmp_path, text, capsys, tmp_path / "FINDIN~1.CSV")
+    assert rc == 2 and "Traceback" not in err
+    assert not (tmp_path / "findings.csv").exists() and not (tmp_path / "FINDIN~1.CSV").exists()

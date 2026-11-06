@@ -123,15 +123,25 @@ def _chain(
     when the chain ends cleanly where no feed source is shown, not at a real break.
     """
     total, used, cur, seen = 0.0, [], panel, set()
-    while cur.fed_from.value:
+    while cur.fed_from.value or cur.fed_from.raw:
         if cur.name in seen:
             return None, used, f"{label(cur)} feeds itself", ""
         seen.add(cur.name)
         if not cur.fed_from.usable:
             return None, used, f"the feed source of {label(cur)} is not usable", ""
-        feeder = next((f for f in project.feeders if f.to_panel.value == cur.name), None)
-        if feeder is None:
+        into = [f for f in project.feeders if f.to_panel.value == cur.name]
+        if not into:
             return None, used, f"no feeder shown into {label(cur)}", ""
+        if len(into) > 1:
+            return None, used, f"{len(into)} feeders feed {label(cur)}", ""
+        feeder = into[0]
+        if feeder.from_panel.usable and feeder.from_panel.value != cur.fed_from.value:
+            return (
+                None,
+                used,
+                f"{label(feeder)} from_panel disagrees with {label(cur)} fed_from",
+                "",
+            )
         if not feeder.to_panel.usable:
             return None, used, f"{label(feeder)} feeder to_panel is LOW", ""
         if drops.get(feeder.id) is None:

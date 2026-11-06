@@ -90,3 +90,14 @@ def test_rule_panel_demand_duplicate_label_low_load_gated(val, test_cfg):
 def test_rule_panel_demand_violation_wording(val, test_cfg):
     _, bus, _ = _run(_panel(val, [10000, 10000]), test_cfg)
     assert "of the" not in bus.message and bus.rule_ref in bus.message
+
+
+def test_rule_panel_demand_non_finite_result_needs_review(val, test_cfg):
+    out = _run(_panel(val, [1e308, 1e308, 1e308]), test_cfg)
+    assert [f.severity for f in out] == [Severity.NEEDS_REVIEW]
+    assert "could not be computed" in out[0].message and "LP-1" in out[0].message
+    panel = _panel(val, [100], supplied=1e308)
+    panel.voltage_v = val(0.001)
+    out = _run(panel, test_cfg)
+    assert [f.severity for f in out] == [Severity.NEEDS_REVIEW]
+    assert "could not be computed" in out[0].message
