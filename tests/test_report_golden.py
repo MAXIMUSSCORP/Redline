@@ -3,16 +3,18 @@ r"""End-to-end run of the synthetic demo project against the golden findings fil
 The golden file is made only by this manual command, never by a test. Run it from the repo root
 after a deliberate change to the demo project or a rule, read the CSV by eye, then commit it:
 
-    redline check --demo-project tests/golden/demo_project.json --config tests/test_config/ --out %TEMP%
-edline-golden\report.html
-    copy %TEMP%
-edline-golden\findings.csv tests\golden\findings.csv
+    RL check --demo-project tests/golden/demo_project.json --config tests/test_config/ --out %TEMP%\redline-golden\report.html
+    copy %TEMP%\redline-golden\findings.csv tests\golden\findings.csv
 """
 
 import csv
+import shutil
 from pathlib import Path
 
+import yaml
+
 from redline.cli import main
+from redline.config import load_config
 from redline.registry import RULES
 from redline.report.html import SECTION_IDS
 
@@ -52,3 +54,20 @@ def test_report_has_every_section(tmp_path):
 def test_skeleton_config_gives_no_violation(tmp_path):
     out = _run(str(ROOT / "config"), tmp_path)
     assert all(r["severity"] != "VIOLATION" for r in _rows(out / "findings.csv"))
+
+
+def test_gate_end_to_end_one_table_unverified(tmp_path):
+    # Rebuild the test config on disk with one table unverified, then run the real CLI on it.
+    cfg_dir = tmp_path / "cfg"
+    shutil.copytree(ROOT / "tests" / "test_config", cfg_dir)
+    p = cfg_dir / "cec_tables.yaml"
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    data["tables"]["conductor_ampacity"]["verified"] = False
+    p.write_text(yaml.safe_dump(data), encoding="utf-8")
+    assert load_config(cfg_dir).cec["tables"]["conductor_ampacity"]["verified"] is False
+
+    rows = _rows(_run(str(cfg_dir), tmp_path / "out") / "findings.csv")
+    amp = [r for r in rows if r["rule_id"] == "ampacity"]
+    assert amp and not any(r["severity"] == "VIOLATION" for r in amp)
+    assert any(r["severity"] == "NEEDS_REVIEW" for r in amp)
+    assert any(r["severity"] == "VIOLATION" for r in rows if r["rule_id"] != "ampacity")

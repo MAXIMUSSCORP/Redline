@@ -122,6 +122,33 @@ def test_report_voice(test_cfg, skeleton_cfg):
     assert "—" in html
 
 
+def test_report_edition_verified_only_when_true(test_cfg, cfg_set):
+    ok = _section(render_html(_project(), _result(), test_cfg), "config-tables")
+    assert "NOT VERIFIED" not in ok
+    for bad in ("false", 1):
+        cfg = cfg_set(test_cfg, ("code_edition_verified",), bad)
+        html = render_html(_project(), _result(), cfg)
+        assert "Code edition: TEST EDITION, NOT CEC · NOT VERIFIED" in html, bad
+        assert "The code edition is also unverified" in html, bad
+
+
+def test_csv_non_string_cell_written(tmp_path):
+    f = Finding("r", Severity.INFO, "m", 7, Source(5, "row 1", Method.CSV, Confidence.HIGH))
+    out = tmp_path / "f.csv"
+    write_findings_csv([f], out)
+    row = list(csv.reader(out.open(newline="", encoding="utf-8")))[1]
+    assert row[2] == "7" and row[3] == "5"
+
+
+def test_csv_formula_guard_leading_whitespace(tmp_path):
+    cells = [" =HYPERLINK(1)", "\xa0=2+3", "\n=1+1", "  -1", "ok =x"]
+    fs = [Finding("r", Severity.INFO, c, "", None) for c in cells]
+    out = tmp_path / "f.csv"
+    write_findings_csv(fs, out)
+    got = [r[5] for r in list(csv.reader(out.open(newline="", encoding="utf-8")))[1:]]
+    assert got == ["'" + c for c in cells[:4]] + ["ok =x"]
+
+
 def test_csv_formula_cells_escaped(tmp_path):
     cells = ["=1+1", "+1", "-1", "@x", "\tx", "\rx", "-", "plain"]
     fs = [Finding("r", Severity.INFO, c, "", None, suggested_fix=c) for c in cells]
