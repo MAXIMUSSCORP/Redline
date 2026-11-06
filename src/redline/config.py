@@ -40,7 +40,7 @@ def sha256_file(path: str | Path) -> str:
 def _read(path: Path) -> dict[str, Any]:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as e:
+    except (OSError, yaml.YAMLError, RecursionError) as e:
         raise ConfigError(f"{path.name}: cannot read config file ({type(e).__name__})") from e
     if not isinstance(data, dict):
         raise ConfigError(f"{path.name}: expected a mapping at the top level")
@@ -62,12 +62,14 @@ def _check_cec(cec: dict[str, Any]) -> None:
             raise ConfigError(f"cec_tables.yaml: {key} must be a mapping")
     if not isinstance(cec.get("code_edition_verified"), bool):
         raise ConfigError("cec_tables.yaml: code_edition_verified needs true or false")
-    comp = cec.get("completeness") or {}
+    comp = cec.get("completeness")
     if not isinstance(comp, dict):
         raise ConfigError("cec_tables.yaml: completeness must be a mapping")
-    sev = comp.get("severity")
-    if str(sev).upper() == Severity.VIOLATION:
-        raise ConfigError("cec_tables.yaml: completeness severity cannot be VIOLATION")
+    sev = str(comp.get("severity")).upper()
+    if sev not in Severity.__members__ or sev == Severity.VIOLATION:
+        raise ConfigError(
+            "cec_tables.yaml: completeness severity must be a Severity, not VIOLATION"
+        )
 
 
 def _check_ai(ai: dict[str, Any]) -> None:
@@ -123,16 +125,20 @@ def is_test_config(cfg: Config) -> bool:
 _MAX_DEPTH = 100
 
 
-def _has_null(node: Any, depth: int = 0) -> bool:
+def _has_null(node: Any, depth: int = 0, seen: set[int] | None = None) -> bool:
     if depth > _MAX_DEPTH:
         raise ConfigError("cec_tables.yaml: nested too deep, or a recursive anchor")
     if node is None:
         return True
-    if isinstance(node, dict):
-        return any(_has_null(v, depth + 1) for v in node.values())
-    if isinstance(node, list):
-        return any(_has_null(v, depth + 1) for v in node)
-    return False
+    if not isinstance(node, dict | list):
+        return False
+    seen = set() if seen is None else seen
+    if id(node) in seen:  # a shared alias already walked to the end
+        return False
+    kids = node.values() if isinstance(node, dict) else node
+    found = any(_has_null(v, depth + 1, seen) for v in kids)
+    seen.add(id(node))  # added after the walk, so a loop still reaches the depth limit
+    return found
 
 
 def _has_bad_null(name: str, t: dict) -> bool:

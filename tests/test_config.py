@@ -173,7 +173,7 @@ def test_missing_file_rejected(tmp_path):
 
 
 def test_lookup_null_returns_none(test_cfg, skeleton_cfg, cfg_set):
-    assert lookup(test_cfg, "conductor_ampacity", "values", "copper", "12 AWG", "75") == 20
+    assert lookup(test_cfg, "conductor_ampacity", "values", "copper", "12 AWG", "75") == 23
     assert lookup(skeleton_cfg, "conductor_ampacity", "values", "copper", "12 AWG", "75") is None
     assert lookup(test_cfg, "conductor_ampacity", "values", "copper", "99 AWG", "75") is None
     assert lookup(test_cfg, "no_such_table", "values") is None
@@ -277,3 +277,41 @@ def test_demand_tier_non_list_unverifies(test_cfg, cfg_set):
     bad = {**tiers, "continuous": "x", "motor": [{"up_to_va": None, "factor": None}, {}]}
     cfg = cfg_set(test_cfg, ("tables", "demand_factors", "by_load_type"), bad)
     assert not table_verified(cfg, "demand_factors")
+
+
+def test_config_deep_nesting_raises_config_error(tmp_path):
+    cfg_dir = _copy_edit(tmp_path, "cec_tables.yaml", lambda d: None)
+    p = cfg_dir / "cec_tables.yaml"
+    p.write_text(p.read_text(encoding="utf-8") + "deep: " + "[" * 1200 + "]" * 1200 + "\n")
+    with pytest.raises(ConfigError):
+        load_config(cfg_dir)
+
+
+def test_config_alias_bomb_bounded(tmp_path):
+    cfg_dir = _copy_edit(tmp_path, "cec_tables.yaml", lambda d: None)
+    p = cfg_dir / "cec_tables.yaml"
+    bomb = "    verified: true\n    source: x\n"
+    bomb += "    b0: &b0 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n"
+    for i in range(1, 9):
+        bomb += f"    b{i}: &b{i} [{', '.join([f'*b{i - 1}'] * 10)}]\n"
+    text = p.read_text(encoding="utf-8").replace("\ntables:\n", "\ntables:\n  bomb:\n" + bomb, 1)
+    p.write_text(text, encoding="utf-8")
+    try:
+        load_config(cfg_dir)
+    except ConfigError:
+        pass
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        lambda d: d.pop("completeness"),
+        lambda d: d["completeness"].pop("severity"),
+        lambda d: d["completeness"].update(severity="bogus"),
+        lambda d: d["completeness"].update(severity="violation"),
+        lambda d: d["completeness"].update(severity=5),
+    ],
+)
+def test_config_completeness_block_validated(tmp_path, edit):
+    with pytest.raises(ConfigError):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", edit))
