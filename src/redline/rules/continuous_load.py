@@ -65,6 +65,20 @@ def check(project: Project, cfg: Config) -> list[Finding]:
                 continue
             three = math.sqrt(3) if fields["poles"].value == 3 else 1
             current = fields["load_va"].value / (fields["voltage_v"].value * three)
+            if not math.isfinite(current):
+                msg = f"{name}: not checked. Current could not be computed."
+                out.append(
+                    Finding(
+                        ID,
+                        Severity.NEEDS_REVIEW,
+                        msg,
+                        ref,
+                        c.source,
+                        inputs_used(fields),
+                        "Reviewer to check this unit by hand.",
+                    )
+                )
+                continue
             breaker = fields["breaker_a"].value
             limit = breaker * fraction
             if current > limit and not math.isclose(current, limit):

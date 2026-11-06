@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field, fields, replace
 from enum import IntEnum, StrEnum
@@ -221,12 +223,12 @@ _SOURCE_KEYS = {f.name for f in fields(Source)}
 _VALUE_KEYS = {"value", "source", "raw"}
 # Numeric fields that may be negative. Every other number must be zero or more.
 _SIGNED = {"ambient_c", "x", "y"}
-# Numeric fields found from the dataclass types, so a new field is covered at once.
-_NUMERIC = {
-    f.name
+# The inner type of every Value field, read from the dataclass hints so a new field is covered.
+_VTYPE = {
+    f.name: f.type[6:-1]
     for cls in (Panel, Circuit, Feeder, Device)
     for f in fields(cls)
-    if f.type in ("Value[float]", "Value[int]")
+    if f.type.startswith("Value[")
 }
 # Ratings and divisors: zero is not a reading.
 _NONZERO = {
@@ -236,6 +238,7 @@ _NONZERO = {
     "sets_in_parallel",
     "bus_rating_a",
     "main_breaker_a",
+    "demand_va_supplied",
 }
 MAX_INT = 2**53
 
@@ -245,18 +248,27 @@ def check_value(name: str, v: Value) -> Value:
 
     The JSON loader calls it for every Value. M1 parsers must call it too.
     """
-    val = v.value
+    val, kind = v.value, _VTYPE.get(name)
     why = ""
-    if name in _NUMERIC and val is not None:
-        if not isinstance(val, int | float):
+    if val is not None and kind == "str":
+        if not isinstance(val, str):
+            raise TypeError(f"{name} must be a string")
+    elif val is not None and kind in ("int", "float"):
+        if isinstance(val, bool) or not isinstance(val, int | float):
             raise TypeError(f"{name} must be a number")
+        if isinstance(val, int) and abs(val) > MAX_INT:
+            raise TypeError(f"{name} is too large a number")
         if not math.isfinite(val):
             why = "not a finite number"
+        elif abs(val) > MAX_INT:
+            why = "too large a number"
         elif val < 0 and name not in _SIGNED:
             why = "negative quantity"
         elif val == 0 and name in _NONZERO:
             why = "zero"
-    elif name == "load_type" and val is not None and val not in LOAD_TYPES:
+        elif name == "poles" and val not in (1, 2, 3):
+            why = "poles not 1, 2 or 3"
+    if kind == "str" and name == "load_type" and val is not None and val not in LOAD_TYPES:
         why = "not a known load type"
     if not why or v.source is None:
         return v
@@ -323,10 +335,12 @@ def _build(cls: type, d: Any, extra: tuple[str, ...] = ()) -> Any:
             kw[f.name] = _source(raw)
         elif f.default_factory == Value.missing:
             kw[f.name] = _value(raw, f.name)
-        else:
-            if isinstance(f.default, bool) and not isinstance(raw, bool):
+        elif f.type == "bool":
+            if not isinstance(raw, bool):
                 raise TypeError(f"{f.name} must be true or false")
             kw[f.name] = raw
+        else:
+            kw[f.name] = _text(raw, f.name, True)
     return cls(**kw)
 
 
@@ -342,6 +356,8 @@ _PROJECT_KEYS = {f.name for f in fields(Project)}
 
 def project_from_dict(data: Any) -> Project:
     data = _dict(data, "project")
+    # A lone surrogate cannot be written out as UTF-8. Refuse it here, wherever it sits.
+    json.dumps(data, ensure_ascii=False).encode("utf-8")
     if unknown := sorted(set(data) - _PROJECT_KEYS):
         raise ValueError(f"unknown key in project: {', '.join(unknown)}")
     panels = []
@@ -356,17 +372,17 @@ def project_from_dict(data: Any) -> Project:
         ("panel name", [p.name for p in panels]),
         ("feeder id", [f.id for f in feeders]),
     ):
-        if dup := next((n for n in names if names.count(n) > 1), None):
+        if dup := next((n for n, k in Counter(names).items() if k > 1), None):
             raise ValueError(f"repeated {kind}: {dup}")
     ri = data.get("run_info")
     return Project(
-        name=data["name"],
-        code_edition=data.get("code_edition", ""),
-        inputs=list(_list(data, "inputs")),
+        name=_text(data["name"], "project name", True),
+        code_edition=_text(data.get("code_edition", ""), "code_edition", True),
+        inputs=[_text(i, "input", True) for i in _list(data, "inputs")],
         panels=panels,
         feeders=feeders,
         devices=[_build(Device, x) for x in _list(data, "devices")],
         unparsed=[_build(Unparsed, u) for u in _list(data, "unparsed")],
-        coverage=[CoverageEntry(**_dict(c, "coverage")) for c in _list(data, "coverage")],
+        coverage=[_build(CoverageEntry, c) for c in _list(data, "coverage")],
         run_info=RunInfo(**_dict(ri, "run_info")) if ri else None,
     )

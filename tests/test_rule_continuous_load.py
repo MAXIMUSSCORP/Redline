@@ -83,3 +83,10 @@ def test_rule_continuous_load_unlisted_load_type_needs_review(test_cfg, cfg_set,
     (f,) = engine.run(project, _cfg(test_cfg, cfg_set), [SPEC]).findings
     assert f.severity.value == "NEEDS_REVIEW"
     assert "LP-1 ckt 7" in f.message
+
+
+def test_rule_continuous_load_non_finite_result_needs_review(test_cfg, cfg_set, val):
+    project = _project(val, va=1e308, voltage_v=val(0.001))
+    (f,) = engine.run(project, _cfg(test_cfg, cfg_set), [SPEC]).findings
+    assert f.severity.value == "NEEDS_REVIEW"
+    assert "could not be computed" in f.message and "LP-1 ckt 7" in f.message
