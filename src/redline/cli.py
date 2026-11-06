@@ -30,6 +30,10 @@ def _fail(msg: str) -> int:
     return 2
 
 
+def _no_constant(name: str) -> None:
+    raise ValueError(f"{name} is not allowed in JSON")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if not args.demo_project:
@@ -42,13 +46,19 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as e:
         return _fail(f"config error: {' '.join(str(e).split())}")
     try:
-        data = json.loads(Path(args.demo_project).read_text(encoding="utf-8"))
+        text = Path(args.demo_project).read_text(encoding="utf-8")
+        data = json.loads(text, parse_constant=_no_constant)
         project = project_from_dict(data)
-    except (OSError, ValueError, KeyError, TypeError) as e:
-        return _fail(f"cannot read demo project {args.demo_project}: {type(e).__name__}.")
+    except (OSError, ValueError, KeyError, TypeError, RecursionError) as e:
+        why = " ".join(str(e).split()) if isinstance(e, ValueError) else type(e).__name__
+        return _fail(f"cannot read demo project {args.demo_project}: {why}.")
+    out = Path(args.out)
+    if out.is_dir() or out.resolve() == (out.parent / "findings.csv").resolve():
+        return _fail(
+            f"--out {args.out} must be a new report file, not a directory or findings.csv."
+        )
     project.run_info = RunInfo(tool_version=__version__, config_hashes=dict(cfg.hashes))
     result = run(project, cfg, RULES, args.skip_rule)
-    out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render_html(project, result, cfg), encoding="utf-8")
     write_findings_csv(result.findings, out.parent / "findings.csv")
