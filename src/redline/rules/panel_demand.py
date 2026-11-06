@@ -38,9 +38,10 @@ def _nr(cfg: Config, p: Panel, msg: str, used: dict | None = None) -> Finding:
 def _computed(p: Panel, cfg: Config) -> Value | Finding:
     live = [c for c in p.circuits if not c.is_spare]
     req = {}
-    for c in live:
-        req[f"{label(c)} load_va"] = c.load_va
-        req[f"{label(c)} load_type"] = c.load_type
+    for i, c in enumerate(live, 1):
+        tag = label(c) if f"{label(c)} load_va" not in req else f"{label(c)} (entry {i})"
+        req[f"{tag} load_va"] = c.load_va
+        req[f"{tag} load_type"] = c.load_type
     if gate := input_gate(ID, rule_ref(cfg, ID), label(p), p.source, req, FIX):
         return gate
     sums: dict[str, float] = {}
@@ -64,7 +65,8 @@ def _panel(p: Panel, cfg: Config) -> list[Finding]:
         return [gate]
     sup = p.demand_va_supplied
     if sup.source is not None and not sup.usable:
-        return [input_gate(ID, ref, unit, p.source, {"demand_va_supplied": sup}, FIX)]
+        gate = input_gate(ID, ref, unit, p.source, {"demand_va_supplied": sup}, FIX)
+        return [gate] if gate else []
     comp = _computed(p, cfg)
     if sup.usable:
         demand, how = sup, "user_supplied"
@@ -86,7 +88,10 @@ def _panel(p: Panel, cfg: Config) -> list[Finding]:
     if bus_f is None:
         return out + [_nr(cfg, p, "Table entry missing for the bus loading limit.", base)]
     if amps > bus * bus_f:
-        over = f"{unit}: demand current {amps:.1f} A is above {bus_f:g} of the {bus:g} A bus."
+        over = (
+            f"{unit}: demand current {amps:.1f} A is above the {bus * bus_f:g} A limit "
+            f"({bus_f:g} x {bus:g} A bus). {ref}"
+        )
         out.append(Finding(ID, Severity.VIOLATION, over, ref, p.source, used, FIX))
     main = p.main_breaker_a
     if not is_mlo(p):
@@ -95,7 +100,10 @@ def _panel(p: Panel, cfg: Config) -> list[Finding]:
         elif main_f is None:
             out.append(_nr(cfg, p, "Table entry missing for the main loading limit."))
         elif amps > main.value * main_f:
-            over = f"{unit}: demand current {amps:.1f} A is above {main_f:g} of the {main.value:g} A main."
+            over = (
+                f"{unit}: demand current {amps:.1f} A is above the {main.value * main_f:g} A "
+                f"limit ({main_f:g} x {main.value:g} A main). {ref}"
+            )
             out.append(Finding(ID, Severity.VIOLATION, over, ref, p.source, used, FIX))
     if how == "user_supplied" and isinstance(comp, Value):
         if tol is None:

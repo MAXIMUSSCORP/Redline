@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
+from typing import Any
 
 from redline.config import Config, lookup, rule_ref
 from redline.engine import RuleSpec
 from redline.findings import Finding, Severity, input_gate, inputs_used
-from redline.model import Panel, Project, Value, effective_voltage, label
+from redline.model import (
+    Circuit,
+    Feeder,
+    Panel,
+    Project,
+    Source,
+    Value,
+    effective_voltage,
+    label,
+)
 from redline.units import MATERIAL_TABLE_KEY
 
 ID = "voltage_drop"
@@ -15,11 +26,13 @@ TABLE_FIX = "Reviewer to supply the missing table entry in the config and re-run
 FIX = "Increase conductor size or shorten the run. Reviewer to confirm length and load current."
 
 
-def _vd(cfg: Config, *keys: str):
+def _vd(cfg: Config, *keys: str) -> Any:
     return lookup(cfg, "voltage_drop", *keys)
 
 
-def _pct(cfg, size, mat, length, volts, three, amps):
+def _pct(
+    cfg: Config, size: str, mat: str, length: float, volts: float, three: bool, amps: float
+) -> tuple[float | None, list[str]]:
     """Percent drop, or the config paths that were missing."""
     phase = "three" if three else "single"
     m = MATERIAL_TABLE_KEY.get(mat, mat)
@@ -50,7 +63,9 @@ def _pct(cfg, size, mat, length, volts, three, amps):
     return drop / volts * 100, []
 
 
-def _unit(cfg, ref, name, src, req, basis):
+def _unit(
+    cfg: Config, ref: str, name: str, src: Source, req: Mapping[str, Value], basis: str
+) -> tuple[float | None, Finding | None]:
     """(percent, None) when computed, else (None, the finding that says why not)."""
     if gate := input_gate(ID, ref, name, src, req, GATE_FIX):
         return None, gate
@@ -66,12 +81,22 @@ def _unit(cfg, ref, name, src, req, basis):
     return pct, None
 
 
-def _judge(cfg, ref, name, src, req, pct, limit_key, what, extra="") -> Finding | None:
+def _judge(
+    cfg: Config,
+    ref: str,
+    name: str,
+    src: Source,
+    req: Mapping[str, Value],
+    pct: float,
+    limit_key: str,
+    what: str,
+    extra: str = "",
+) -> Finding | None:
     limit = _vd(cfg, limit_key)
     if limit is None:
         msg = f"{name}: not checked. Table entry missing: {limit_key}."
         return Finding(ID, Severity.NEEDS_REVIEW, msg, ref, src, inputs_used(req), TABLE_FIX)
-    if pct > limit:
+    if pct > limit and not math.isclose(pct, limit):
         sev, rel, fix = Severity.VIOLATION, "above", FIX
     elif _vd(cfg, "show_passing") is True:
         sev, rel, fix = Severity.INFO, "within", "No change needed from this rule."
@@ -81,31 +106,43 @@ def _judge(cfg, ref, name, src, req, pct, limit_key, what, extra="") -> Finding 
     return Finding(ID, sev, msg, ref, src, inputs_used(req), fix)
 
 
-def _chain(project: Project, panel: Panel, drops: dict[str, float | None]):
-    """Feeder drops summed up the fed_from chain: (percent, feeder count, broken link)."""
-    total, n, cur, seen = 0, 0, panel, set()
+def _chain(
+    project: Project, panel: Panel, drops: dict[str, float | None]
+) -> tuple[float | None, list[Feeder], str]:
+    """Feeder drops summed up the fed_from chain: (percent, feeders used, broken link)."""
+    total, used, cur, seen = 0.0, [], panel, set()
     while cur.fed_from.value:
         if cur.name in seen:
-            return None, n, f"{label(cur)} feeds itself"
+            return None, used, f"{label(cur)} feeds itself"
         seen.add(cur.name)
         if not cur.fed_from.usable:
-            return None, n, f"the feed source of {label(cur)} is not usable"
+            return None, used, f"the feed source of {label(cur)} is not usable"
         feeder = next((f for f in project.feeders if f.to_panel.value == cur.name), None)
         if feeder is None:
-            return None, n, f"no feeder shown into {label(cur)}"
+            return None, used, f"no feeder shown into {label(cur)}"
+        if not feeder.to_panel.usable:
+            return None, used, f"{label(feeder)} feeder to_panel is LOW"
         if drops.get(feeder.id) is None:
-            return None, n, f"{label(feeder)} voltage drop was not computed"
+            return None, used, f"{label(feeder)} voltage drop was not computed"
         total += drops[feeder.id]
-        n += 1
-        cur = next((q for q in project.panels if q.name == cur.fed_from.value), None)
+        used.append(feeder)
+        src = cur.fed_from.value
+        cur = next((q for q in project.panels if q.name == src), None)
         if cur is None:
-            break
-    return total, n, ""
+            return None, used, f"source panel {src} not in project"
+    if not used:
+        return None, used, f"feed source not shown for {label(panel)}"
+    return total, used, ""
 
 
 def _req(
-    u, phase_name: str, phase: Value, volts: Value, rating: tuple[str, Value], basis: str
-) -> dict:
+    u: Circuit | Feeder,
+    phase_name: str,
+    phase: Value,
+    volts: Value,
+    rating: tuple[str, Value],
+    basis: str,
+) -> dict[str, Value]:
     current = {rating[0]: rating[1]} if basis == "breaker" else {"load_va": u.load_va}
     return {
         "length_m": u.length_m,
@@ -125,16 +162,18 @@ def check(project: Project, cfg: Config) -> list[Finding]:
         return [Finding(ID, Severity.NEEDS_REVIEW, msg, ref, None, (), TABLE_FIX)]
     out: list[Finding] = []
     drops: dict[str, float | None] = {}
+    freqs: dict[str, dict[str, Value]] = {}
     for f in project.feeders:
         req = _req(f, "phases", f.phases, f.voltage_v, ("ocpd_a", f.ocpd_a), basis)
         req["sets_in_parallel"] = f.sets_in_parallel
+        freqs[f.id] = req
         pct, bad = _unit(cfg, ref, label(f), f.source, req, basis)
         drops[f.id] = pct
         found = bad or _judge(cfg, ref, label(f), f.source, req, pct, "feeder_max_pct", "feeder")
         out += [found] if found else []
     for p in project.panels:
-        chain, n, why = _chain(project, p, drops)
-        if why:
+        chain, used, why = _chain(project, p, drops)
+        if why and any(not c.is_spare for c in p.circuits):
             msg = f"{label(p)}: total voltage drop not checked. Broken link: {why}."
             fix = "Show the missing link or correct the feeder, then re-run."
             out.append(Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, (), fix))
@@ -149,15 +188,16 @@ def check(project: Project, cfg: Config) -> list[Finding]:
                 out.append(bad)
                 continue
             found = [_judge(cfg, ref, label(c), c.source, req, pct, "branch_max_pct", "branch")]
-            if chain is not None and n:
+            if chain is not None:
                 extra = f" Branch part {pct:.2f}%, feeder part {chain:.2f}%."
+                fused = {f"{label(fd)} {k}": v for fd in used for k, v in freqs[fd.id].items()}
                 found.append(
                     _judge(
                         cfg,
                         ref,
                         label(c),
                         c.source,
-                        req,
+                        {**req, **fused},
                         pct + chain,
                         "total_max_pct",
                         "total",

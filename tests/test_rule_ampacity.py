@@ -91,3 +91,10 @@ def test_rule_ampacity_null_table_entry(test_cfg, cfg_set, val):
     (f,) = engine.run(_project(val), cfg, [SPEC]).findings
     assert f.severity.value == "NEEDS_REVIEW"
     assert "table entry missing" in f.message.lower()
+
+
+def test_rule_ampacity_float_rounding_no_false_violation(test_cfg, cfg_set, val):
+    # 50 * 0.58 * 1.0 is 28.999999999999996 in floating point
+    cfg = _cfg(test_cfg, cfg_set, 50)
+    cfg = cfg_set(cfg, ("tables", "ambient_temp_correction", "values", "75"), [[100, 0.58]])
+    assert engine.run(_project(val, breaker_a=val(29)), cfg, [SPEC]).findings == ()

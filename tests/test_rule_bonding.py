@@ -30,6 +30,7 @@ def test_rule_bonding_trigger(val, test_cfg, cfg_set):
     assert f.rule_ref == "TEST Rule BOND-1"
     assert f.source.locator == "row 5"
     assert "LP-1 ckt 1" in f.message and "12 AWG" in f.message
+    assert f.message.endswith(f.rule_ref)
     assert f.suggested_fix
 
 

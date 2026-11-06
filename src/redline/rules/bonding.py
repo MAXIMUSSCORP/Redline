@@ -45,7 +45,7 @@ def _check_one(
         ID,
         Severity.VIOLATION,
         f"{unit}: bonding conductor {bonding.value} is below the table size {need} "
-        f"for {ocpd.value:g} A.",
+        f"for {ocpd.value:g} A. {ref}",
         ref,
         source,
         inputs_used(req),
