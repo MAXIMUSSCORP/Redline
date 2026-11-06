@@ -192,7 +192,7 @@ def test_table_verified_rejects_null_and_blank_source(test_cfg, cfg_set):
 
 def test_default_value(test_cfg, skeleton_cfg):
     v = default_value(test_cfg, "ambient_c")
-    assert v.value == 30
+    assert v.value == 25
     assert v.confidence == Confidence.MEDIUM
     assert v.usable
     assert v.source.note == "config default"
