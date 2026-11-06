@@ -14,7 +14,7 @@ def _phases(c: Circuit, pattern: list | None) -> tuple[Value, bool]:
     col = c.phases_used
     if col.source is not None:
         ok = col.value and set(col.value) <= set("ABC")
-        return Value(tuple(col.value) if ok else None, col.source, col.raw), False
+        return Value(", ".join(col.value) if ok else None, col.source, col.raw), False
     num = c.number.strip()
     if not (pattern and num.isdigit() and c.poles.usable):
         return Value.missing(), False
@@ -22,15 +22,17 @@ def _phases(c: Circuit, pattern: list | None) -> tuple[Value, bool]:
     letters = tuple(pattern[(n + 2 * k) % size] for k in range(int(c.poles.value)))
     low = min(Confidence.MEDIUM, c.source.confidence)
     src = Source(c.source.file, c.source.locator, Method.DERIVED, low, "phase from position")
-    return Value(letters, src, num), True
+    return Value(", ".join(letters), src, num), True
 
 
 def _panel(p: Panel, cfg: Config, ref: str) -> list[Finding]:
     unit = label(p)
-    if gate := input_gate(ID, ref, unit, p.source, {"phases": p.phases}, FIX):
+    base = {"phases": p.phases}
+    if gate := input_gate(ID, ref, unit, p.source, base, FIX):
         return [gate]
     if p.phases.value != 3:
-        return []
+        msg = f"{unit}: single-phase panel, phase balance not screened."
+        return [Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, inputs_used(base), FIX)]
     limit = lookup(cfg, "phase_balance", "max_deviation_pct")
     least = lookup(cfg, "phase_balance", "min_circuits_to_check")
     pattern = lookup(cfg, "phase_layout", "three_phase_pattern")
@@ -42,20 +44,20 @@ def _panel(p: Panel, cfg: Config, ref: str) -> list[Finding]:
         msg = f"{unit}: not checked. Fewer than {least} circuits to compare."
         return [Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, (), FIX)]
     req: dict[str, Value] = {}
-    placed: dict[str, tuple[str, ...]] = {}
+    placed: list[tuple[Circuit, list[str]]] = []
     by_position = 0
-    for c in live:
+    for i, c in enumerate(live, 1):
         ph, pos = _phases(c, pattern)
         by_position += pos
-        req[f"{label(c)} load_va"] = c.load_va
-        req[f"{label(c)} phase"] = ph
+        tag = label(c) if f"{label(c)} load_va" not in req else f"{label(c)} (entry {i})"
+        req[f"{tag} load_va"] = c.load_va
+        req[f"{tag} phase"] = ph
         if ph.usable:
-            placed[label(c)] = ph.value
+            placed.append((c, ph.value.split(", ")))
     if gate := input_gate(ID, ref, unit, p.source, req, FIX):
         return [gate]
     totals = dict.fromkeys("ABC", 0)
-    for c in live:
-        letters = placed[label(c)]
+    for c, letters in placed:
         for ph in letters:
             totals[ph] += c.load_va.value / len(letters)
     mean = sum(totals.values()) / len(totals)
@@ -67,7 +69,7 @@ def _panel(p: Panel, cfg: Config, ref: str) -> list[Finding]:
     dev = abs(totals[worst] - mean) * 100 / mean if mean else 0
     if dev > limit:
         heavy = max(totals, key=totals.get)
-        cands = [k for k, v in placed.items() if v == (heavy,)]
+        cands = [label(c) for c, v in placed if v == [heavy]]
         msg = (
             f"{unit}: phase {worst} is {dev:.1f} percent from the mean, above the limit of "
             f"{limit:g} percent. This is project practice, not a code rule."
