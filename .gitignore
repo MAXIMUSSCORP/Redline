@@ -1,0 +1,12 @@
+.claude/plans/
+.claude/notepad.md
+.claude/checkpoints.log
+.unlazy/*/dispatch.json
+gold/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+report.html
