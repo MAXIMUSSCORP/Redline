@@ -165,3 +165,11 @@ def test_csv_formula_cells_escaped(tmp_path):
     assert got == ["'=1+1", "'+1", "'-1", "'@x", "'\tx", "'\rx", "-", "plain"]
     assert rows[-1][7] == "a=1 @ row 7 (LOW)"
     assert rows[-1][3:5] == ["panels.csv", "row 7"]
+
+
+def test_csv_empty_cell_written_empty(tmp_path):
+    f = Finding("r", Severity.INFO, "m", "", None)
+    out = tmp_path / "f.csv"
+    write_findings_csv([f], out)
+    row = list(csv.reader(out.open(newline="", encoding="utf-8")))[1]
+    assert row[2] == "" and row[3] == "" and row[4] == ""
