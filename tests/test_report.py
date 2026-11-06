@@ -12,7 +12,7 @@ from redline.model import (
     Source,
     Unparsed,
 )
-from redline.report.csv_out import CSV_COLUMNS, write_findings_csv
+from redline.report.csv_out import CSV_COLUMNS, format_inputs, write_findings_csv
 from redline.report.html import LIABILITY_SENTENCE, SECTION_IDS, render_html
 
 
@@ -173,3 +173,10 @@ def test_csv_empty_cell_written_empty(tmp_path):
     write_findings_csv([f], out)
     row = list(csv.reader(out.open(newline="", encoding="utf-8")))[1]
     assert row[2] == "" and row[3] == "" and row[4] == ""
+
+
+def test_inputs_used_text_shows_missing():
+    f = Finding(
+        "r", Severity.NEEDS_REVIEW, "m", "R", None, (InputUsed("x", "1", "l", Confidence.MISSING),)
+    )
+    assert "(MISSING)" in format_inputs(f)

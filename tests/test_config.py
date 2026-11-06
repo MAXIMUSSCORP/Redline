@@ -255,3 +255,25 @@ def test_unused_vd_method_block_does_not_unverify(test_cfg, cfg_set):
     assert table_verified(cfg, "voltage_drop")
     cfg = cfg_set(test_cfg, ("tables", "voltage_drop", used), {"x": None})
     assert not table_verified(cfg, "voltage_drop")
+
+
+def test_config_recursive_anchor_raises_config_error(tmp_path):
+    def edit(d):
+        t = d["tables"]["phase_balance"]
+        t["loop"] = t
+
+    with pytest.raises(ConfigError):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", edit))
+
+
+@pytest.mark.parametrize("key", ["defaults", "rule_refs"])
+def test_config_defaults_and_rule_refs_must_be_mappings(tmp_path, key):
+    with pytest.raises(ConfigError, match=key):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", lambda d: d.update({key: ["x"]})))
+
+
+def test_demand_tier_non_list_unverifies(test_cfg, cfg_set):
+    tiers = test_cfg.cec["tables"]["demand_factors"]["by_load_type"]
+    bad = {**tiers, "continuous": "x", "motor": [{"up_to_va": None, "factor": None}, {}]}
+    cfg = cfg_set(test_cfg, ("tables", "demand_factors", "by_load_type"), bad)
+    assert not table_verified(cfg, "demand_factors")

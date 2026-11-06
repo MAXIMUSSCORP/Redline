@@ -15,6 +15,9 @@ def _phases(c: Circuit, pattern: list | None) -> tuple[Value, bool]:
     col = c.phases_used
     if col.source is not None:
         ok = col.value and set(col.value) <= set("ABC")
+        # Letters that disagree with a usable pole count cannot both be right.
+        if ok and c.poles.usable and len(col.value) != c.poles.value:
+            ok = False
         return Value(", ".join(col.value) if ok else None, col.source, col.raw), False
     num = c.number.strip()
     if not (pattern and num.isdigit() and c.poles.usable):

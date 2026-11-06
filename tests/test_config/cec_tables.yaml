@@ -1,5 +1,5 @@
 # TEST CONFIG. Every number below is made up to keep test arithmetic obvious. None is a code value.
-# Odd numbers on purpose: 25 C ambient, 7000 VA demand tiers with a 0.6 remainder factor, and breaker ratings 7 13 29 41 53 97, so none can pass for a code value.
+# Odd numbers on purpose: 25 C ambient, 7000 VA demand tiers with a 0.43 remainder factor, and breaker ratings 7 13 29 41 53 97, so none can pass for a code value.
 config_version: "test-0.1"
 code_edition: "TEST EDITION, NOT CEC"
 code_edition_verified: true
@@ -25,14 +25,14 @@ tables:
     values:
       copper:
         "14 AWG": { "60": 5, "75": 10, "90": 15 }
-        "12 AWG": { "60": 10, "75": 20, "90": 30 }
+        "12 AWG": { "60": 10, "75": 20, "90": 33 }
         "10 AWG": { "60": 20, "75": 40, "90": 60 }
         "6 AWG": { "60": 50, "75": 100, "90": 150 }
       aluminum:
         "14 AWG": { "60": 2, "75": 5, "90": 8 }
         "12 AWG": { "60": 5, "75": 10, "90": 15 }
         "10 AWG": { "60": 10, "75": 20, "90": 30 }
-        "6 AWG": { "60": 25, "75": 50, "90": 75 }
+        "6 AWG": { "60": 25, "75": 47, "90": 75 }
   ambient_temp_correction:    # insulation temp C -> [[ambient_upper_bound_c, factor], ...]
     verified: true
     source: "TEST ONLY, NOT CEC VALUES"
@@ -43,7 +43,7 @@ tables:
   conductor_count_correction: # [[max_conductor_count, factor], ...]
     verified: true
     source: "TEST ONLY, NOT CEC VALUES"
-    values: [[3, 1.0], [6, 0.5], [100, 0.25]]
+    values: [[4, 1.0], [6, 0.5], [100, 0.25]]
   continuous_load:
     verified: true
     source: "TEST ONLY, NOT CEC VALUES"
@@ -54,9 +54,9 @@ tables:
     verified: true
     source: "TEST ONLY, NOT CEC VALUES"
     values:
-      - { max_ocpd_a: 20, copper_size: "14 AWG", aluminum_size: "12 AWG" }
+      - { max_ocpd_a: 17, copper_size: "14 AWG", aluminum_size: "12 AWG" }
       - { max_ocpd_a: 40, copper_size: "12 AWG", aluminum_size: "10 AWG" }
-      - { max_ocpd_a: 100, copper_size: "10 AWG", aluminum_size: "6 AWG" }
+      - { max_ocpd_a: 100, copper_size: "10 AWG", aluminum_size: "10 AWG" }
   conductor_size_order: { verified: true, source: "TEST ONLY, NOT CEC VALUES", values: ["14 AWG", "12 AWG", "10 AWG", "6 AWG"] }
   voltage_drop:
     verified: true
@@ -64,7 +64,7 @@ tables:
     method: "k_factor"
     branch_max_pct: 2
     feeder_max_pct: 2
-    total_max_pct: 3
+    total_max_pct: 3.5
     current_basis: "load"
     show_passing: false
     k_factor:
@@ -93,9 +93,9 @@ tables:
     supplied_vs_computed_tolerance_pct: 10
     # Tiers by cumulative VA. The last tier uses a huge bound, since the test config holds no null.
     by_load_type:
-      continuous: [{ up_to_va: 7000, factor: 1.0 }, { up_to_va: 700000000, factor: 0.5 }]
-      noncontinuous: [{ up_to_va: 7000, factor: 1.0 }, { up_to_va: 700000000, factor: 0.5 }]
-      receptacle: [{ up_to_va: 7000, factor: 1.0 }, { up_to_va: 700000000, factor: 0.5 }]
+      continuous: [{ up_to_va: 7000, factor: 1.0 }, { up_to_va: 700000000, factor: 0.43 }]
+      noncontinuous: [{ up_to_va: 7000, factor: 1.0 }, { up_to_va: 700000000, factor: 0.43 }]
+      receptacle: [{ up_to_va: 7000, factor: 1.0 }, { up_to_va: 700000000, factor: 0.43 }]
       motor: [{ up_to_va: 700000000, factor: 1.0 }]
       unknown: [{ up_to_va: 700000000, factor: 1.0 }]
     bus_loading_limit_fraction: 1.0

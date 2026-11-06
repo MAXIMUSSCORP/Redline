@@ -53,6 +53,6 @@ def test_no_model_import_without_flag(tmp_path):
 
 
 def test_no_model_import_guard_detects_import(tmp_path):
-    code, seen = _seen(tmp_path, ("json", "yaml"))
+    code, seen = _seen(tmp_path, ("yaml",))
     assert code == 0
-    assert "json" in seen
+    assert "yaml" in seen
