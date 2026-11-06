@@ -1,0 +1,43 @@
+ai_version: "0.1-skeleton"
+enabled: false                      # off until the owner turns it on
+tier: cpu                           # cpu | gpu | workstation
+offline: true                       # network refused at runtime; downloads only via `redline models fetch`
+model_cache_dir: "%LOCALAPPDATA%\\redline\\models"
+seed: 0
+temperature: 0.0
+allow_promotion_to_medium: false    # policy 8.8
+
+serving:
+  ollama: { host: "http://127.0.0.1:11434", min_version: "0.12.7" }
+  vllm:   { enabled: false, host: "http://127.0.0.1:8000" }   # optional, WSL2 or Docker only
+
+# name -> pinned identity. Empty hash = cannot be enabled.
+# Every entry carries licence and verified: false until the owner reads the model card.
+# Expected licences: Qwen3-VL, PaddleOCR family, RapidOCR, Tesseract: Apache-2.0. RF-DETR N/S/M/L: Apache-2.0.
+models:
+  rapidocr-onnx:       { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  tesseract:           { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  paddleocr-ppocrv5:   { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  pp-structurev3:      { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  docling-tableformer: { version: "<pin>", weights_sha256: "", licence: "", verified: false }   # code MIT, model licence to verify
+  qwen3-vl:2b:         { version: "<digest>", weights_sha256: "", runtime: ollama, quant: Q4, licence: "", verified: false }
+  qwen3-vl:4b:         { version: "<digest>", weights_sha256: "", runtime: ollama, quant: Q4, licence: "", verified: false }
+  qwen3-vl:8b:         { version: "<digest>", weights_sha256: "", runtime: ollama, quant: Q4, licence: "", verified: false }
+  qwen3-vl:32b:        { version: "<digest>", weights_sha256: "", runtime: ollama, quant: Q4, licence: "", verified: false }
+  paddleocr-vl:        { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  rf-detr-nano:        { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  rf-detr-small:       { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  rf-detr-medium:      { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  rf-detr-large:       { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  d-fine-m:            { version: "<pin>", weights_sha256: "", licence: "", verified: false }
+  grounding-dino:      { version: "<pin>", weights_sha256: "", licence: "", verified: false }   # licence to verify
+  owlv2:               { version: "<pin>", weights_sha256: "", licence: "", verified: false }   # licence to verify
+
+roles:                              # [primary, fallback] per tier; tesseract is the last-resort OCR
+  ocr:               { cpu: [rapidocr-onnx, tesseract], gpu: [paddleocr-ppocrv5, rapidocr-onnx], workstation: [paddleocr-ppocrv5, rapidocr-onnx] }
+  table_structure:   { cpu: [docling-tableformer, pp-structurev3], gpu: [pp-structurev3, docling-tableformer], workstation: [pp-structurev3, docling-tableformer] }
+  table_vlm:         { cpu: [qwen3-vl:4b, qwen3-vl:2b], gpu: [qwen3-vl:8b, paddleocr-vl], workstation: [qwen3-vl:32b, paddleocr-vl] }
+  symbol_detector:   { cpu: [rf-detr-small, d-fine-m], gpu: [rf-detr-medium, d-fine-m], workstation: [rf-detr-large, d-fine-m] }   # YOLO excluded (AGPL)
+  zero_shot_prelabel: { cpu: [], gpu: [grounding-dino, owlv2], workstation: [grounding-dino, owlv2] }   # gold-set pre-labeling only
+
+detector_thresholds: { confidence_min: null, nms_iou: null }   # set from the gold set in M5

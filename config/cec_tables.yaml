@@ -1,0 +1,65 @@
+config_version: "0.2-skeleton"
+code_edition: "TODO: CEC <edition> plus provincial amendments"
+code_edition_verified: false
+
+defaults: { ambient_c: null, voltage_v: null, power_factor: null, conductor_material: null, termination_temp_c: null }
+
+rule_refs:
+  ampacity: "CEC <edition> Rule <fill> [VERIFY]"
+  continuous_load: "CEC <edition> Rule <fill> [VERIFY]"
+  voltage_drop: "CEC <edition> Rule <fill> [VERIFY]"
+  bonding: "CEC <edition> Rule <fill> [VERIFY]"
+  panel_demand: "CEC <edition> Rule <fill> [VERIFY]"
+  phase_balance: "Project practice, not a CEC rule [VERIFY]"
+  completeness: "Drawing standard, not a CEC rule"
+  fire_alarm_exit_signs: "TODO [VERIFY]"
+  fire_alarm_pull_stations: "TODO [VERIFY]"
+  emergency_lighting: "TODO [VERIFY]"
+
+tables:                       # every table: verified: false, source: "<fill from CEC book>"
+  conductor_ampacity:         # material -> size -> insulation temp C -> amps
+    verified: false
+    source: "<fill from CEC book, Table N>"
+    values: { copper: { "12 AWG": { "60": null, "75": null, "90": null } }, aluminum: { "12 AWG": { "60": null, "75": null, "90": null } } }
+  ambient_temp_correction:    # insulation temp C -> [[ambient_upper_bound_c, factor], ...]
+    verified: false
+    source: "<fill>"
+    values: { "75": [[null, null]], "90": [[null, null]] }
+  conductor_count_correction: # [[max_conductor_count, factor], ...]
+    verified: false
+    source: "<fill>"
+    values: [[null, null]]
+  continuous_load:
+    verified: false
+    source: "<fill>"
+    max_fraction_of_breaker: null
+  standard_breaker_ratings: { verified: false, source: "<fill>", values_a: [] }
+  allow_next_standard_size: { verified: false, source: "<fill>", enabled: false }
+  bonding_conductor_size:     # ascending by max_ocpd_a
+    verified: false
+    source: "<fill>"
+    values: [{ max_ocpd_a: null, copper_size: null, aluminum_size: null }]
+  conductor_size_order: { verified: false, source: "<fill>", values: [] }   # smallest to largest
+  voltage_drop:
+    verified: false
+    source: "<project standard or CEC book>"
+    method: "k_factor"               # or "impedance"
+    branch_max_pct: null
+    feeder_max_pct: null
+    total_max_pct: null
+    current_basis: "load"            # or "breaker"
+    show_passing: false
+    k_factor: { constant_by_material: { copper: null, aluminum: null }, area_by_size: { "12 AWG": null }, length_unit_note: "TODO", phase_multiplier: { single: null, three: null } }
+    impedance: { power_factor: null, phase_multiplier: { single: null, three: null }, per_size: { copper: { "12 AWG": { r: null, x: null } } } }
+  demand_factors:
+    verified: false
+    source: "<fill>"
+    default_method: "computed"       # or "user_supplied"
+    supplied_vs_computed_tolerance_pct: null
+    by_load_type: { continuous: [{ up_to_va: null, factor: null }], noncontinuous: [], receptacle: [], motor: [], unknown: [] }   # tiers; last up_to_va null = unbounded
+    bus_loading_limit_fraction: null
+    main_loading_limit_fraction: null
+  phase_balance: { verified: false, source: "<project practice>", max_deviation_pct: null, min_circuits_to_check: null }
+  phase_layout: { verified: false, source: "<project standard>", three_phase_pattern: [], single_phase_pattern: [] }
+
+completeness: { require_description: true, require_load: true, require_breaker: true, require_conductor_size: true, spare_keywords: ["SPARE", "SPACE"], placeholder_texts: ["TBD", "-", "N/A"], severity: "NEEDS_REVIEW" }
