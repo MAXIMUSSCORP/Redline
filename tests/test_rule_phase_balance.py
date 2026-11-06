@@ -82,3 +82,9 @@ def test_rule_phase_balance_duplicate_label_low_input_gated(val, test_cfg):
 def test_rule_phase_balance_phase_shown_without_tuple(val, test_cfg):
     info, _ = _run(_panel(val, [3000, 1000, 1000]), test_cfg)
     assert "(" not in "".join(i.value for i in info.inputs_used if i.field.endswith("phase"))
+
+
+def test_rule_phase_balance_too_few_circuits_not_checked(val, test_cfg):
+    (f,) = _run(_panel(val, [3000, 1000]), test_cfg)
+    assert f.severity == Severity.NOT_CHECKED and "Fewer than" in f.message
+    assert f.suggested_fix and "move" not in f.suggested_fix.lower()
