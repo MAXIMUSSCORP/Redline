@@ -55,6 +55,14 @@ def inputs_used(fields: Mapping[str, Value]) -> tuple[InputUsed, ...]:
     return tuple(out)
 
 
+def _bad_part(n: str, v: Value) -> str:
+    if v.source is None:
+        return f"{n} (missing)"
+    if v.value is None and v.raw:
+        return f'{n} shown as "{v.raw}" (not parsed, at {v.source.locator})'
+    return f"{n} ({v.confidence.name}, at {v.source.locator})"
+
+
 def input_gate(
     rule_id: str,
     rule_ref: str,
@@ -66,12 +74,7 @@ def input_gate(
     bad = [(n, v) for n, v in required.items() if not v.usable]
     if not bad:
         return None
-    parts = [
-        f"{n} (missing)"
-        if v.source is None
-        else f"{n} ({v.confidence.name}, at {v.source.locator})"
-        for n, v in bad
-    ]
+    parts = [_bad_part(n, v) for n, v in bad]
     return Finding(
         rule_id,
         Severity.NEEDS_REVIEW,
