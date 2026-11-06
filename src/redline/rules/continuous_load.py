@@ -5,7 +5,7 @@ import math
 from redline.config import Config, lookup, rule_ref
 from redline.engine import RuleSpec
 from redline.findings import Finding, Severity, input_gate, inputs_used
-from redline.model import Project, effective_voltage, label
+from redline.model import LOAD_TYPES, Project, effective_voltage, label
 
 ID = "continuous_load"
 TABLES = ("continuous_load",)
@@ -26,7 +26,7 @@ def check(project: Project, cfg: Config) -> list[Finding]:
             if gate := input_gate(ID, ref, name, c.source, kind, GATE_FIX):
                 out.append(gate)
                 continue
-            if c.load_type.value == "unknown":
+            if c.load_type.value == "unknown" or c.load_type.value not in LOAD_TYPES:
                 msg = (
                     f"{name}: not checked. Load type is unknown, "
                     "so it is not clear whether the load is continuous."

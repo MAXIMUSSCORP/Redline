@@ -42,6 +42,22 @@ def _finite(text: str) -> float:
     return x
 
 
+def _int(text: str) -> int:
+    n = int(text)
+    if abs(n) > 2**53:
+        raise ValueError(f"{text[:20]} is too large a number")
+    return n
+
+
+def _no_repeat(pairs: list[tuple[str, object]]) -> dict:
+    out: dict = {}
+    for k, v in pairs:
+        if k in out:
+            raise ValueError(f"repeated key {k}")
+        out[k] = v
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if not args.demo_project:
@@ -55,14 +71,24 @@ def main(argv: list[str] | None = None) -> int:
         return _fail(f"config error: {' '.join(str(e).split())}")
     try:
         text = Path(args.demo_project).read_text(encoding="utf-8")
-        data = json.loads(text, parse_constant=_no_constant, parse_float=_finite)
+        data = json.loads(
+            text,
+            parse_constant=_no_constant,
+            parse_float=_finite,
+            parse_int=_int,
+            object_pairs_hook=_no_repeat,
+        )
         project = project_from_dict(data)
     except (OSError, ValueError, KeyError, TypeError, RecursionError) as e:
         why = " ".join(str(e).split()) if isinstance(e, ValueError) else type(e).__name__
         return _fail(f"cannot read demo project {args.demo_project}: {why}.")
+    if not project.panels:
+        return _fail(f"cannot read demo project {args.demo_project}: no panels read.")
     out = Path(args.out)
     try:
-        if out.is_dir() or out.resolve() == (out.parent / "findings.csv").resolve():
+        # Windows drops trailing dots and spaces, and ':' opens a stream of the same file.
+        alias = ":" in out.name or out.name.rstrip(" .").lower() == "findings.csv"
+        if alias or out.is_dir() or out.resolve() == (out.parent / "findings.csv").resolve():
             return _fail(
                 f"--out {args.out} must be a new report file, not a directory or findings.csv."
             )
@@ -70,10 +96,17 @@ def main(argv: list[str] | None = None) -> int:
         result = run(project, cfg, RULES, args.skip_rule)
         html = render_html(project, result, cfg)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(html, encoding="utf-8")
-        write_findings_csv(result.findings, out.parent / "findings.csv")
     except OSError as e:
         return _fail(f"cannot write {args.out}: {type(e).__name__}.")
+    # The CSV goes first, so a report is never left without its findings.
+    for path, write in (
+        (out.parent / "findings.csv", lambda p: write_findings_csv(result.findings, p)),
+        (out, lambda p: p.write_text(html, encoding="utf-8")),
+    ):
+        try:
+            write(path)
+        except OSError as e:
+            return _fail(f"cannot write {path}: {type(e).__name__}.")
     return 0
 
 

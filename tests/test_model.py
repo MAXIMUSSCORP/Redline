@@ -185,7 +185,7 @@ def test_negative_quantity_not_usable():
     c = _one_circuit(breaker_a=-20, load_va=-5, ambient_c=-10, length_m=3)
     assert not c.breaker_a.usable and not c.load_va.usable
     assert c.ambient_c.usable and c.length_m.usable
-    assert _one_circuit(breaker_a=0).breaker_a.usable
+    assert not _one_circuit(breaker_a=0).breaker_a.usable
 
 
 def test_demo_project_model_set_capped_low():
@@ -200,3 +200,47 @@ def test_effective_voltage_unparsed_own_voltage_not_replaced(val):
     c = Circuit("LP-1", "1", _src(), poles=val(2), voltage_v=own)
     assert effective_voltage(c, p) is own
     assert effective_voltage(Circuit("LP-1", "2", _src(), poles=val(2)), p).value == 208
+
+
+def test_unlisted_load_type_not_usable():
+    for bad in ("Continuous", " continuous", "bogus"):
+        lt = _one_circuit(load_type=bad).load_type
+        assert not lt.usable and lt.source.note == "not a known load type"
+    assert _one_circuit(load_type="continuous").load_type.usable
+
+
+def _project_with(panel_cells, feeder_cells):
+    src = {"file": "t.csv", "locator": "r1", "method": "csv", "confidence": "HIGH"}
+
+    def cells(d):
+        return {k: {"value": v, "source": src} for k, v in d.items()}
+
+    panel = {"name": "P", "source": src, **cells(panel_cells)}
+    feeder = {"id": "F", "source": src, **cells(feeder_cells)}
+    return project_from_dict({"name": "x", "panels": [panel], "feeders": [feeder]})
+
+
+def test_zero_rating_or_divisor_not_usable():
+    c = _one_circuit(breaker_a=0, voltage_v=0, load_va=0, length_m=0)
+    assert not c.breaker_a.usable and not c.voltage_v.usable
+    assert c.breaker_a.source.note == "zero"
+    assert c.load_va.usable and c.length_m.usable
+    pr = _project_with(
+        {"bus_rating_a": 0, "main_breaker_a": 0, "voltage_v": 0},
+        {"ocpd_a": 0, "sets_in_parallel": 0, "voltage_v": 0},
+    )
+    p, f = pr.panels[0], pr.feeders[0]
+    assert not any(v.usable for v in (p.bus_rating_a, p.main_breaker_a, p.voltage_v))
+    assert not any(v.usable for v in (f.ocpd_a, f.sets_in_parallel, f.voltage_v))
+
+
+def test_negative_insulation_temp_not_usable():
+    assert not _one_circuit(insulation_temp_c=-5).insulation_temp_c.usable
+    assert _one_circuit(ambient_c=-5).ambient_c.usable
+
+
+def test_effective_voltage_blank_own_voltage_uses_panel(val):
+    p = Panel("LP-1", _src(), voltage_v=val(208))
+    for blank in (Value(None, _src(), None), Value(None, _src(), "")):
+        c = Circuit("LP-1", "1", _src(), poles=val(2), voltage_v=blank)
+        assert effective_voltage(c, p).value == 208
