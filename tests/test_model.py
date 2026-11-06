@@ -58,12 +58,50 @@ def test_label():
     assert label(Panel("LP-1", _src())) == "LP-1"
 
 
-def test_effective_voltage_falls_back_to_panel(val):
-    p = Panel("LP-1", _src(), voltage_v=val(120))
-    c = Circuit("LP-1", "1", _src())
-    assert effective_voltage(c, p).value == 120
+def test_effective_voltage_single_pole_needs_own_voltage(val):
+    p = Panel("LP-1", _src(), voltage_v=val(208))
+    c = Circuit("LP-1", "1", _src(), poles=val(1))
+    assert effective_voltage(c, p).confidence == Confidence.MISSING
+    c.poles = Value.missing()
+    assert not effective_voltage(c, p).usable
     c.voltage_v = val(277)
     assert effective_voltage(c, p).value == 277
+
+
+def test_effective_voltage_multi_pole_uses_panel_voltage(val):
+    p = Panel("LP-1", _src(), voltage_v=val(208))
+    c = Circuit("LP-1", "1", _src(), poles=val(2))
+    assert effective_voltage(c, p).value == 208
+    c.voltage_v = val(240)
+    assert effective_voltage(c, p).value == 240
+
+
+def test_value_non_finite_not_usable(val):
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        assert not val(bad, Confidence.HIGH).usable
+    assert val(1.5, Confidence.HIGH).usable
+
+
+def test_demo_project_ai_method_capped_low():
+    src = {"file": "a.pdf", "locator": "p1", "method": "csv", "confidence": "HIGH"}
+    data = {
+        "name": "d",
+        "panels": [
+            {
+                "name": "P",
+                "source": src,
+                "voltage_v": {"value": 120, "source": {**src, "method": "vlm"}},
+                "phases": {"value": 1, "source": {**src, "method": "ocr"}},
+                "wires": {"value": 3, "source": {**src, "method": "detector"}},
+                "bus_rating_a": {"value": 100, "source": src},
+            }
+        ],
+    }
+    p = project_from_dict(data).panels[0]
+    assert p.voltage_v.confidence == Confidence.LOW
+    assert p.phases.confidence == Confidence.LOW
+    assert p.wires.confidence == Confidence.LOW
+    assert p.bus_rating_a.confidence == Confidence.HIGH
 
 
 def test_is_mlo():

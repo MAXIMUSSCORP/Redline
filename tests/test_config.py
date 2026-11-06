@@ -145,7 +145,9 @@ def test_test_config_labelled(test_cfg):
         assert t["source"] == TEST_SOURCE_LABEL, name
         assert table_verified(test_cfg, name), name
     assert not list(_null_leaves(test_cfg.cec["tables"]))
-    assert not list(_null_leaves(test_cfg.cec["defaults"]))
+    # conductors_in_raceway stays null on purpose: the rule then reports it as missing.
+    defaults = {k: v for k, v in test_cfg.cec["defaults"].items() if k != "conductors_in_raceway"}
+    assert not list(_null_leaves(defaults))
     assert not unverified_tables(test_cfg, test_cfg.cec["tables"])
 
 
@@ -203,3 +205,53 @@ def test_rule_ref(test_cfg, skeleton_cfg):
     assert rule_ref(test_cfg, "ampacity") == "TEST Rule AMP-1"
     assert rule_ref(test_cfg, "nope") == "rule_ref missing in config [VERIFY]"
     assert "[VERIFY]" in rule_ref(skeleton_cfg, "ampacity")
+
+
+@pytest.mark.parametrize("bad", ["false", 1, None])
+def test_code_edition_verified_must_be_bool(tmp_path, bad):
+    def edit(d):
+        d["code_edition_verified"] = bad
+
+    with pytest.raises(ConfigError, match="code_edition_verified"):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", edit))
+
+
+@pytest.mark.parametrize(
+    ("name", "edit"),
+    [
+        ("ai.yaml", lambda d: d.update(roles={"ocr": 5})),
+        ("ai.yaml", lambda d: d.update(models={1: {}})),
+        ("ai.yaml", lambda d: d.update(roles={"r": {"t1": None}})),
+        ("cec_tables.yaml", lambda d: d.update(completeness=["x"])),
+        ("cec_tables.yaml", lambda d: d.update(completeness="x")),
+    ],
+)
+def test_config_wrong_types_raise_config_error(tmp_path, name, edit):
+    with pytest.raises(ConfigError):
+        load_config(_copy_edit(tmp_path, name, edit))
+
+
+def test_unbounded_last_tier_can_be_verified(test_cfg, cfg_set):
+    tiers = test_cfg.cec["tables"]["demand_factors"]["by_load_type"]["continuous"]
+    cfg = cfg_set(
+        test_cfg,
+        ("tables", "demand_factors", "by_load_type", "continuous"),
+        [*tiers[:-1], {**tiers[-1], "up_to_va": None}],
+    )
+    assert table_verified(cfg, "demand_factors")
+    first = [{**tiers[0], "up_to_va": None}, *tiers[1:]]
+    if len(tiers) > 1:
+        cfg = cfg_set(test_cfg, ("tables", "demand_factors", "by_load_type", "continuous"), first)
+        assert not table_verified(cfg, "demand_factors")
+    cfg = cfg_set(test_cfg, ("tables", "demand_factors", "bus_loading_limit_fraction"), None)
+    assert not table_verified(cfg, "demand_factors")
+
+
+def test_unused_vd_method_block_does_not_unverify(test_cfg, cfg_set):
+    vd = test_cfg.cec["tables"]["voltage_drop"]
+    unused = "impedance" if vd["method"] == "k_factor" else "k_factor"
+    used = "k_factor" if unused == "impedance" else "impedance"
+    cfg = cfg_set(test_cfg, ("tables", "voltage_drop", unused), {"x": None})
+    assert table_verified(cfg, "voltage_drop")
+    cfg = cfg_set(test_cfg, ("tables", "voltage_drop", used), {"x": None})
+    assert not table_verified(cfg, "voltage_drop")

@@ -3,7 +3,7 @@ config_version: "test-0.1"
 code_edition: "TEST EDITION, NOT CEC"
 code_edition_verified: true
 
-defaults: { ambient_c: 30, voltage_v: 100, power_factor: 1.0, conductor_material: "Cu", termination_temp_c: 75 }
+defaults: { conductors_in_raceway: null, ambient_c: 30, voltage_v: 100, power_factor: 1.0, conductor_material: "Cu", termination_temp_c: 75 }
 
 rule_refs:
   ampacity: "TEST Rule AMP-1"

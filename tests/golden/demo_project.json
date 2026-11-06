@@ -451,7 +451,7 @@
        "file": "demo_panels.csv",
        "locator": "row 4 load_va",
        "method": "csv",
-       "confidence": "HIGH"
+       "confidence": "LOW"
       }
      },
      "load_type": {
