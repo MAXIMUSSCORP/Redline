@@ -1,3 +1,5 @@
+import pytest
+
 from redline import engine
 from redline.model import Circuit, Confidence, Method, Panel, Project, Source
 from redline.rules.continuous_load import SPEC
@@ -73,3 +75,11 @@ def test_rule_continuous_load_null_table_entry(test_cfg, cfg_set, val):
     (f,) = engine.run(_project(val), cfg, [SPEC]).findings
     assert f.severity.value == "NEEDS_REVIEW"
     assert "table entry missing" in f.message.lower()
+
+
+@pytest.mark.parametrize("bad", ["Continuous", "CONTINUOUS", " continuous", "bogus"])
+def test_rule_continuous_load_unlisted_load_type_needs_review(test_cfg, cfg_set, val, bad):
+    project = _project(val, load_type=val(bad))
+    (f,) = engine.run(project, _cfg(test_cfg, cfg_set), [SPEC]).findings
+    assert f.severity.value == "NEEDS_REVIEW"
+    assert "LP-1 ckt 7" in f.message

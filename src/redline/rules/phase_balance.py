@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from redline.config import Config, lookup, rule_ref
 from redline.engine import RuleSpec
 from redline.findings import Finding, Severity, input_gate, inputs_used
@@ -17,7 +19,10 @@ def _phases(c: Circuit, pattern: list | None) -> tuple[Value, bool]:
         ok = col.value and set(col.value) <= set("ABC")
         # Letters that disagree with a usable pole count cannot both be right.
         if ok and c.poles.usable and len(col.value) != c.poles.value:
-            ok = False
+            why = "phases shown disagree with poles"
+            note = f"{col.source.note}; {why}" if col.source.note else why
+            low = replace(col.source, confidence=Confidence.LOW, note=note)
+            return Value(", ".join(col.value), low, col.raw), False
         return Value(", ".join(col.value) if ok else None, col.source, col.raw), False
     num = c.number.strip()
     if not (pattern and num.isdigit() and c.poles.usable):
