@@ -67,7 +67,7 @@ def check(project: Project, cfg: Config) -> list[Finding]:
             current = fields["load_va"].value / (fields["voltage_v"].value * three)
             breaker = fields["breaker_a"].value
             limit = breaker * fraction
-            if current > limit:
+            if current > limit and not math.isclose(current, limit):
                 msg = (
                     f"{name}: continuous load draws {current:.1f} A, above the {limit:.1f} A "
                     f"allowed on a {breaker:g} A breaker. {ref}"

@@ -23,6 +23,12 @@ def _cfg(cfg, cfg_set, show_passing=False):
     return cfg
 
 
+def _run(project, cfg):
+    """Findings without the per-panel note that a panel's own feed is not shown."""
+    out = engine.run(project, cfg, [SPEC]).findings
+    return tuple(f for f in out if "feed source not shown" not in f.message)
+
+
 def _circuit(val, length, **over):
     fields = {
         "length_m": val(length),
@@ -37,6 +43,7 @@ def _circuit(val, length, **over):
 def _project(val, length=1.5, feeder_length=None, **over):
     panel = Panel("LP-1", SRC, voltage_v=val(100), circuits=[_circuit(val, length, **over)])
     feeders = []
+    mdp = Panel("MDP", SRC)
     if feeder_length is not None:
         panel.fed_from = val("MDP")
         feeders = [
@@ -54,11 +61,11 @@ def _project(val, length=1.5, feeder_length=None, **over):
                 sets_in_parallel=val(1),
             )
         ]
-    return Project("t", panels=[panel], feeders=feeders)
+    return Project("t", panels=[panel, mdp] if feeders else [panel], feeders=feeders)
 
 
 def test_rule_voltage_drop_trigger(test_cfg, cfg_set, val):
-    (f,) = engine.run(_project(val, 5), _cfg(test_cfg, cfg_set), [SPEC]).findings
+    (f,) = _run(_project(val, 5), _cfg(test_cfg, cfg_set))
     assert (f.rule_id, f.severity.value) == ("voltage_drop", "VIOLATION")
     assert f.rule_ref == "TEST Rule VD-1"
     assert f.source.locator == "row 7"
@@ -68,12 +75,12 @@ def test_rule_voltage_drop_trigger(test_cfg, cfg_set, val):
 
 
 def test_rule_voltage_drop_pass(test_cfg, cfg_set, val):
-    assert engine.run(_project(val), _cfg(test_cfg, cfg_set), [SPEC]).findings == ()
+    assert _run(_project(val), _cfg(test_cfg, cfg_set)) == ()
 
 
 def test_rule_voltage_drop_show_passing(test_cfg, cfg_set, val):
     cfg = _cfg(test_cfg, cfg_set, show_passing=True)
-    (f,) = engine.run(_project(val), cfg, [SPEC]).findings
+    (f,) = _run(_project(val), cfg)
     assert f.severity.value == "INFO"
 
 
@@ -87,13 +94,13 @@ def test_rule_voltage_drop_impedance_method(test_cfg, cfg_set, val):
         ("impedance", "per_size", "copper", "12 AWG", "x"): 0,
     }.items():
         cfg = cfg_set(cfg, (*VD, *path), v)
-    (f,) = engine.run(_project(val, 5), cfg, [SPEC]).findings
+    (f,) = _run(_project(val, 5), cfg)
     assert f.severity.value == "VIOLATION" and "50.00%" in f.message
 
 
 def test_rule_voltage_drop_low_input(test_cfg, cfg_set, val):
     low = val(1.5, Confidence.LOW, locator="cell F9")
-    (f,) = engine.run(_project(val, length_m=low), _cfg(test_cfg, cfg_set), [SPEC]).findings
+    (f,) = _run(_project(val, length_m=low), _cfg(test_cfg, cfg_set))
     assert f.severity.value == "NEEDS_REVIEW"
     assert "length_m" in f.message and "cell F9" in f.message
     assert "LP-1 ckt 7" in f.message
@@ -101,21 +108,21 @@ def test_rule_voltage_drop_low_input(test_cfg, cfg_set, val):
 
 def test_rule_voltage_drop_unverified_table(test_cfg, cfg_set, cfg_unverify, val):
     cfg = cfg_unverify(_cfg(test_cfg, cfg_set), "voltage_drop")
-    (f,) = engine.run(_project(val, 5), cfg, [SPEC]).findings
+    (f,) = _run(_project(val, 5), cfg)
     assert f.severity.value == "NEEDS_REVIEW"
     assert "not verified" in f.message
 
 
 def test_rule_voltage_drop_null_table_entry(test_cfg, cfg_set, val):
     cfg = cfg_set(_cfg(test_cfg, cfg_set), (*VD, "k_factor", "area_by_size", "12 AWG"), None)
-    (f,) = engine.run(_project(val, 5), cfg, [SPEC]).findings
+    (f,) = _run(_project(val, 5), cfg)
     assert f.severity.value == "NEEDS_REVIEW"
     assert "table entry missing" in f.message.lower()
 
 
 def test_total_fails_while_parts_pass(test_cfg, cfg_set, val):
-    result = engine.run(_project(val, 1.5, feeder_length=1.5), _cfg(test_cfg, cfg_set), [SPEC])
-    (f,) = result.findings
+    result = _run(_project(val, 1.5, feeder_length=1.5), _cfg(test_cfg, cfg_set))
+    (f,) = result
     assert f.severity.value == "VIOLATION"
     assert "total voltage drop 3.00%" in f.message
     assert "LP-1 ckt 7" in f.message
@@ -124,6 +131,42 @@ def test_total_fails_while_parts_pass(test_cfg, cfg_set, val):
 def test_rule_voltage_drop_broken_chain_not_checked(test_cfg, cfg_set, val):
     project = _project(val, 1.5, feeder_length=1.5)
     project.feeders = []
-    (f,) = engine.run(project, _cfg(test_cfg, cfg_set), [SPEC]).findings
+    (f,) = _run(project, _cfg(test_cfg, cfg_set))
     assert f.severity.value == "NOT_CHECKED"
     assert "no feeder shown into LP-1" in f.message
+
+
+def _chain_project(val, **kw):
+    return _project(val, 1.5, feeder_length=1.5, **kw)
+
+
+def _raw(project, cfg):
+    return engine.run(project, cfg, [SPEC]).findings
+
+
+def test_rule_voltage_drop_total_low_feeder_link_not_checked(test_cfg, cfg_set, val):
+    project = _chain_project(val)
+    project.feeders[0].to_panel = val("LP-1", Confidence.LOW, locator="cell B2")
+    (f,) = _run(project, _cfg(test_cfg, cfg_set))
+    assert f.severity.value == "NOT_CHECKED"
+    assert "feeder to_panel is LOW" in f.message
+
+
+def test_rule_voltage_drop_total_unknown_source_panel_not_checked(test_cfg, cfg_set, val):
+    project = _chain_project(val)
+    project.panels = [project.panels[0]]
+    (f,) = _run(project, _cfg(test_cfg, cfg_set))
+    assert f.severity.value == "NOT_CHECKED"
+    assert "source panel MDP not in project" in f.message
+
+
+def test_rule_voltage_drop_total_missing_fed_from_not_checked(test_cfg, cfg_set, val):
+    (f,) = _raw(_project(val), _cfg(test_cfg, cfg_set))
+    assert f.severity.value == "NOT_CHECKED"
+    assert "LP-1" in f.message and "feed source not shown" in f.message
+
+
+def test_rule_voltage_drop_total_cites_feeder_inputs(test_cfg, cfg_set, val):
+    (f,) = _run(_chain_project(val), _cfg(test_cfg, cfg_set))
+    assert f.severity.value == "VIOLATION"
+    assert any(i.field.startswith("Feeder F-1") for i in f.inputs_used)

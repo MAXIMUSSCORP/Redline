@@ -76,3 +76,17 @@ def test_rule_panel_demand_null_table_entry(val, test_cfg, cfg_set):
     cfg = cfg_set(test_cfg, ("tables", "demand_factors", "by_load_type", "continuous"), None)
     (f,) = _run(_panel(val, [4000]), cfg)
     assert f.severity == Severity.NEEDS_REVIEW and "Table entry missing" in f.message
+
+
+def test_rule_panel_demand_duplicate_label_low_input_gated(val, test_cfg):
+    p = _panel(val, [4000, 4000])
+    p.circuits[1].number = "1"
+    p.circuits[0].load_va = val(4000, Confidence.LOW, locator="row 1 load")
+    (f,) = _run(p, test_cfg)
+    assert f.severity == Severity.NEEDS_REVIEW
+    assert "row 1 load" in f.message
+
+
+def test_rule_panel_demand_violation_wording(val, test_cfg):
+    _, bus, _ = _run(_panel(val, [10000, 10000]), test_cfg)
+    assert "of the" not in bus.message and bus.rule_ref in bus.message
