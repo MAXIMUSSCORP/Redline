@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from enum import IntEnum, StrEnum
 from typing import Any
 
@@ -194,7 +194,8 @@ def label(unit: Panel | Circuit | Feeder) -> str:
 
 
 def effective_voltage(c: Circuit, p: Panel) -> Value:
-    if c.voltage_v.value is not None:
+    # A voltage the circuit showed stays its own, even when it did not parse.
+    if c.voltage_v.value is not None or c.voltage_v.source is not None:
         return c.voltage_v
     # Panel voltage is line to line. Only a circuit of 2 or more poles sees it.
     if c.poles.usable and isinstance(c.poles.value, int | float) and c.poles.value >= 2:
@@ -216,30 +217,58 @@ def _dict(d: Any, what: str) -> dict:
     return d
 
 
+_SOURCE_KEYS = {f.name for f in fields(Source)}
+_VALUE_KEYS = {"value", "source", "raw"}
+# Numeric fields that may be negative. Every other number must be zero or more.
+_SIGNED = {"ambient_c", "insulation_temp_c", "x", "y"}
+
+
+def _text(v: Any, what: str, required: bool = False) -> Any:
+    if not (isinstance(v, str) or (v is None and not required)):
+        raise TypeError(f"{what} must be a string")
+    return v
+
+
+def _check_keys(d: dict, allowed: set[str], what: str) -> None:
+    if unknown := sorted(set(d) - allowed):
+        raise ValueError(f"unknown key in {what}: {', '.join(unknown)}")
+
+
 def _source(d: Any) -> Source:
     d = _dict(d, "source")
+    _check_keys(d, _SOURCE_KEYS, "source")
     method = Method(d["method"])
     conf = Confidence[d["confidence"]]
-    if method in _AI_METHODS:
+    # A source that names a model is AI-derived, whatever its method says.
+    if method in _AI_METHODS or d.get("model") is not None:
         conf = min(conf, Confidence.LOW)
     return Source(
-        file=d["file"],
-        locator=d["locator"],
+        file=_text(d["file"], "source file", True),
+        locator=_text(d["locator"], "source locator", True),
         method=method,
         confidence=conf,
-        note=d.get("note", ""),
-        crop_path=d.get("crop_path"),
-        model=d.get("model"),
-        extractor=d.get("extractor"),
+        note=_text(d.get("note", ""), "source note") or "",
+        crop_path=_text(d.get("crop_path"), "source crop_path"),
+        model=_text(d.get("model"), "source model"),
+        extractor=_text(d.get("extractor"), "source extractor"),
     )
 
 
-def _value(d: Any) -> Value:
-    if not d:
+def _value(d: Any, name: str = "") -> Value:
+    if d is None:
         return Value.missing()
     d = _dict(d, "value")
+    _check_keys(d, _VALUE_KEYS, "value")
+    val = d.get("value")
+    if isinstance(val, bool):
+        raise TypeError("value must not be true or false")
     src = d.get("source")
-    return Value(d.get("value"), _source(src) if src else None, d.get("raw"))
+    out = Value(val, None if src is None else _source(src), _text(d.get("raw"), "value raw"))
+    if out.source is not None and name not in _SIGNED and isinstance(val, int | float) and val < 0:
+        # A negative quantity is not a reading. The input gate then names it.
+        low = replace(out.source, confidence=Confidence.LOW, note="negative quantity")
+        out = replace(out, source=low)
+    return out
 
 
 def _build(cls: type, d: Any, extra: tuple[str, ...] = ()) -> Any:
@@ -255,8 +284,10 @@ def _build(cls: type, d: Any, extra: tuple[str, ...] = ()) -> Any:
         if f.name == "source":
             kw[f.name] = _source(raw)
         elif f.default_factory == Value.missing:
-            kw[f.name] = _value(raw)
+            kw[f.name] = _value(raw, f.name)
         else:
+            if isinstance(f.default, bool) and not isinstance(raw, bool):
+                raise TypeError(f"{f.name} must be true or false")
             kw[f.name] = raw
     return cls(**kw)
 

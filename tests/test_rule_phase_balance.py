@@ -88,3 +88,10 @@ def test_rule_phase_balance_too_few_circuits_not_checked(val, test_cfg):
     (f,) = _run(_panel(val, [3000, 1000]), test_cfg)
     assert f.severity == Severity.NOT_CHECKED and "Fewer than" in f.message
     assert f.suggested_fix and "move" not in f.suggested_fix.lower()
+
+
+def test_rule_phase_balance_poles_phases_mismatch_gated(val, test_cfg):
+    panel = _panel(val, [1000, 1000, 1000])
+    panel.circuits[1].poles = val(2)
+    (f,) = _run(panel, test_cfg)
+    assert f.severity == Severity.NEEDS_REVIEW and "LP-1 ckt 2 phase" in f.message

@@ -8,6 +8,7 @@ after a deliberate change to the demo project or a rule, read the CSV by eye, th
 """
 
 import csv
+import json
 import shutil
 from pathlib import Path
 
@@ -71,3 +72,12 @@ def test_gate_end_to_end_one_table_unverified(tmp_path):
     assert amp and not any(r["severity"] == "VIOLATION" for r in amp)
     assert any(r["severity"] == "NEEDS_REVIEW" for r in amp)
     assert any(r["severity"] == "VIOLATION" for r in rows if r["rule_id"] != "ampacity")
+
+
+def test_demo_project_poles_match_phases_used():
+    data = json.loads(Path(DEMO).read_text(encoding="utf-8"))
+    for p in data["panels"]:
+        for c in p["circuits"]:
+            poles, phases = c.get("poles", {}), c.get("phases_used", {})
+            if poles.get("value") is not None and phases.get("value") is not None:
+                assert poles["value"] == len(phases["value"]), (p["name"], c["number"])
