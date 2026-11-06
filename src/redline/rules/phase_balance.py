@@ -7,6 +7,7 @@ from redline.model import Circuit, Confidence, Method, Panel, Project, Source, V
 
 ID = "phase_balance"
 FIX = "Move circuits from the heaviest phase to the lightest. Reviewer to confirm [VERIFY]."
+NOT_RUN_FIX = "Reviewer to screen phase balance for this panel by hand."
 
 
 def _phases(c: Circuit, pattern: list | None) -> tuple[Value, bool]:
@@ -32,7 +33,9 @@ def _panel(p: Panel, cfg: Config, ref: str) -> list[Finding]:
         return [gate]
     if p.phases.value != 3:
         msg = f"{unit}: single-phase panel, phase balance not screened."
-        return [Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, inputs_used(base), FIX)]
+        return [
+            Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, inputs_used(base), NOT_RUN_FIX)
+        ]
     limit = lookup(cfg, "phase_balance", "max_deviation_pct")
     least = lookup(cfg, "phase_balance", "min_circuits_to_check")
     pattern = lookup(cfg, "phase_layout", "three_phase_pattern")
