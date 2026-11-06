@@ -63,5 +63,21 @@ def test_rule_phase_balance_position_is_medium(val, test_cfg):
     assert {i.confidence for i in phase_inputs} == {Confidence.MEDIUM}
 
 
-def test_rule_phase_balance_single_phase_panel_not_screened(val, test_cfg):
-    assert _run(_panel(val, [3000, 1000, 1000], phase_count=1), test_cfg) == []
+def test_rule_phase_balance_single_phase_panel_not_checked(val, test_cfg):
+    (f,) = _run(_panel(val, [3000, 1000, 1000], phase_count=1), test_cfg)
+    assert f.severity == Severity.NOT_CHECKED
+    assert "LP-1" in f.message and "single-phase" in f.message
+
+
+def test_rule_phase_balance_duplicate_label_low_input_gated(val, test_cfg):
+    p = _panel(val, [1000, 1000, 1000])
+    p.circuits[1].number = "1"
+    p.circuits[0].load_va = val(1000, Confidence.LOW, locator="row 1 load")
+    (f,) = _run(p, test_cfg)
+    assert f.severity == Severity.NEEDS_REVIEW
+    assert "row 1 load" in f.message
+
+
+def test_rule_phase_balance_phase_shown_without_tuple(val, test_cfg):
+    info, _ = _run(_panel(val, [3000, 1000, 1000]), test_cfg)
+    assert "(" not in "".join(i.value for i in info.inputs_used if i.field.endswith("phase"))

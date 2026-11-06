@@ -26,7 +26,9 @@ def _issue(name: str, v: Value, placeholders: set[str]) -> str | None:
     return None
 
 
-def _circuit(c: Circuit, block: dict, placeholders: set[str], sev: Severity, ref: str):
+def _circuit(
+    c: Circuit, block: dict, placeholders: set[str], sev: Severity, ref: str
+) -> Finding | None:
     used = {n: getattr(c, n) for n, flag in FIELDS if block.get(flag)}
     issues = [i for n, v in used.items() if (i := _issue(n, v, placeholders))]
     if not issues:
@@ -37,7 +39,7 @@ def _circuit(c: Circuit, block: dict, placeholders: set[str], sev: Severity, ref
 
 def check(project: Project, cfg: Config) -> list[Finding]:
     block = cfg.cec["completeness"]
-    s = str(block.get("severity"))
+    s = str(block.get("severity")).upper()
     sev = Severity.NEEDS_REVIEW if s == "VIOLATION" else Severity(s)
     placeholders = {str(t).upper() for t in block.get("placeholder_texts") or []}
     ref = rule_ref(cfg, ID)

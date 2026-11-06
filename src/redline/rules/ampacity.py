@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
+
 from redline.config import Config, default_value, lookup, rule_ref
 from redline.engine import RuleSpec
 from redline.findings import Finding, Severity, input_gate, inputs_used
-from redline.model import Project, Value, label
+from redline.model import Circuit, Feeder, Project, Value, label
 from redline.units import MATERIAL_TABLE_KEY
 
 ID = "ampacity"
@@ -22,11 +25,13 @@ FIX = (
 )
 
 
-def _factor(rows, x):
+def _factor(rows: list | None, x: float) -> float | None:
     return next((f for bound, f in rows or () if x <= bound), None)
 
 
-def _missing(name: str, ref: str, u, fields, what: str) -> Finding:
+def _missing(
+    name: str, ref: str, u: Circuit | Feeder, fields: Mapping[str, Value], what: str
+) -> Finding:
     return Finding(
         ID,
         Severity.NEEDS_REVIEW,
@@ -38,7 +43,9 @@ def _missing(name: str, ref: str, u, fields, what: str) -> Finding:
     )
 
 
-def _unit(cfg: Config, ref: str, name: str, u, ocpd: Value, sets: Value | None) -> Finding | None:
+def _unit(
+    cfg: Config, ref: str, name: str, u: Circuit | Feeder, ocpd: Value, sets: Value | None
+) -> Finding | None:
     fields = {
         "breaker_a": ocpd,
         "conductor_size": u.conductor_size,
@@ -81,7 +88,7 @@ def _unit(cfg: Config, ref: str, name: str, u, ocpd: Value, sets: Value | None) 
     base, ambient, count = found.values()
     corrected = base * ambient * count * (fields["sets_in_parallel"].value if sets else 1)
     breaker = fields["breaker_a"].value
-    if corrected >= breaker:
+    if corrected >= breaker or math.isclose(corrected, breaker):
         return None
     if lookup(cfg, "allow_next_standard_size", "enabled") is True:
         ratings = lookup(cfg, "standard_breaker_ratings", "values_a")

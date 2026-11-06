@@ -62,3 +62,9 @@ def test_rule_completeness_severity_from_config(val, test_cfg, cfg_set):
     cfg = cfg_set(test_cfg, ("completeness", "severity"), "INFO")
     (f,) = _run([_full(val, "1", description=val(""))], cfg)
     assert f.severity == Severity.INFO
+
+
+def test_rule_completeness_severity_case_insensitive(val, test_cfg, cfg_set):
+    cfg = cfg_set(test_cfg, ("completeness", "severity"), "needs_review")
+    (f,) = _run([_full(val, "1", description=val(""))], cfg)
+    assert f.severity == Severity.NEEDS_REVIEW
