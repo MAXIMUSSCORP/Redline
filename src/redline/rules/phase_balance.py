@@ -45,7 +45,7 @@ def _panel(p: Panel, cfg: Config, ref: str) -> list[Finding]:
         return [Finding(ID, Severity.NEEDS_REVIEW, msg, ref, p.source, (), FIX)]
     if len(live) < least:
         msg = f"{unit}: not checked. Fewer than {least} circuits to compare."
-        return [Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, (), FIX)]
+        return [Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, (), NOT_RUN_FIX)]
     req: dict[str, Value] = {}
     placed: list[tuple[Circuit, list[str]]] = []
     by_position = 0
