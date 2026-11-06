@@ -69,3 +69,12 @@ def test_inputs_used_shows_raw_for_failed_parse(val):
         'load_va=shown as "TBD" (not parsed) @ row 4 load_va'
     )
     assert (got[1].value, got[2].value) == ("A", "A, B")
+
+
+def test_input_gate_shows_raw_for_failed_parse(val):
+    from redline.findings import input_gate
+
+    bad = Value(None, Source("t.csv", "row 4 load_va", Method.CSV, Confidence.HIGH), "TBD")
+    f = input_gate("r", "ref", "DP-1 ckt 3", None, {"load_va": bad, "x": Value(None, None)}, "fix")
+    assert 'load_va shown as "TBD" (not parsed, at row 4 load_va)' in f.message
+    assert "HIGH" not in f.message and "x (missing)" in f.message
