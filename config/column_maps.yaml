@@ -19,6 +19,7 @@ csv_panel_schedule:           # one circuit per row; owner adds aliases from rea
   conductors_in_raceway: ["conductors in raceway", "ccc"]
   ambient_c:         ["ambient", "ambient temp"]
   bonding_size:      ["bonding", "bonding size", "bond"]
+  not_mapped:        ["phase label"]   # C7: a label, not a phase; lands in unparsed
 
 panel_header_block:           # key/value lines above the table
   panel_name:     ["panel", "panel name", "designation"]
