@@ -458,3 +458,51 @@ def test_config_text_fields_must_be_str(tmp_path, edit):
 def test_config_completeness_lists_and_flags_validated(tmp_path, edit):
     with pytest.raises(ConfigError):
         load_config(_copy_edit(tmp_path, "cec_tables.yaml", edit))
+
+
+_ROW_CASES = [
+    ((_T, "ambient_temp_correction", "values", "75"), [None]),
+    ((_T, "conductor_count_correction", "values"), [[4, 1.0], None]),
+    ((_T, "standard_breaker_ratings", "values_a"), [7, None]),
+    ((_T, "bonding_conductor_size", "values"), [None]),
+    ((_T, "conductor_size_order", "values"), [None]),
+    ((*_DF, "by_load_type", "continuous"), [None]),
+    ((*_VD, "k_factor", "area_by_size", "12 AWG"), 0),
+    ((*_VD, "k_factor", "area_by_size", "12 AWG"), -4),
+    *[((_T, "phase_layout", "three_phase_pattern"), [x]) for x in (None, "a", "", "D", "AB")],
+]
+
+
+@pytest.mark.parametrize(("path", "bad"), _ROW_CASES)
+def test_config_table_rows_and_pattern_validated(tmp_path, path, bad):
+    with pytest.raises(ConfigError):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", _put(path, bad)))
+
+
+def test_config_table_null_cells_of_a_row_still_load(tmp_path):
+    edit = _put((_T, "conductor_count_correction", "values"), [[None, None]])
+    assert load_config(_copy_edit(tmp_path, "cec_tables.yaml", edit))
+
+
+@pytest.mark.parametrize("key", ["description", "load", "breaker", "conductor_size"])
+def test_config_completeness_flag_null_raises(tmp_path, key):
+    for bad in (None, "true", 1):
+        edit = _put(("completeness", f"require_{key}"), bad)
+        with pytest.raises(ConfigError):
+            load_config(_copy_edit(tmp_path, "cec_tables.yaml", edit))
+
+
+def test_skeleton_config_partial_fill_never_stops_a_rule(skeleton_cfg, cfg_set, val):
+    from redline.engine import run
+    from redline.model import Circuit, Confidence, Method, Panel, Project, Source
+    from redline.registry import RULES
+
+    src = Source("t.csv", "row 1", Method.CSV, Confidence.HIGH)
+    c = Circuit("LP-1", "1", src, breaker_a=val(20), conductor_size=val("12 AWG"))
+    c.conductor_material, c.insulation_temp_c = val("Cu"), val(75)
+    c.conductors_in_raceway, c.ambient_c = val(3), val(25)
+    cfg = cfg_set(skeleton_cfg, ("defaults", "termination_temp_c"), 75)  # only defaults filled
+    out = run(Project("p", panels=[Panel("LP-1", src, circuits=[c])]), cfg, RULES)
+    assert not out.skipped
+    amp = [f for f in out.findings if f.rule_id == "ampacity"]
+    assert amp and "Table entry missing" in amp[0].message

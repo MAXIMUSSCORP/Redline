@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from redline.config import Config, rule_ref
 from redline.engine import RuleSpec
-from redline.findings import Finding, Severity, inputs_used
+from redline.findings import Finding, Severity, checked, inputs_used
 from redline.model import Circuit, Project, Value, label
 
 ID = "completeness"
@@ -43,13 +43,15 @@ def check(project: Project, cfg: Config) -> list[Finding]:
     sev = Severity.NEEDS_REVIEW if s == "VIOLATION" else Severity(s)
     placeholders = {str(t).upper() for t in block.get("placeholder_texts") or []}
     ref = rule_ref(cfg, ID)
-    found = (
-        _circuit(c, block, placeholders, sev, ref)
+    return [
+        f
         for p in project.panels
         for c in p.circuits
         if not c.is_spare
-    )
-    return [f for f in found if f]
+        for f in checked(
+            ID, ref, label(c), c.source, lambda c=c: _circuit(c, block, placeholders, sev, ref)
+        )
+    ]
 
 
 SPEC = RuleSpec(ID, "Completeness", check)
