@@ -154,7 +154,32 @@ def test_rule_voltage_drop_total_low_feeder_link_not_checked(test_cfg, cfg_set, 
     project.feeders[0].to_panel = val("LP-1", Confidence.LOW, locator="cell B2")
     (f,) = _run(project, _cfg(test_cfg, cfg_set))
     assert f.severity.value == "NOT_CHECKED"
-    assert "no feeder shown into LP-1" in f.message
+    assert 'Feeder F-1 to_panel "LP-1" is not usable (LOW)' in f.message
+    assert "no feeder shown" not in f.message
+
+
+@pytest.mark.parametrize(
+    ("kind", "blank_source", "expect"),
+    [
+        ("low", False, 'Feeder F-1 to_panel "LP-1" is not usable (LOW)'),
+        ("unparsed", False, 'Feeder F-1 to_panel shown as "LP-1" is not parsed'),
+        ("low", True, 'Feeder F-1 to_panel "LP-1" is not usable (LOW)'),
+    ],
+)
+def test_rule_voltage_drop_lone_unusable_feeder_named(
+    test_cfg, cfg_set, val, kind, blank_source, expect
+):
+    project = _chain_project(val)
+    if kind == "low":
+        project.feeders[0].to_panel = val("LP-1", Confidence.LOW, locator="cell B2")
+    else:
+        project.feeders[0].to_panel = val(None, raw="LP-1")
+    if blank_source:
+        project.panels[0].fed_from = Value.missing()
+    (f,) = _raw(project, _cfg(test_cfg, cfg_set))
+    assert f.severity.value == "NOT_CHECKED"
+    assert expect in f.message and "LP-1 is not confirmed" in f.message
+    assert "no feeder shown" not in f.message and "Supply above" not in f.message
 
 
 def test_rule_voltage_drop_total_unknown_source_panel_not_checked(test_cfg, cfg_set, val):

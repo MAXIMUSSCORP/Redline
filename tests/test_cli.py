@@ -511,3 +511,69 @@ def test_input_files_and_config_hashes_reported(tmp_path):
     assert rc == 0
     assert "demo_panels.csv; demo_feeders.csv" in html
     assert "feedface-input" in html and "Input cec_tables.yaml SHA-256" in html
+
+
+BIG = "&" * 2_000_000
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        lambda d: d.update(name=BIG),
+        lambda d: d.update(code_edition=BIG),
+        lambda d: d["unparsed"].append(
+            {"kind": "column", "raw": BIG, "reason": "r", "source": d["panels"][0]["source"]}
+        ),
+        lambda d: d["coverage"].append(
+            {"file": "f", "unit": "u", "what_read": BIG, "method": "csv", "confidence_summary": "c"}
+        ),
+        lambda d: d["run_info"].update(tool_version=BIG),
+        lambda d: d["run_info"]["extractor_versions"].update({BIG: BIG}),
+        lambda d: d["run_info"]["seeds"].update({BIG: 1}),
+    ],
+    ids=[
+        "name",
+        "code_edition",
+        "unparsed_raw",
+        "what_read",
+        "tool_version",
+        "extractor",
+        "seed_key",
+    ],
+)
+def test_report_fields_clipped(tmp_path, edit):
+    d = json.loads(Path(DEMO).read_text(encoding="utf-8"))
+    d.setdefault("unparsed", [])
+    d.setdefault("coverage", [])
+    d.setdefault("run_info", {"tool_version": "0"})
+    d["run_info"].setdefault("extractor_versions", {})
+    d["run_info"].setdefault("seeds", {})
+    edit(d)
+    f = tmp_path / "p.json"
+    f.write_text(json.dumps(d), encoding="utf-8")
+    out = tmp_path / "report.html"
+    assert main(["check", "--demo-project", str(f), "--config", TEST_CFG, "--out", str(out)]) == 0
+    assert out.stat().st_size < 10_000_000
+    assert (tmp_path / "findings.csv").stat().st_size < 10_000_000
+
+
+def _hash_report(tmp_path, hashes):
+    d = json.loads(Path(DEMO).read_text(encoding="utf-8"))
+    d.setdefault("run_info", {"tool_version": "0"})
+    d["run_info"]["config_hashes"] = hashes
+    f = tmp_path / "p.json"
+    f.write_text(json.dumps(d), encoding="utf-8")
+    out = tmp_path / "report.html"
+    assert main(["check", "--demo-project", str(f), "--config", TEST_CFG, "--out", str(out)]) == 0
+    return out
+
+
+def test_input_hash_rows_not_merged(tmp_path):
+    a, b = "h" * 80 + "-one", "h" * 80 + "-two"
+    html = _hash_report(tmp_path, {a: "aa", b: "bb"}).read_text(encoding="utf-8")
+    assert html.count("Input " + "h" * 80) == 2
+    assert "aa" in html and "bb" in html
+    many = {f"n{i}": "x" for i in range(300_000)}
+    out = _hash_report(tmp_path, many)
+    assert out.stat().st_size < 10_000_000
+    assert "and 299950 more" in out.read_text(encoding="utf-8")

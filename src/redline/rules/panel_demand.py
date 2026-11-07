@@ -37,9 +37,9 @@ def _nr(cfg: Config, p: Panel, msg: str, used: dict | None = None) -> Finding:
 
 def _computed(p: Panel, cfg: Config) -> Value | Finding:
     live = [c for c in p.circuits if not c.is_spare]
-    req = {}
+    req, nexts = {}, {}
     for c in live:
-        tag = unique_tag(req, label(c), ("load_va", "load_type"))
+        tag = unique_tag(req, label(c), ("load_va", "load_type"), nexts)
         req[f"{tag} load_va"] = c.load_va
         req[f"{tag} load_type"] = c.load_type
     if gate := input_gate(ID, rule_ref(cfg, ID), label(p), p.source, req, FIX):

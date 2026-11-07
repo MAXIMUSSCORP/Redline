@@ -76,12 +76,13 @@ def _panel(p: Panel, cfg: Config, ref: str) -> list[Finding]:
         msg = f"{unit}: not checked. Fewer than {least} circuits to compare."
         return [Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, (), NOT_RUN_FIX)]
     req: dict[str, Value] = {}
+    nexts: dict[str, int] = {}
     placed: list[tuple[Circuit, list[str]]] = []
     by_position = 0
     for c in live:
         ph, pos = _phases(c, pattern)
         by_position += pos
-        tag = unique_tag(req, label(c), ("load_va", "phase"))
+        tag = unique_tag(req, label(c), ("load_va", "phase"), nexts)
         req[f"{tag} load_va"] = c.load_va
         req[f"{tag} phase"] = ph
         if ph.usable:
