@@ -3,7 +3,7 @@ from __future__ import annotations
 from redline.config import Config, rule_ref
 from redline.engine import RuleSpec
 from redline.findings import Finding, Severity, checked, inputs_used
-from redline.model import Circuit, Project, Value, label
+from redline.model import Circuit, Project, Value, clip, label
 
 ID = "completeness"
 FIX = "Add the load description and connected load, or mark the circuit SPARE."
@@ -20,9 +20,9 @@ def _issue(name: str, v: Value, placeholders: set[str]) -> str | None:
         return f"{name} (missing)"
     shown = str(v.value if v.value is not None else v.raw or "").strip()
     if v.value is None or not shown or shown.upper() in placeholders:
-        return f'{name} (not usable, shown as "{shown}")' if shown else f"{name} (blank)"
+        return f'{name} (not usable, shown as "{clip(shown)}")' if shown else f"{name} (blank)"
     if not v.usable:
-        return f"{name} ({v.confidence.name}, at {v.source.locator})"
+        return f"{name} ({v.confidence.name}, at {clip(v.source.locator)})"
     return None
 
 

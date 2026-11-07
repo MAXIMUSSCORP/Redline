@@ -132,6 +132,15 @@ class _Index:
             self.panels.setdefault(q.name, q)
 
 
+def _unusable_lead(u: Feeder) -> str:
+    raw = clip(u.to_panel.raw or "")
+    if u.to_panel.value is not None:
+        return f'{label(u)} to_panel "{clip(u.to_panel.value)}" is not usable (LOW)'
+    if raw:
+        return f'{label(u)} to_panel shown as "{raw}" is not parsed'
+    return f"{label(u)} has no to_panel shown"
+
+
 def _chain(
     idx: _Index, panel: Panel, drops: dict[str, float | None]
 ) -> tuple[float | None, list[Feeder], str, str]:
@@ -143,6 +152,11 @@ def _chain(
     total, used, cur, seen = 0.0, [], panel, set()
     while True:
         matched = idx.into.get(cur.name, [])
+        if not matched:  # a feeder that names this panel but cannot be used comes first
+            named = [u for u in idx.unparsed if cur.name in (u.to_panel.value, u.to_panel.raw)]
+            if named:
+                why = f"{_unusable_lead(named[0])}, so the feed into {label(cur)} is not confirmed"
+                return None, used, why, ""
         if not (cur.fed_from.value or cur.fed_from.raw):
             if matched:  # a feeder lands here, so a blank source is a gap, not a top
                 why = f"{label(matched[0])} feeds {label(cur)}, which shows no feed source"
@@ -154,20 +168,14 @@ def _chain(
         seen.add(cur.name)
         if not cur.fed_from.usable:
             return None, used, f"the feed source of {label(cur)} is not usable", ""
-        if not into:
+        if not into and not idx.unparsed:
             return None, used, f"no feeder shown into {label(cur)}", ""
         if len(into) > 1:
             return None, used, f"{len(into)} feeders feed {label(cur)}", ""
         if idx.unparsed:  # a feeder whose to_panel is unread could also feed this panel
-            u = idx.unparsed[0]
-            raw = clip(u.to_panel.raw or "")
-            if u.to_panel.value is not None:
-                lead = f'{label(u)} to_panel "{clip(u.to_panel.value)}" is not usable (LOW)'
-            elif raw:
-                lead = f'{label(u)} to_panel shown as "{raw}" is not parsed'
-            else:
-                lead = f"{label(u)} has no to_panel shown"
-            return None, used, f"{lead}, so it may also feed {label(cur)}", ""
+            also = "also " if into else ""
+            lead = _unusable_lead(idx.unparsed[0])
+            return None, used, f"{lead}, so it may {also}feed {label(cur)}", ""
         feeder = into[0]
         fp = feeder.from_panel
         if (fp.value is not None or fp.raw) and not fp.usable:
