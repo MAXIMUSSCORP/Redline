@@ -368,3 +368,65 @@ def test_project_edition_mismatch_stated(tmp_path):
     other = _provenance(tmp_path, "Some Other Edition")
     assert "Project code edition: Some Other Edition" in other
     assert "different code edition" in other
+
+
+def test_output_bounded_for_long_ids_and_many_circuits(tmp_path):
+    d = _demo_dict()
+    feeder_id = "F" * 200000
+    d["feeders"][0]["id"] = feeder_id
+    panel = next(p for p in d["panels"] if p["name"] == d["feeders"][0]["to_panel"]["value"])
+    base = panel["circuits"][2]
+    panel["circuits"] = [dict(base, number=str(n)) for n in range(1, 201)]
+    f = tmp_path / "p.json"
+    f.write_text(json.dumps(d), encoding="utf-8")
+    argv = [
+        "check",
+        "--demo-project",
+        str(f),
+        "--config",
+        TEST_CFG,
+        "--out",
+        str(tmp_path / "r.html"),
+    ]
+    assert main(argv) == 0
+    assert (tmp_path / "findings.csv").stat().st_size < 5_000_000
+
+
+def _provenance_with(tmp_path, run_info):
+    data = _demo_dict()
+    data["run_info"] = run_info
+    f = tmp_path / "p.json"
+    f.write_text(json.dumps(data), encoding="utf-8")
+    out = tmp_path / "r.html"
+    argv = ["check", "--demo-project", str(f), "--config", TEST_CFG, "--out", str(out)]
+    return main(argv), out
+
+
+def test_input_provenance_all_fields_reported(tmp_path):
+    rc, out = _provenance_with(tmp_path, {"tool_version": "9.9-input", "seeds": {"detector": 42}})
+    html = out.read_text(encoding="utf-8")
+    assert rc == 0 and "9.9-input" in html and "detector 42" in html
+    rc, out = _provenance_with(tmp_path, {"tool_version": "1"})
+    assert rc == 0 and "<td>Seeds</td><td>—</td>" in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "run_info",
+    [
+        {"tool_version": ""},
+        {"tool_version": "1", "extractor_versions": {"": "1"}},
+        {"tool_version": "1", "extractor_versions": {"a": ""}},
+        {"tool_version": "1", "model_ids_versions_hashes": [""]},
+        {"tool_version": "1", "seeds": {"": 1}},
+        {"tool_version": "1", "config_hashes": {"a": ""}},
+    ],
+)
+def test_input_provenance_empty_strings_refused(tmp_path, run_info):
+    rc, _ = _provenance_with(tmp_path, run_info)
+    assert rc == 2
+
+
+@pytest.mark.parametrize("bad", [[], False, 0, ""])
+def test_demo_project_run_info_not_object_exits_2(tmp_path, capsys, bad):
+    rc, err = _demo_edit(tmp_path, capsys, lambda d: d.update(run_info=bad))
+    assert rc == 2 and "Traceback" not in err

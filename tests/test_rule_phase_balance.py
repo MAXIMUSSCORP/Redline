@@ -136,4 +136,16 @@ def test_rule_phase_balance_long_circuit_number_not_a_position(val, test_cfg):
     p = _panel(val, [1000, 1000, 1000], by_column=False)
     p.circuits[0].number = "1" * 5000
     out = _run(p, test_cfg)
-    assert out[0].severity == Severity.NEEDS_REVIEW and 'phase shown as "111111"' in out[0].message
+    assert (
+        out[0].severity == Severity.NEEDS_REVIEW and "circuit number not usable" in out[0].message
+    )
+
+
+def test_rule_phase_balance_bad_circuit_number_message(val, test_cfg):
+    for number in ("²", "1" * 5000):
+        p = _panel(val, [1000, 1000, 1000], by_column=False)
+        p.circuits[0].number = number
+        msg = _run(p, test_cfg)[0].message
+        assert "phase shown as" not in msg and "circuit number not usable for position" in msg
+        assert len(msg) < 400
+    assert "…" in msg

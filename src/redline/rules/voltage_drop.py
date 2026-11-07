@@ -15,6 +15,7 @@ from redline.model import (
     Project,
     Source,
     Value,
+    clip,
     effective_voltage,
     label,
 )
@@ -120,12 +121,12 @@ class _Index:
 
     def __init__(self, project: Project) -> None:
         self.into: dict[str, list[Feeder]] = {}
-        self.unparsed: list[Feeder] = []  # to_panel shown but not read: could feed any panel
+        self.unparsed: list[Feeder] = []  # to_panel not read or not shown: could feed any panel
         self.panels: dict[str, Panel] = {}
         for f in project.feeders:
             if f.to_panel.value is not None:
                 self.into.setdefault(f.to_panel.value, []).append(f)
-            elif f.to_panel.raw:
+            else:
                 self.unparsed.append(f)
         for q in project.panels:
             self.panels.setdefault(q.name, q)
@@ -147,8 +148,7 @@ def _chain(
                 why = f"{label(matched[0])} feeds {label(cur)}, which shows no feed source"
                 return None, used, why, ""
             break
-        # A feeder whose to_panel was shown but not read could feed this panel too.
-        into = matched + idx.unparsed if matched else matched
+        into = matched
         if cur.name in seen:
             return None, used, f"{label(cur)} feeds itself", ""
         seen.add(cur.name)
@@ -158,6 +158,15 @@ def _chain(
             return None, used, f"no feeder shown into {label(cur)}", ""
         if len(into) > 1:
             return None, used, f"{len(into)} feeders feed {label(cur)}", ""
+        if idx.unparsed:  # a feeder whose to_panel is unread could also feed this panel
+            u = idx.unparsed[0]
+            raw = clip(u.to_panel.raw or "")
+            lead = (
+                f'{label(u)} to_panel shown as "{raw}" is not parsed'
+                if raw
+                else f"{label(u)} has no to_panel shown"
+            )
+            return None, used, f"{lead}, so it may also feed {label(cur)}", ""
         feeder = into[0]
         fp = feeder.from_panel
         if (fp.value is not None or fp.raw) and not fp.usable:
@@ -277,7 +286,7 @@ def check(project: Project, cfg: Config) -> list[Finding]:
         if drops[f.id] is not None:
             low = min(v.confidence for v in req.values())
             cited[f.id] = InputUsed(
-                f"{label(f)} drop", f"{drops[f.id]:.2f}%", f.source.locator, low
+                f"{label(f)} drop", f"{drops[f.id]:.2f}%", clip(f.source.locator), low
             )
     for p in project.panels:
         chain, used, why, top = _chain(idx, p, drops)

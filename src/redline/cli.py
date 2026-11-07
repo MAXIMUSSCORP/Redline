@@ -113,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             extractor_versions=dict(given.extractor_versions),
             model_ids_versions_hashes=list(given.model_ids_versions_hashes),
             seeds=dict(given.seeds),
+            input_tool_version=given.tool_version,
         )
         result = run(project, cfg, RULES, args.skip_rule)
         html = render_html(project, result, cfg)
