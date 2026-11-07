@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redline screening report: {{ project_name }}</title>
+<style>
+:root{
+  --g1:#FCFCFC;--g2:#F8F8F8;--g3:#F1F1F1;--g4:#E9E9E9;--g5:#E1E1E1;--g6:#D8D8D8;
+  --g7:#CBCBCB;--g8:#B4B4B4;--g9:#8C8C8C;--g10:#7A7A7A;--g11:#606060;--g12:#1B1B1B;
+  --inv-bg:#000;--inv-fg:#FFF;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --g1:#0A0A0A;--g2:#111;--g3:#181818;--g4:#202020;--g5:#282828;--g6:#333;
+    --g7:#444;--g8:#5C5C5C;--g9:#808080;--g10:#929292;--g11:#B0B0B0;--g12:#EFEFEF;
+    --inv-bg:#FFF;--inv-fg:#000;
+  }
+}
+:root{
+  --app:var(--g1);--line:var(--g6);--line-strong:var(--g8);
+  --text:var(--g12);--text-low:var(--g11);--text-dim:var(--g9);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--app);color:var(--text);
+  font:13.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px}
+section{margin:0 0 32px}
+h1{font-size:25px;margin:0 0 4px}
+h2{font:10px/1.4 ui-monospace,SFMono-Regular,Consolas,Menlo,monospace;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--text-low);margin:0 0 8px;
+  border-bottom:1px solid var(--line);padding-bottom:4px}
+.mono,table,.st,.cnt,.banner{font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace;
+  font-variant-numeric:tabular-nums}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{text-align:left;vertical-align:top;padding:6px 8px;border-bottom:1px solid var(--line)}
+th{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-low);font-weight:400}
+td{overflow-wrap:anywhere}
+.st{white-space:nowrap;font-size:10px;letter-spacing:.14em;text-transform:uppercase}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;
+  border:1.5px solid currentColor;background:transparent}
+.dot.violation{background:currentColor}
+.dot.needs_review{background:linear-gradient(90deg,currentColor 50%,transparent 50%)}
+.dot.not_checked{border-style:dashed}
+tr.violation{background:var(--inv-bg);color:var(--inv-fg)}
+tr.violation td{border-bottom-color:var(--inv-fg)}
+tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
+.cnts{display:flex;flex-wrap:wrap;gap:8px}
+.cnt{border:1px solid var(--line-strong);padding:8px 12px;min-width:130px;font-size:10px;letter-spacing:.14em}
+.cnt b{display:block;font-size:25px;font-weight:400;letter-spacing:0}
+.cnt.hot{background:var(--inv-bg);color:var(--inv-fg)}
+.banner{border:2px solid var(--text);padding:10px 12px}
+.warn{border:1px solid var(--line-strong);box-shadow:inset 2px 0 0 var(--text);padding:8px 12px;margin:8px 0}
+.dim{color:var(--text-low)}
+.note{margin-top:16px;padding-top:8px;border-top:1px solid var(--line)}
+@media print{
+  :root{--g1:#FFF;--g6:#D8D8D8;--g8:#B4B4B4;--g9:#606060;--g11:#333;--g12:#000;
+    --inv-bg:#000;--inv-fg:#FFF}
+  body{background:#FFF;color:#000;font-size:11px}
+  main{max-width:none;padding:0}
+  section,tr{break-inside:avoid}
+  tr.violation,.cnt.hot{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head>
+<body>
+<main>
+<h1>Redline screening report</h1>
+<p class="mono dim">{{ project_name }}</p>
+
+{% macro sev(s) -%}
+<span class="st"><span class="dot {{ s|lower }}"></span>{{ s }}</span>
+{%- endmacro %}
+
+{% if is_test %}
+<section id="banner">
+<h2>Banner</h2>
+<p class="banner">{{ test_label }}. Every number in this report comes from a test config and is not a Canadian Electrical Code value.</p>
+</section>
+{% endif %}
+
+<section id="summary">
+<h2>Summary</h2>
+<div class="cnts">
+{% for s in sev_order %}
+<div class="cnt{{ ' hot' if s in ('VIOLATION', 'NEEDS_REVIEW') and sev_counts[s] }}"><b>{{ sev_counts[s] }}</b>{{ s }}</div>
+{% endfor %}
+<div class="cnt"><b>{{ result.ran|length }}</b>RULES RAN</div>
+<div class="cnt{{ ' hot' if result.skipped }}"><b>{{ result.skipped|length }}</b>RULES NOT RUN</div>
+</div>
+<p class="dim">Counts are findings, not units passed. A rule that ran and reported nothing has not shown that anything is correct.</p>
+</section>
+
+<section id="rules">
+<h2>Rules</h2>
+{% if result.unverified or not edition_verified %}
+<p class="warn">Unverified tables: a rule that uses one reports no VIOLATION. Each would-be VIOLATION is shown as NEEDS_REVIEW. {% if not edition_verified %}The code edition is also unverified, so the same applies to every rule. {% endif %}A qualified reviewer must verify the tables against the code before any finding is relied on.</p>
+{% endif %}
+<table>
+<tr><th>Rule</th><th>Status</th><th>Unverified tables used</th>{% for s in sev_order %}<th>{{ s }}</th>{% endfor %}</tr>
+{% for rid in result.ran %}
+<tr><td>{{ rid }}</td><td>RAN</td><td>{{ result.unverified[rid]|join(', ') if rid in result.unverified else empty }}</td>
+{% for s in sev_order %}<td>{{ per_rule[rid][s] }}</td>{% endfor %}</tr>
+{% endfor %}
+{% for rid, why in result.skipped %}
+<tr><td>{{ rid }}</td><td>NOT RUN: {{ why }}</td><td>{{ empty }}</td>
+{% for s in sev_order %}<td>{{ per_rule[rid][s] }}</td>{% endfor %}</tr>
+{% endfor %}
+</table>
+</section>
+
+<section id="findings">
+<h2>Findings</h2>
+{% if findings %}
+<table>
+<tr><th>Severity</th><th>Rule</th><th>Finding</th><th>Rule ref</th><th>File</th><th>Locator</th><th>Suggested fix</th></tr>
+{% for x in findings %}
+<tr class="{{ x.sev|lower }}"><td>{{ sev(x.sev) }}</td><td>{{ x.f.rule_id }}</td>
+<td>{{ x.f.message }}{% if x.medium %}<br>{{ x.medium }}{% endif %}{% if x.inputs %}<br><span class="dim">Inputs: {{ x.inputs }}</span>{% endif %}</td>
+<td>{{ x.ref }}</td><td>{{ x.file }}</td><td>{{ x.loc }}</td><td>{{ x.fix }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>No findings. This is not a statement that the design is correct. See the coverage table for what was read.</p>
+{% endif %}
+</section>
+
+<section id="manual-check">
+<h2>Needs manual check</h2>
+<table>
+<tr><th>State</th><th>Item</th><th>File</th><th>Locator</th><th>Reason</th></tr>
+{% for u in unparsed %}
+<tr class="needs_review"><td>{{ sev('NOT_CHECKED') }}</td><td>{{ u.kind }}: {{ u.raw }}</td><td>{{ u.file }}</td><td>{{ u.loc }}</td><td>{{ u.reason }}</td></tr>
+{% endfor %}
+{% for x in manual %}
+<tr class="{{ x.sev|lower }}"><td>{{ sev(x.sev) }}</td><td>{{ x.f.rule_id }}</td><td>{{ x.file }}</td><td>{{ x.loc }}</td><td>{{ x.f.message }}</td></tr>
+{% endfor %}
+</table>
+{% if not unparsed and not manual %}
+<p>No item is waiting for a manual check in this run.</p>
+{% endif %}
+</section>
+
+<section id="coverage">
+<h2>Coverage</h2>
+<table>
+<tr><th>File</th><th>Unit</th><th>What was read</th><th>Method</th><th>Confidence</th></tr>
+{% for c in coverage %}
+<tr><td>{{ c.file }}</td><td>{{ c.unit }}</td><td>{{ c.what }}</td><td>{{ c.method }}</td><td>{{ c.conf }}</td></tr>
+{% endfor %}
+</table>
+{% if not coverage %}
+<p>No coverage entries were recorded. Nothing is claimed as read.</p>
+{% endif %}
+</section>
+
+<section id="config-tables">
+<h2>Config tables</h2>
+<p class="mono">Code edition: {{ edition }} · {{ 'verified' if edition_verified else 'NOT VERIFIED' }}</p>
+<p class="mono">Project code edition: {{ project_edition }}</p>
+{% if edition_differs %}
+<p class="warn">The project names a different code edition than the config. A qualified reviewer must confirm which edition applies before any finding is relied on.</p>
+{% endif %}
+<table>
+<tr><th>Table</th><th>Status</th><th>Source</th></tr>
+{% for t in tables %}
+<tr{{ '' if t.verified else ' class=needs_review' }}><td>{{ t.name }}</td><td>{{ 'VERIFIED' if t.verified else 'NOT VERIFIED' }}</td><td>{{ t.source }}</td></tr>
+{% endfor %}
+</table>
+</section>
+
+<section id="footer">
+<h2>Footer</h2>
+<table>
+<tr><th>Item</th><th>Value</th></tr>
+<tr><td>Tool version</td><td>{{ tool_version }}</td></tr>
+<tr><td>Input tool version</td><td>{{ input_tool_version }}</td></tr>
+<tr><td>Config version</td><td>{{ config_version }}</td></tr>
+{% for name, h in hashes %}
+{% if h is none %}
+<tr><td>{{ name }}</td><td>{{ empty }}</td></tr>
+{% else %}
+<tr><td>{{ name }} SHA-256</td><td>{{ h }}</td></tr>
+{% endif %}
+{% endfor %}
+{% for name, h in input_hashes %}
+{% if h is none %}
+<tr><td>{{ name }}</td><td>{{ empty }}</td></tr>
+{% else %}
+<tr><td>Input {{ name }} SHA-256</td><td>{{ h }}</td></tr>
+{% endif %}
+{% endfor %}
+<tr><td>Input files</td><td>{% if input_files %}{{ input_files }}{% else %}none listed{% endif %}</td></tr>
+<tr><td>Extractors</td><td>{% if extractors %}{{ extractors }}{% else %}none in this run{% endif %}</td></tr>
+<tr><td>Seeds</td><td>{% if seeds %}{{ seeds }}{% else %}{{ empty }}{% endif %}</td></tr>
+<tr><td>Models</td><td>{% if models %}{{ models }}{% else %}none in this run{% endif %}</td></tr>
+</table>
+<p class="note">{{ liability }}</p>
+<p class="dim">Units not checked are listed as not checked. They are never counted as passing.</p>
+</section>
+</main>
+</body>
+</html>

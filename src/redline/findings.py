@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from enum import StrEnum
+
+from redline.model import Confidence, Source, Value, clip
+
+
+class Severity(StrEnum):
+    VIOLATION = "VIOLATION"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+    INFO = "INFO"
+    NOT_CHECKED = "NOT_CHECKED"
+
+
+@dataclass(frozen=True)
+class InputUsed:
+    field: str
+    value: str
+    locator: str  # "config default" for config.default_value inputs
+    confidence: Confidence | None
+    model: str | None = None
+
+
+@dataclass(frozen=True)
+class Finding:
+    rule_id: str
+    severity: Severity
+    message: str
+    rule_ref: str
+    source: Source | None
+    inputs_used: tuple[InputUsed, ...] = ()
+    suggested_fix: str = ""
+
+
+def _locator(v: Value) -> str:
+    if v.source is None:
+        return ""
+    return "config default" if v.source.note == "config default" else clip(v.source.locator)
+
+
+def inputs_used(fields: Mapping[str, Value]) -> tuple[InputUsed, ...]:
+    out = []
+    for name, v in fields.items():
+        model = v.source.model if v.source else None
+        if v.value is None and v.raw:
+            # No confidence word: a parse failure must not read as a good value.
+            shown = f'shown as "{clip(v.raw)}" (not parsed)'
+            out.append(InputUsed(name, shown, _locator(v), None, model))
+            continue
+        val = v.value
+        text = ", ".join(map(str, val)) if isinstance(val, tuple | list) else str(val)
+        text = clip(text, 200)
+        out.append(InputUsed(name, "" if val is None else text, _locator(v), v.confidence, model))
+    return tuple(out)
+
+
+def checked(
+    rule_id: str, rule_ref: str, unit: str, source: Source | None, fn: Callable[[], object]
+) -> list[Finding]:
+    """Run one unit's check alone. A failure becomes that unit's NEEDS_REVIEW, not the rule's."""
+    try:
+        out = fn()
+    except Exception as e:  # noqa: BLE001 - one bad unit must not stop the others
+        msg = f"{unit}: could not be checked. The cause was not identified ({type(e).__name__})."
+        fix = "Reviewer to check this unit by hand, and to check the config tables [VERIFY]."
+        return [Finding(rule_id, Severity.NEEDS_REVIEW, msg, rule_ref, source, (), fix)]
+    if out is None:
+        return []
+    return list(out) if isinstance(out, list) else [out]  # type: ignore[list-item]
+
+
+def unique_tag(
+    taken: Mapping[str, object],
+    name: str,
+    fields: tuple[str, ...],
+    nexts: dict[str, int] | None = None,
+) -> str:
+    """A tag whose keys are all free, so no circuit's input can replace another's.
+
+    nexts remembers the last suffix used per label, so many repeats of one label do not rescan.
+    """
+    nexts = {} if nexts is None else nexts
+    n = nexts.get(name, 1)
+    while True:
+        tag = name if n == 1 else f"{name} #{n}"
+        if not any(f"{tag} {f}" in taken for f in fields):
+            nexts[name] = n
+            return tag
+        n += 1
+
+
+def _bad_part(n: str, v: Value) -> str:
+    if v.source is None:
+        return f"{n} (missing)"
+    if v.value is None and v.raw:
+        return f'{n} shown as "{clip(v.raw)}" (not parsed, at {clip(v.source.locator)})'
+    note = f", {clip(v.source.note)}" if v.source.note else ""
+    return f"{n} ({v.confidence.name}{note}, at {clip(v.source.locator)})"
+
+
+def input_gate(
+    rule_id: str,
+    rule_ref: str,
+    unit: str,
+    source: Source | None,
+    required: Mapping[str, Value],
+    fix: str,
+) -> Finding | None:
+    bad = [(n, v) for n, v in required.items() if not v.usable]
+    if not bad:
+        return None
+    parts = [_bad_part(n, v) for n, v in bad]
+    return Finding(
+        rule_id,
+        Severity.NEEDS_REVIEW,
+        f"{unit}: not checked. Input not usable: {'; '.join(parts)}.",
+        rule_ref,
+        source,
+        inputs_used(required),
+        fix,
+    )
