@@ -52,3 +52,9 @@ def test_notes_not_an_alias():
     for path in (REAL, TEST):
         for aliases in _csv(path).values():
             assert "notes" not in aliases
+
+
+def test_phase_label_not_mapped():
+    for path in (REAL, TEST):
+        homes = [k for k, v in _csv(path).items() if "phase label" in v]
+        assert homes == ["not_mapped"]
