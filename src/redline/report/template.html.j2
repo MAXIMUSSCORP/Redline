@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Redline screening report: {{ project.name }}</title>
+<title>Redline screening report: {{ project_name }}</title>
 <style>
 :root{
   --g1:#FCFCFC;--g2:#F8F8F8;--g3:#F1F1F1;--g4:#E9E9E9;--g5:#E1E1E1;--g6:#D8D8D8;
@@ -66,7 +66,7 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 <body>
 <main>
 <h1>Redline screening report</h1>
-<p class="mono dim">{{ project.name }}</p>
+<p class="mono dim">{{ project_name }}</p>
 
 {% macro sev(s) -%}
 <span class="st"><span class="dot {{ s|lower }}"></span>{{ s }}</span>
@@ -129,14 +129,14 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 <h2>Needs manual check</h2>
 <table>
 <tr><th>State</th><th>Item</th><th>File</th><th>Locator</th><th>Reason</th></tr>
-{% for u in project.unparsed %}
-<tr class="needs_review"><td>{{ sev('NOT_CHECKED') }}</td><td>{{ u.kind }}: {{ u.raw or empty }}</td><td>{{ u.source.file or empty }}</td><td>{{ u.source.locator or empty }}</td><td>{{ u.reason or empty }}</td></tr>
+{% for u in unparsed %}
+<tr class="needs_review"><td>{{ sev('NOT_CHECKED') }}</td><td>{{ u.kind }}: {{ u.raw }}</td><td>{{ u.file }}</td><td>{{ u.loc }}</td><td>{{ u.reason }}</td></tr>
 {% endfor %}
 {% for x in manual %}
 <tr class="{{ x.sev|lower }}"><td>{{ sev(x.sev) }}</td><td>{{ x.f.rule_id }}</td><td>{{ x.file }}</td><td>{{ x.loc }}</td><td>{{ x.f.message }}</td></tr>
 {% endfor %}
 </table>
-{% if not project.unparsed and not manual %}
+{% if not unparsed and not manual %}
 <p>No item is waiting for a manual check in this run.</p>
 {% endif %}
 </section>
@@ -145,11 +145,11 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 <h2>Coverage</h2>
 <table>
 <tr><th>File</th><th>Unit</th><th>What was read</th><th>Method</th><th>Confidence</th></tr>
-{% for c in project.coverage %}
-<tr><td>{{ c.file or empty }}</td><td>{{ c.unit or empty }}</td><td>{{ c.what_read or empty }}</td><td>{{ c.method or empty }}</td><td>{{ c.confidence_summary or empty }}</td></tr>
+{% for c in coverage %}
+<tr><td>{{ c.file }}</td><td>{{ c.unit }}</td><td>{{ c.what }}</td><td>{{ c.method }}</td><td>{{ c.conf }}</td></tr>
 {% endfor %}
 </table>
-{% if not project.coverage %}
+{% if not coverage %}
 <p>No coverage entries were recorded. Nothing is claimed as read.</p>
 {% endif %}
 </section>
@@ -176,16 +176,16 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 <tr><td>Tool version</td><td>{{ tool_version }}</td></tr>
 <tr><td>Input tool version</td><td>{{ input_tool_version }}</td></tr>
 <tr><td>Config version</td><td>{{ config_version }}</td></tr>
-{% for name, h in hashes.items() %}
+{% for name, h in hashes %}
 <tr><td>{{ name }} SHA-256</td><td>{{ h }}</td></tr>
 {% endfor %}
-{% for name, h in input_hashes.items() %}
+{% for name, h in input_hashes %}
 <tr><td>Input {{ name }} SHA-256</td><td>{{ h }}</td></tr>
 {% endfor %}
 <tr><td>Input files</td><td>{% if input_files %}{{ input_files }}{% else %}none listed{% endif %}</td></tr>
-<tr><td>Extractors</td><td>{% if extractors %}{% for k, v in extractors.items() %}{{ k }} {{ v }}{{ '; ' if not loop.last }}{% endfor %}{% else %}none in this run{% endif %}</td></tr>
-<tr><td>Seeds</td><td>{% if seeds %}{% for k, v in seeds.items() %}{{ k }} {{ v }}{{ '; ' if not loop.last }}{% endfor %}{% else %}{{ empty }}{% endif %}</td></tr>
-<tr><td>Models</td><td>{% if models %}{{ models|join('; ') }}{% else %}none in this run{% endif %}</td></tr>
+<tr><td>Extractors</td><td>{% if extractors %}{{ extractors }}{% else %}none in this run{% endif %}</td></tr>
+<tr><td>Seeds</td><td>{% if seeds %}{{ seeds }}{% else %}{{ empty }}{% endif %}</td></tr>
+<tr><td>Models</td><td>{% if models %}{{ models }}{% else %}none in this run{% endif %}</td></tr>
 </table>
 <p class="note">{{ liability }}</p>
 <p class="dim">Units not checked are listed as not checked. They are never counted as passing.</p>

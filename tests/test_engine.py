@@ -95,3 +95,22 @@ def test_checked_message_does_not_claim_cause():
     (f,) = checked("r", "ref", "LP-1 ckt 7", None, boom)
     assert "The cause was not identified (TypeError)" in f.message
     assert "could not be read" not in f.message
+
+
+def test_unique_tag_linear():
+    import time
+
+    from redline.findings import unique_tag
+
+    def fill(labels):
+        req, nexts = {}, {}
+        t = time.perf_counter()
+        for n in labels:
+            tag = unique_tag(req, n, ("load_va", "phase"), nexts)
+            req[f"{tag} load_va"] = req[f"{tag} phase"] = None
+        return time.perf_counter() - t, len(req)
+
+    distinct, _ = fill(str(i) for i in range(8000))
+    same, size = fill("1" for _ in range(8000))
+    assert size == 16000
+    assert same < 3 * distinct + 0.3
