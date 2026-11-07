@@ -45,18 +45,20 @@ def _or_empty(text: object) -> str:
 MAX_ROWS = 50
 
 
-def _pairs(items: Iterable[tuple[object, object]], total: int) -> list[tuple[str, str]]:
+def _pairs(
+    items: Iterable[tuple[object, object]], total: int, noun: str
+) -> list[tuple[str, str | None]]:
     """Display pairs, clipped one by one so equal-looking keys stay separate rows."""
     out = [(clip(k), clip(v, 200)) for k, v in islice(items, MAX_ROWS)]
     if total > MAX_ROWS:
-        out.append((f"and {total - MAX_ROWS} more", ""))
+        out.append((f"and {total - MAX_ROWS} more {noun}", None))
     return out
 
 
-def _text(items: Iterable[object], total: int) -> str:
+def _text(items: Iterable[object], total: int, noun: str) -> str:
     out = [clip(x, 200) for x in islice(items, MAX_ROWS)]
     if total > MAX_ROWS:
-        out.append(f"and {total - MAX_ROWS} more")
+        out.append(f"and {total - MAX_ROWS} more {noun}")
     return "; ".join(out)
 
 
@@ -131,7 +133,7 @@ def render_html(project: Project, result: RunResult, cfg: Config) -> str:
         and project.code_edition.strip() != str(cfg.cec.get("code_edition")).strip(),
         edition_verified=cfg.cec.get("code_edition_verified") is True,
         config_version=_or_empty(clip(cfg.cec.get("config_version"))),
-        hashes=_pairs(cfg.hashes.items(), len(cfg.hashes)),
+        hashes=_pairs(cfg.hashes.items(), len(cfg.hashes), "config hashes"),
         tables=[
             {
                 "name": clip(name),
@@ -143,20 +145,25 @@ def render_html(project: Project, result: RunResult, cfg: Config) -> str:
         tool_version=_or_empty(clip(ri.tool_version) if ri else ""),
         input_tool_version=_or_empty(clip(ri.input_tool_version) if ri else ""),
         input_hashes=_pairs(
-            ri.input_config_hashes.items() if ri else (), len(ri.input_config_hashes) if ri else 0
+            ri.input_config_hashes.items() if ri else (),
+            len(ri.input_config_hashes) if ri else 0,
+            "input hashes",
         ),
         input_files=clip("; ".join(islice(project.inputs, 1000)), 2000),
         seeds=_text(
             (f"{clip(k)} {v}" for k, v in (ri.seeds if ri else {}).items()),
             len(ri.seeds) if ri else 0,
+            "seeds",
         ),
         extractors=_text(
             (f"{clip(k)} {clip(v)}" for k, v in (ri.extractor_versions if ri else {}).items()),
             len(ri.extractor_versions) if ri else 0,
+            "extractors",
         ),
         models=_text(
             ri.model_ids_versions_hashes if ri else (),
             len(ri.model_ids_versions_hashes) if ri else 0,
+            "models",
         ),
         liability=LIABILITY_SENTENCE,
         empty=EMPTY,

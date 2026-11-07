@@ -180,3 +180,16 @@ def test_inputs_used_text_shows_missing():
         "r", Severity.NEEDS_REVIEW, "m", "R", None, (InputUsed("x", "1", "l", Confidence.MISSING),)
     )
     assert "(MISSING)" in format_inputs(f)
+
+
+def test_report_cap_row_wording(test_cfg):
+    ri = RunInfo("0.0.1", input_config_hashes={f"n{i}": "x" for i in range(55)})
+    html = render_html(_capped(ri), _result(), test_cfg)
+    assert "<tr><td>and 5 more input hashes</td><td>—</td></tr>" in html
+    assert "Input and" not in html
+
+
+def _capped(ri):
+    p = _project()
+    p.run_info = ri
+    return p
