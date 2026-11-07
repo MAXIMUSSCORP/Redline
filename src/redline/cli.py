@@ -114,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             model_ids_versions_hashes=list(given.model_ids_versions_hashes),
             seeds=dict(given.seeds),
             input_tool_version=given.tool_version,
+            input_config_hashes=dict(given.config_hashes),
         )
         result = run(project, cfg, RULES, args.skip_rule)
         html = render_html(project, result, cfg)

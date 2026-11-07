@@ -52,6 +52,7 @@ _NUM, _STR, _BOOL = "a finite number", "a string", "true or false"
 _SCALAR = "a string or number"
 _POS = "a number above zero"  # a divisor
 _NONNEG = "a number of zero or more"
+_FRAC = "a number above zero and at most one"
 _PHASE = "A, B or C"
 _ROW = (_NUM, _NUM)  # a tuple is a list of exactly that shape, "*" in a dict is any key
 _VD_PHASE = {"single": _POS, "three": _POS}
@@ -91,9 +92,9 @@ _SHAPE = {
                 "phase_multiplier": _VD_PHASE,
             },
             "impedance": {
-                "power_factor": _NUM,
+                "power_factor": _FRAC,
                 "phase_multiplier": _VD_PHASE,
-                "per_size": {"*": {"*": {"r": _NONNEG, "x": _NONNEG}}},
+                "per_size": {"*": {"*": {"r": _POS, "x": _NONNEG}}},
             },
         },
         "demand_factors": {
@@ -119,6 +120,7 @@ _LEAF = {
     _BOOL: lambda x: isinstance(x, bool),
     _SCALAR: lambda x: isinstance(x, str | int | float) and not isinstance(x, bool),
     _POS: lambda x: isinstance(x, int | float) and not isinstance(x, bool) and x > 0,
+    _FRAC: lambda x: isinstance(x, int | float) and not isinstance(x, bool) and 0 < x <= 1,
     _NONNEG: lambda x: isinstance(x, int | float) and not isinstance(x, bool) and x >= 0,
     _PHASE: lambda x: x in ("A", "B", "C"),
 }

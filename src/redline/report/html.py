@@ -7,7 +7,7 @@ from jinja2 import Environment, PackageLoader, StrictUndefined
 from redline.config import Config, is_test_config, table_verified
 from redline.engine import RunResult
 from redline.findings import Finding, Severity
-from redline.model import Confidence, Project
+from redline.model import Confidence, Project, clip
 from redline.report.csv_out import format_inputs
 
 LIABILITY_SENTENCE = (
@@ -64,8 +64,8 @@ def render_html(project: Project, result: RunResult, cfg: Config) -> str:
             "f": f,
             "sev": f.severity.value,
             "ref": _or_empty(f.rule_ref),
-            "file": _or_empty(f.source.file if f.source else ""),
-            "loc": _or_empty(f.source.locator if f.source else ""),
+            "file": _or_empty(clip(f.source.file, 260) if f.source else ""),
+            "loc": _or_empty(clip(f.source.locator) if f.source else ""),
             "fix": _or_empty(f.suggested_fix),
             "inputs": format_inputs(f),
             "medium": _medium_note(f),
@@ -101,6 +101,10 @@ def render_html(project: Project, result: RunResult, cfg: Config) -> str:
         ],
         tool_version=_or_empty(ri.tool_version if ri else ""),
         input_tool_version=_or_empty(ri.input_tool_version if ri else ""),
+        input_hashes={
+            clip(k): clip(v, 200) for k, v in (ri.input_config_hashes if ri else {}).items()
+        },
+        input_files=clip("; ".join(project.inputs), 2000),
         seeds=ri.seeds if ri else {},
         extractors=ri.extractor_versions if ri else {},
         models=ri.model_ids_versions_hashes if ri else [],

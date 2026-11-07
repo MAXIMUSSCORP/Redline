@@ -114,3 +114,14 @@ def test_rule_panel_demand_one_bad_unit_does_not_stop_rule(val, test_cfg, cfg_se
     by = {f.message.split(":")[0]: f for f in out.findings}
     assert by["LP-1"].severity == Severity.INFO
     assert by["LP-2"].severity == Severity.NEEDS_REVIEW
+
+
+def test_rule_panel_demand_tag_collision_still_gated(val, test_cfg):
+    p = _panel(val, [10000, 10000, 10000])
+    low = Source("t.csv", "row 2", Method.OCR, Confidence.LOW, model="m-1")
+    p.circuits[0].number = "1 (entry 3)"
+    p.circuits[0].load_va = Value(10000, low)
+    p.circuits[1].number = p.circuits[2].number = "1"
+    out = _run(p, test_cfg)
+    assert out and all(f.severity == Severity.NEEDS_REVIEW for f in out)
+    assert "row 2" in out[0].message
