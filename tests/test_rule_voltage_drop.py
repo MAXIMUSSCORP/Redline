@@ -341,3 +341,25 @@ def test_rule_voltage_drop_low_to_panel_feeder_named(test_cfg, cfg_set, val):
     assert f.severity.value == "NOT_CHECKED"
     assert 'Feeder F-9 to_panel "LP-1" is not usable (LOW)' in f.message
     assert "may also feed LP-1" in f.message
+
+
+def _unparsed_feeder_project(val, n):
+    panels = [
+        Panel(f"P{i}", SRC, voltage_v=val(100), circuits=[_circuit(val, 1.5)]) for i in range(n)
+    ]
+    feeders = [Feeder(f"F{i}", SRC, to_panel=val(None, raw=f"P{i}")) for i in range(n)]
+    return Project("t", panels=panels, feeders=feeders)
+
+
+def test_rule_voltage_drop_unparsed_feeder_lookup_linear(test_cfg, cfg_set, val):
+    import time
+
+    def run(n):
+        project = _unparsed_feeder_project(val, n)
+        cfg = _cfg(test_cfg, cfg_set)
+        t = time.perf_counter()
+        engine.run(project, cfg, [SPEC])
+        return time.perf_counter() - t
+
+    small, big = run(2000), run(8000)
+    assert big < 4 * small + 0.5

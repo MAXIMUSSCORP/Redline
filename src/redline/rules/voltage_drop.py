@@ -122,12 +122,16 @@ class _Index:
     def __init__(self, project: Project) -> None:
         self.into: dict[str, list[Feeder]] = {}
         self.unparsed: list[Feeder] = []  # to_panel not read or not shown: could feed any panel
+        self.named: dict[str, Feeder] = {}  # first unusable feeder naming each panel
         self.panels: dict[str, Panel] = {}
         for f in project.feeders:
             if f.to_panel.usable:
                 self.into.setdefault(f.to_panel.value, []).append(f)
             else:
                 self.unparsed.append(f)
+                for k in (f.to_panel.value, f.to_panel.raw):
+                    if isinstance(k, str):
+                        self.named.setdefault(k, f)
         for q in project.panels:
             self.panels.setdefault(q.name, q)
 
@@ -153,9 +157,9 @@ def _chain(
     while True:
         matched = idx.into.get(cur.name, [])
         if not matched:  # a feeder that names this panel but cannot be used comes first
-            named = [u for u in idx.unparsed if cur.name in (u.to_panel.value, u.to_panel.raw)]
+            named = idx.named.get(cur.name)
             if named:
-                why = f"{_unusable_lead(named[0])}, so the feed into {label(cur)} is not confirmed"
+                why = f"{_unusable_lead(named)}, so the feed into {label(cur)} is not confirmed"
                 return None, used, why, ""
         if not (cur.fed_from.value or cur.fed_from.raw):
             if matched:  # a feeder lands here, so a blank source is a gap, not a top
