@@ -47,7 +47,7 @@ def _phases(c: Circuit, pattern: list | None) -> tuple[Value, bool]:
         low = replace(
             c.source, confidence=Confidence.LOW, note="circuit number not usable for position"
         )
-        return Value(None, low, num[:MAX_CKT_DIGITS]), False
+        return Value(None, low), False
     n, size = int(num) - 1, len(pattern)
     letters = tuple(pattern[(n + 2 * k) % size] for k in range(int(c.poles.value)))
     low = min(Confidence.MEDIUM, c.source.confidence)

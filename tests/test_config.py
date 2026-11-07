@@ -506,3 +506,25 @@ def test_skeleton_config_partial_fill_never_stops_a_rule(skeleton_cfg, cfg_set, 
     assert not out.skipped
     amp = [f for f in out.findings if f.rule_id == "ampacity"]
     assert amp and "Table entry missing" in amp[0].message
+
+
+@pytest.mark.parametrize(
+    ("path", "bad"),
+    [
+        ((*_VD, "k_factor", "constant_by_material", "copper"), 0),
+        ((*_VD, "k_factor", "phase_multiplier", "single"), 0),
+        ((*_VD, "k_factor", "phase_multiplier", "three"), -1),
+        ((*_VD, "impedance", "phase_multiplier", "three"), 0),
+        ((*_VD, "impedance", "per_size", "copper", "12 AWG", "r"), -0.5),
+        ((*_VD, "impedance", "per_size", "copper", "12 AWG", "x"), -1),
+        ((*_DF, "by_load_type", "continuous"), [{"up_to_va": 5, "factor": 0}]),
+    ],
+)
+def test_config_multipliers_must_be_positive(tmp_path, path, bad):
+    with pytest.raises(ConfigError):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", _put(path, bad)))
+
+
+def test_config_zero_reactance_still_loads(tmp_path):
+    path = (*_VD, "impedance", "per_size", "copper", "12 AWG", "x")
+    load_config(_copy_edit(tmp_path, "cec_tables.yaml", _put(path, 0)))

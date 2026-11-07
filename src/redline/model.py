@@ -172,6 +172,7 @@ class RunInfo:
     extractor_versions: dict[str, str] = field(default_factory=dict)
     model_ids_versions_hashes: list[str] = field(default_factory=list)
     seeds: dict[str, int] = field(default_factory=dict)
+    input_tool_version: str = ""  # set by the CLI from the input's tool_version
 
 
 @dataclass
@@ -187,12 +188,21 @@ class Project:
     run_info: RunInfo | None = None
 
 
+MAX_SHOWN = 80
+
+
+def clip(text: object, limit: int = MAX_SHOWN) -> str:
+    """Display only: cap the text a finding quotes. Never use it for identity or lookups."""
+    s = str(text)
+    return s if len(s) <= limit else s[:limit] + "…"
+
+
 def label(unit: Panel | Circuit | Feeder) -> str:
     if isinstance(unit, Panel):
-        return unit.name
+        return clip(unit.name)
     if isinstance(unit, Circuit):
-        return f"{unit.panel} ckt {unit.number}"
-    return f"Feeder {unit.id}"
+        return f"{clip(unit.panel)} ckt {clip(unit.number, 20)}"
+    return f"Feeder {clip(unit.id)}"
 
 
 def effective_voltage(c: Circuit, p: Panel) -> Value:
@@ -359,6 +369,8 @@ def _list(d: dict, key: str) -> list:
 def _run_info(ri: Any) -> RunInfo:
     ri = _dict(ri, "run_info")
     _check_keys(ri, {f.name for f in fields(RunInfo)}, "run_info")
+    if "input_tool_version" in ri:
+        raise ValueError("unknown key in run_info: input_tool_version")
     out = RunInfo(**ri)
     maps = (out.config_hashes, out.extractor_versions, out.seeds)
     if not (
@@ -370,6 +382,11 @@ def _run_info(ri: Any) -> RunInfo:
         and all(isinstance(m, str) for m in out.model_ids_versions_hashes)
     ):
         raise TypeError("run_info has a value of the wrong type")
+    texts = [out.tool_version, *out.model_ids_versions_hashes]
+    for m in maps:
+        texts += [*m, *(v for v in m.values() if isinstance(v, str))]
+    if not all(t.strip() for t in texts):
+        raise ValueError("run_info has an empty text")
     return out
 
 
@@ -406,5 +423,5 @@ def project_from_dict(data: Any) -> Project:
         devices=[_build(Device, x) for x in _list(data, "devices")],
         unparsed=[_build(Unparsed, u) for u in _list(data, "unparsed")],
         coverage=[_build(CoverageEntry, c) for c in _list(data, "coverage")],
-        run_info=_run_info(ri) if ri else None,
+        run_info=_run_info(ri) if ri is not None else None,
     )

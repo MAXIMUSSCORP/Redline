@@ -1,5 +1,5 @@
 from redline.engine import RuleSpec, run
-from redline.findings import Finding, Severity
+from redline.findings import Finding, Severity, checked
 from redline.model import Confidence, Method, Project, Source, Value
 from redline.report.csv_out import format_inputs
 
@@ -86,3 +86,12 @@ def test_input_gate_prints_source_note():
     src = Source("t.csv", "row 4 length_m", Method.CSV, Confidence.LOW, "negative quantity")
     f = input_gate("r", "ref", "LP-1 ckt 7", None, {"length_m": Value(-3, src)}, "fix")
     assert "length_m (LOW, negative quantity, at row 4 length_m)" in f.message
+
+
+def test_checked_message_does_not_claim_cause():
+    def boom():
+        raise TypeError("x")
+
+    (f,) = checked("r", "ref", "LP-1 ckt 7", None, boom)
+    assert "The cause was not identified (TypeError)" in f.message
+    assert "could not be read" not in f.message
