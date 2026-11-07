@@ -1,0 +1,543 @@
+"""Rows of text cells to panels. Shared by the CSV, TXT and XLSX reader and later parsers."""
+
+from __future__ import annotations
+
+import math
+import re
+from collections import Counter
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field, fields, replace
+
+from redline.config import Config, default_value
+from redline.model import (
+    MAX_INT,
+    Circuit,
+    Confidence,
+    CoverageEntry,
+    Method,
+    Panel,
+    Source,
+    Unparsed,
+    Value,
+    check_value,
+    derived,
+)
+from redline.units import normalize_size
+
+Locate = Callable[[int], str]
+
+
+@dataclass
+class Parsed:
+    panels: list[Panel] = field(default_factory=list)
+    unparsed: list[Unparsed] = field(default_factory=list)
+    coverage: list[CoverageEntry] = field(default_factory=list)
+
+
+def normalize_header(text: str) -> str:
+    return " ".join("".join(c if c.isalnum() else " " for c in text.lower()).split())
+
+
+def _value_fields(cls: type) -> set[str]:
+    return {f.name for f in fields(cls) if f.default_factory == Value.missing}
+
+
+SCHEDULE_KEYS = _value_fields(Circuit) | {"panel_name", "circuit_number", "load_kva", "phase"}
+BLOCK_KEYS = _value_fields(Panel) | {"panel_name"}
+_FIELD_OF = {"load_kva": "load_va", "phase": "phases_used"}
+_INT_FIELDS = {"poles", "insulation_temp_c", "conductors_in_raceway", "phases", "wires"}
+_TEMP = {"C": 1, "°C": 1}
+_UNITS: dict[str, dict[str, int]] = {
+    "breaker_a": {"A": 1},
+    "bus_rating_a": {"A": 1},
+    "main_breaker_a": {"A": 1},
+    "voltage_v": {"V": 1},
+    "length_m": {"M": 1},
+    "insulation_temp_c": _TEMP,
+    "ambient_c": _TEMP,
+}
+_LOADS = ("load_va", "demand_va_supplied")
+_SIZES = ("conductor_size", "bonding_size")
+_TEXTS = (
+    *_SIZES,
+    "conductor_material",
+    "phases_used",
+    "load_type",
+    "description",
+    "fed_from",
+    "location",
+)
+_NUM_TOKEN = re.compile(r"-?[\d,]*(?:\.\d+)?")
+_THOUSANDS = re.compile(r"-?\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+_SLASH_V = re.compile(r"(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*v?", re.IGNORECASE)
+_PHASES = re.compile(r"[ABC]([\s,/&+-]*[ABC])*", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class _At:
+    """Where a cell came from, and how far its header can be trusted."""
+
+    file: str
+    locator: str
+    method: Method
+    conf: Confidence
+    note: str = ""
+
+    def source(self, conf: Confidence | None = None, note: str | None = None) -> Source:
+        return Source(
+            self.file,
+            self.locator,
+            self.method,
+            self.conf if conf is None else conf,
+            self.note if note is None else note,
+        )
+
+
+def _low(at: _At, text: str, why: str) -> Value:
+    return Value(None, at.source(Confidence.LOW, why), text)
+
+
+def _split_number(t: str) -> tuple[float, str] | str:
+    tok = _NUM_TOKEN.match(t).group()  # the pattern matches the empty string, so never None
+    if not any(c.isdigit() for c in tok):
+        return "not a number"
+    if "," in tok and not _THOUSANDS.fullmatch(tok):
+        return "comma is not a thousands separator"
+    num = float(tok.replace(",", ""))
+    if not math.isfinite(num) or abs(num) > MAX_INT:
+        return "too large a number"
+    return num, t[len(tok) :].strip()
+
+
+def _numeric(fld: str, key: str, t: str, cfg: Config, at: _At) -> Value:
+    if fld == "voltage_v" and (m := _SLASH_V.fullmatch(t)):
+        # a/b voltage: b is taken as line to line. That is a pick, so MEDIUM at most.
+        conf = min(at.conf, Confidence.MEDIUM)
+        return Value(float(m[2]), at.source(conf, "line-to-line from a/b"), t)
+    parsed = _split_number(t)
+    if isinstance(parsed, str):
+        return _low(at, t, parsed)
+    num, rest = parsed
+    unit = rest.replace(" ", "").upper()
+    cell = Value(num, at.source(), t)
+    if fld in _LOADS:
+        unit = unit or ("KVA" if key == "load_kva" else "VA")
+        if unit == "VA":
+            return cell
+        if unit == "KVA":
+            kva = derived(round(num * 1000, 6), [cell], at.file, at.locator, "kVA x 1000")
+            return replace(kva, raw=t)
+        if unit in ("W", "KW"):
+            pf = default_value(cfg, "power_factor")
+            if not (isinstance(pf.value, int | float) and pf.value > 0):
+                return _low(at, t, f"unit {rest} needs a power factor")
+            watts = num * (1000 if unit == "KW" else 1)
+            note = f"{rest} divided by the default power factor"
+            va = derived(round(watts / pf.value, 6), [cell, pf], at.file, at.locator, note)
+            return replace(va, raw=t)
+        return _low(at, t, f"unit {rest} not read")
+    if unit and unit not in _UNITS.get(fld, {}):
+        return _low(at, t, f"unit {rest} not read")
+    if fld in _INT_FIELDS:
+        if num != int(num):
+            return _low(at, t, "not a whole number")
+        return replace(cell, value=int(num))
+    return cell
+
+
+_MATERIALS = {"cu": "Cu", "copper": "Cu", "al": "Al", "aluminum": "Al", "aluminium": "Al"}
+
+
+def _text_value(fld: str, t: str, at: _At) -> Value:
+    if fld in _SIZES:
+        size = normalize_size(t)
+        return Value(size, at.source(), t) if size else _low(at, t, "size not read")
+    if fld == "conductor_material":
+        mat = _MATERIALS.get(t.lower())
+        return Value(mat, at.source(), t) if mat else _low(at, t, "material not read")
+    if fld == "phases_used":
+        letters = "".join(c for c in t.upper() if c in "ABC")
+        if _PHASES.fullmatch(t) and len(set(letters)) == len(letters):
+            return Value(letters, at.source(), t)
+        return _low(at, t, "phase letters not read")
+    return Value(t.lower() if fld == "load_type" else t, at.source(), t)
+
+
+def _read(fld: str, key: str, text: str, cfg: Config, at: _At, ph: set[str]) -> Value:
+    t = text.strip()
+    if not t:
+        return Value(None, at.source(Confidence.MISSING, "blank cell"), "")
+    if t.upper() in ph:
+        v = _low(at, t, "placeholder text")
+    elif fld == "main_breaker_a" and t.upper() == "MLO":
+        v = Value(None, at.source(note="MLO"), t)
+    elif fld in _TEXTS:
+        v = _text_value(fld, t, at)
+    else:
+        v = _numeric(fld, key, t, cfg, at)
+    return check_value(fld, v)
+
+
+@dataclass(frozen=True)
+class _Hit:
+    key: str | None
+    conf: Confidence = Confidence.MISSING
+    note: str = ""
+    reason: str = ""
+
+
+def _matcher(mapping: dict | None, known: set[str]) -> Callable[[str], _Hit]:
+    aliases = {
+        k: [a for a in (normalize_header(x) for x in v if isinstance(x, str)) if a]
+        for k, v in (mapping or {}).items()
+        if isinstance(v, list)
+    }
+    cache: dict[str, _Hit] = {}
+
+    def settle(keys: dict[str, str], conf: Confidence, how: str) -> _Hit:
+        if len(keys) > 1:
+            return _Hit(None, reason=f"matches more than one field: {', '.join(sorted(keys))}")
+        ((key, alias),) = keys.items()
+        if key not in known:
+            return _Hit(None, reason=f"key {key} is not a known field")
+        note = "" if conf == Confidence.HIGH else f"header matched alias '{alias}' {how}"
+        return _Hit(key, conf, note)
+
+    def match(text: str) -> _Hit:
+        if text in cache:
+            return cache[text]
+        n = normalize_header(text)
+        if not n:
+            hit = _Hit(None, reason="header has no text")
+        elif exact := {k: n for k, al in aliases.items() if n in al}:
+            hit = settle(exact, Confidence.HIGH, "")
+        else:
+            words = set(n.split())
+            part = {k: a for k, al in aliases.items() for a in al if set(a.split()) <= words}
+            if part:
+                hit = settle(part, Confidence.MEDIUM, "by words")
+            else:
+                hit = _Hit(None, reason="no alias matches")
+        cache[text] = hit
+        return hit
+
+    return match
+
+
+@dataclass
+class _Col:
+    i: int
+    text: str
+    hit: _Hit
+
+    @property
+    def label(self) -> str:
+        return self.text or f"#{self.i + 1}"
+
+
+@dataclass
+class _Half:
+    cols: dict[str, _Col]  # field name -> column
+    lo: int
+    hi: int
+    side: str
+
+
+@dataclass
+class _Ctx:
+    cfg: Config
+    file: str
+    method: Method
+    locate: Locate
+    fallback: str | None
+    match: Callable[[str], _Hit]
+    block_match: Callable[[str], _Hit]
+    ph: set[str]
+    spare: set[str]
+    detect_two_column: bool
+    out: Parsed
+
+    def unp(self, kind: str, raw: str, reason: str, locator: str) -> None:
+        src = Source(self.file, locator, self.method, Confidence.LOW)
+        self.out.unparsed.append(Unparsed(kind, raw, reason, src))
+
+
+def _field(col: _Col) -> str:
+    return _FIELD_OF.get(col.hit.key or "", col.hit.key or "")
+
+
+def _resolve(cols: list[_Col], ctx: _Ctx, h: int, lo: int, hi: int, side: str) -> _Half:
+    """One column per field. Two columns for one field are both left unread."""
+    groups: dict[str, list[_Col]] = {}
+    for c in cols:
+        groups.setdefault(_field(c), []).append(c)
+    kept: dict[str, _Col] = {}
+    for fld, group in groups.items():
+        if len(group) == 1:
+            kept[fld] = group[0]
+            continue
+        va = [c for c in group if c.hit.key == "load_va"]
+        if fld == "load_va" and len(va) == 1:
+            kept[fld] = va[0]
+            why = f"load already read from {va[0].label}"
+            skipped = [c for c in group if c is not va[0]]
+        else:
+            names = " and ".join(f"'{c.label}'" for c in group)
+            why = f"two columns for one field: {names}"
+            skipped = group
+        for c in skipped:
+            ctx.unp("column", c.text, why, f"{ctx.locate(h)}; col={c.label}{side}")
+    return _Half(kept, lo, hi, side)
+
+
+def _plan(cols: list[_Col], data: list[list[str]], ctx: _Ctx, h: int, width: int):
+    before = len(ctx.out.unparsed)
+    used = {i for r in data for i, c in enumerate(r) if c.strip()}
+    for c in cols:
+        # A blank header over a blank column holds nothing to report.
+        if c.hit.key is None and (c.text or c.i in used):
+            ctx.unp("column", c.text, c.hit.reason, f"{ctx.locate(h)}; col={c.label}")
+    keyed = [c for c in cols if c.hit.key]
+    halves: list[_Half] | None = None
+    seen: set[str] = set()
+    for c in keyed:
+        if _field(c) in seen and ctx.detect_two_column:
+            left = [k for k in keyed if k.i < c.i]
+            right = [k for k in keyed if k.i >= c.i]
+            if all(sum(_field(k) == "circuit_number" for k in half) == 1 for half in (left, right)):
+                halves = [
+                    _resolve(left, ctx, h, 0, c.i, " (left)"),
+                    _resolve(right, ctx, h, c.i, width, " (right)"),
+                ]
+            break
+        seen.add(_field(c))
+    if halves is None:
+        halves = [_resolve(keyed, ctx, h, 0, width, "")]
+    mapped = sum(len(x.cols) for x in halves)
+    named = [x.cols["panel_name"] for x in halves if "panel_name" in x.cols]
+    shared = named[0] if len(named) == 1 and len(halves) == 2 else None
+    return halves, shared, mapped, mapped + len(ctx.out.unparsed) - before
+
+
+@dataclass
+class _Block:
+    name: tuple[str, Source] | None = None
+    values: dict[str, Value] = field(default_factory=dict)
+    read_rows: list[tuple[int, str]] = field(default_factory=list)
+
+
+def _header_block(ctx: _Ctx, rows: list[list[str]], start: int, h: int) -> _Block:
+    block = _Block()
+    for r in range(start, h):
+        nz = [c.strip() for c in rows[r] if c.strip()]
+        if not nz:
+            continue
+        loc = ctx.locate(r)
+        raw = ", ".join(nz)
+        key_text, colon, after = nz[0].partition(":")
+        if colon and after.strip():
+            val, extra = after.strip(), nz[1:]
+        else:
+            rest = nz[1:]
+            val, extra = (rest[0], rest[1:]) if rest else ("", [])
+        hit = ctx.block_match(key_text)
+        if hit.key is None:
+            ctx.unp("row", raw, f"not a header block key: {hit.reason}", loc)
+            continue
+        if not val:
+            ctx.unp("row", raw, f"header block key {hit.key} has no value", loc)
+            continue
+        at = _At(ctx.file, loc, ctx.method, hit.conf, hit.note)
+        if hit.key == "panel_name":
+            if block.name is not None:
+                ctx.unp("row", raw, "a second panel name in the header block", loc)
+                continue
+            block.name = (val, at.source())
+        elif hit.key in block.values:
+            ctx.unp("row", raw, f"header block key {hit.key} repeated", loc)
+            continue
+        else:
+            block.values[hit.key] = _read(hit.key, hit.key, val, ctx.cfg, at, ctx.ph)
+            block.read_rows.append((r, raw))
+        if extra:
+            ctx.unp("row", ", ".join(extra), "extra cells on a header block line", loc)
+    return block
+
+
+def _summary(counts: Counter) -> str:
+    return ", ".join(f"{c.name} {counts[c]}" for c in sorted(Confidence, reverse=True))
+
+
+def _count(counts: Counter, values: Iterable[Value]) -> None:
+    for v in values:
+        if v.source is not None:
+            counts[v.confidence] += 1
+
+
+def _table(ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: int, end: int):
+    data = rows[h + 1 : end]
+    used = max((i + 1 for r in data for i, c in enumerate(r) if c.strip()), default=0)
+    width = max(len(cols), used)
+    cols = cols + [_Col(i, "", ctx.match("")) for i in range(len(cols), width)]
+    halves, shared, mapped, total = _plan(cols, data, ctx, h, width)
+    block = _header_block(ctx, rows, start, h)
+    has_panel_col = shared is not None or any("panel_name" in x.cols for x in halves)
+    table_name: tuple[str, Source] | None = None
+    if not has_panel_col:
+        if block.name:
+            table_name = block.name
+        elif ctx.fallback:
+            note = "panel name from sheet name"
+            src = Source(ctx.file, ctx.locate(h), ctx.method, Confidence.MEDIUM, note)
+            table_name = (ctx.fallback, src)
+        else:
+            for r, raw in block.read_rows:
+                ctx.unp("row", raw, "no panel name", ctx.locate(r))
+    panels: dict[str, Panel] = {}
+    stats: dict[str, Counter] = {}
+
+    def get(name: str, src: Source) -> Panel:
+        if name not in panels:
+            panels[name] = Panel(name, src, **block.values)
+            stats[name] = Counter()
+            _count(stats[name], block.values.values())
+        return panels[name]
+
+    if table_name:
+        get(*table_name)
+    circuit_missing = not any("circuit_number" in x.cols for x in halves)
+    for r in range(h + 1, end):
+        cells = rows[r] + [""] * (width - len(rows[r]))
+        if not any(c.strip() for c in cells):
+            continue
+        loc = ctx.locate(r)
+        if circuit_missing:
+            text = ", ".join(c.strip() for c in cells if c.strip())
+            ctx.unp("row", text, "no circuit number column", loc)
+            continue
+        made = False
+        for half in halves:
+            ccol = half.cols.get("circuit_number")
+            if ccol is None:
+                continue
+            pcol = half.cols.get("panel_name") or shared
+            number = cells[ccol.i].strip()
+            span = [
+                cells[i].strip() for i in range(half.lo, half.hi) if not (shared and i == shared.i)
+            ]
+            text = ", ".join(c for c in span if c)
+            if not number:
+                if len(halves) > 1 and not any(span):
+                    continue
+                ctx.unp("row", text, "no circuit number", loc)
+                made = True
+                continue
+            if pcol:
+                pname = cells[pcol.i].strip()
+                psrc = Source(ctx.file, ctx.locate(h), ctx.method, pcol.hit.conf, pcol.hit.note)
+                panel = get(pname, psrc) if pname else None
+            else:
+                panel = get(*table_name) if table_name else None
+            made = True
+            if panel is None:
+                ctx.unp("row", text, "no panel name", loc)
+                continue
+            vals: dict[str, Value] = {}
+            for fld, col in half.cols.items():
+                if fld in ("panel_name", "circuit_number"):
+                    continue
+                at = _At(
+                    ctx.file,
+                    f"{loc}; col={col.label}{half.side}",
+                    ctx.method,
+                    col.hit.conf,
+                    col.hit.note,
+                )
+                vals[fld] = _read(fld, col.hit.key or fld, cells[col.i], ctx.cfg, at, ctx.ph)
+            desc = half.cols.get("description")
+            spare = desc is not None and cells[desc.i].strip().upper() in ctx.spare
+            spare = spare or vals.get("load_type", Value.missing()).value == "spare"
+            src = Source(ctx.file, loc, ctx.method, ccol.hit.conf, ccol.hit.note)
+            panel.circuits.append(Circuit(panel.name, number, src, is_spare=spare, **vals))
+            _count(stats[panel.name], vals.values())
+        if not made:
+            text = ", ".join(c.strip() for c in cells if c.strip())
+            ctx.unp("row", text, "no circuit number", loc)
+    for name, panel in panels.items():
+        ctx.out.panels.append(panel)
+        read = f"{len(panel.circuits)} circuits read; {mapped} of {total} columns mapped"
+        entry = CoverageEntry(ctx.file, name, read, ctx.method.value, _summary(stats[name]))
+        ctx.out.coverage.append(entry)
+
+
+_CKT_TEXT_MAX = 12
+
+
+def _is_circuit_row(ctx: _Ctx, row: list[str], ckt: list[int]) -> bool:
+    """A number-like circuit cell, on a line that is not a header block key."""
+    texts = [row[i].strip() for i in ckt if i < len(row)]
+    if not any(len(t) <= _CKT_TEXT_MAX and any(ch.isdigit() for ch in t) for t in texts):
+        return False
+    first = next((c.strip() for c in row if c.strip()), "")
+    return ctx.block_match(first.partition(":")[0]).key is None
+
+
+def rows_to_panels(
+    rows: Sequence[Sequence[str]],
+    cfg: Config,
+    *,
+    file: str,
+    method: Method,
+    locate: Locate,
+    fallback_panel: str | None = None,
+) -> Parsed:
+    grid = [["" if c is None else str(c) for c in r] for r in rows]
+    maps = cfg.column_maps
+    comp = cfg.cec.get("completeness") or {}
+    out = Parsed()
+    ctx = _Ctx(
+        cfg=cfg,
+        file=file,
+        method=method,
+        locate=locate,
+        fallback=fallback_panel,
+        match=_matcher(maps.get("csv_panel_schedule"), SCHEDULE_KEYS),
+        block_match=_matcher(maps.get("panel_header_block"), BLOCK_KEYS),
+        ph={str(p).strip().upper() for p in comp.get("placeholder_texts") or []},
+        spare={str(p).strip().upper() for p in comp.get("spare_keywords") or []},
+        detect_two_column=bool(
+            (maps.get("two_column_layout") or {}).get("detect_when_headers_repeat")
+        ),
+        out=out,
+    )
+    need = (maps.get("parsing") or {}).get("min_header_alias_matches", 3)
+    heads = [
+        i for i, r in enumerate(grid) if len({m.key for c in r if (m := ctx.match(c)).key}) >= need
+    ]
+    if not heads:
+        first = next((i for i, r in enumerate(grid) if any(c.strip() for c in r)), None)
+        if first is None:
+            ctx.unp("table", "", "no rows", locate(0))
+            return out
+        raw = ", ".join(c.strip() for c in grid[first] if c.strip())
+        ctx.unp("table", raw, "no header row found", locate(first))
+        for c in grid[first]:
+            if c.strip():
+                ctx.unp(
+                    "column", c.strip(), "no header row found", f"{locate(first)}; col={c.strip()}"
+                )
+        return out
+    cols = [[_Col(i, c.strip(), ctx.match(c)) for i, c in enumerate(grid[h])] for h in heads]
+    starts, ends = [0], []
+    for n in range(1, len(heads)):
+        ckt = [c.i for c in cols[n - 1] if c.hit.key == "circuit_number"]
+        k = heads[n] - 1
+        # The previous table ends at its last row that looks like a circuit.
+        while k > heads[n - 1] and not _is_circuit_row(ctx, grid[k], ckt):
+            k -= 1
+        starts.append(k + 1)
+        ends.append(k + 1)
+    ends.append(len(grid))
+    for n, h in enumerate(heads):
+        _table(ctx, grid, h, cols[n], starts[n], ends[n])
+    return out
