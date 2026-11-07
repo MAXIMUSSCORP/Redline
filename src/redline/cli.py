@@ -10,7 +10,18 @@ from pathlib import Path
 from redline import __version__
 from redline.config import CONFIG_FILES, ConfigError, load_config
 from redline.engine import run
-from redline.model import MAX_INT, RunInfo, project_from_dict
+from redline.model import (
+    MAX_INT,
+    Confidence,
+    CoverageEntry,
+    Method,
+    Project,
+    RunInfo,
+    Source,
+    Unparsed,
+    project_from_dict,
+)
+from redline.parsers.csv_xlsx import SUFFIXES, InputError, parse_file
 from redline.registry import RULES
 from redline.report.csv_out import write_findings_csv
 from redline.report.html import render_html
@@ -20,6 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="redline")
     sub = ap.add_subparsers(dest="command", required=True)
     chk = sub.add_parser("check", help="screen a project and write the report")
+    chk.add_argument("inputs", nargs="*", metavar="INPUT", help="files or folders to read")
     chk.add_argument("--demo-project", metavar="PATH", help="a project in the demo JSON shape")
     chk.add_argument("--config", metavar="DIR", default="config")
     chk.add_argument("--out", metavar="PATH", default="report.html")
@@ -63,10 +75,47 @@ def _same(a: Path, b: Path) -> bool:
     return a.resolve() == b.resolve() or (a.exists() and b.exists() and os.path.samefile(a, b))
 
 
+def _load_inputs(paths: list[str], cfg) -> tuple[Project, int, list[Path], list[Path]]:
+    """Read files and folders. Returns the project, the count of files read, the files
+    tried and the input folders. A failing file is listed and the rest are still read."""
+    project = Project(name=Path(paths[0]).resolve().name)
+    read, tried, folders = 0, [], []
+    for raw in paths:
+        p = Path(raw)
+        if p.is_dir():
+            folders.append(p)
+            files = sorted((f for f in p.iterdir() if f.is_file()), key=lambda f: f.name)
+        else:
+            files = [p]
+        for f in files:
+            tried.append(f)
+            project.inputs.append(f.name)
+            if f.suffix.lower() not in SUFFIXES and f.exists():
+                project.coverage.append(
+                    CoverageEntry(f.name, "file", "not read: unsupported file type", "none", "")
+                )
+                continue
+            try:
+                parsed = parse_file(f, cfg)
+            except Exception as e:  # noqa: BLE001 - a bad file must not stop the others
+                src = Source(f.name, "file", Method.CSV, Confidence.LOW)
+                detail = " ".join(str(e).split()) if isinstance(e, InputError) else type(e).__name__
+                why = f"file not read: {detail}"
+                project.unparsed.append(Unparsed("table", f.name, why, src))
+                continue
+            read += 1
+            project.panels += parsed.panels
+            project.unparsed += parsed.unparsed
+            project.coverage += parsed.coverage
+    return project, read, tried, folders
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if not args.demo_project:
-        return _fail("no input given. Use --demo-project PATH.")
+    if args.demo_project and args.inputs:
+        return _fail("give input files or --demo-project, not both.")
+    if not args.demo_project and not args.inputs:
+        return _fail("no input given. Give a file or folder, or use --demo-project PATH.")
     known = {r.id for r in RULES}
     if bad := [s for s in args.skip_rule if s not in known]:
         return _fail(f"unknown rule id: {', '.join(bad)}.")
@@ -74,37 +123,45 @@ def main(argv: list[str] | None = None) -> int:
         cfg = load_config(args.config)
     except ConfigError as e:
         return _fail(f"config error: {' '.join(str(e).split())}")
-    try:
-        text = Path(args.demo_project).read_text(encoding="utf-8")
-        data = json.loads(
-            text,
-            parse_constant=_no_constant,
-            parse_float=_finite,
-            parse_int=_int,
-            object_pairs_hook=_no_repeat,
-        )
-        project = project_from_dict(data)
-    except (OSError, ValueError, KeyError, TypeError, RecursionError) as e:
-        why = " ".join(str(e).split()) if isinstance(e, ValueError) else type(e).__name__
-        return _fail(f"cannot read demo project {args.demo_project}: {why}.")
-    if not project.panels:
-        return _fail(f"cannot read demo project {args.demo_project}: no panels read.")
+    folders: list[Path] = []
+    if args.demo_project:
+        try:
+            text = Path(args.demo_project).read_text(encoding="utf-8")
+            data = json.loads(
+                text,
+                parse_constant=_no_constant,
+                parse_float=_finite,
+                parse_int=_int,
+                object_pairs_hook=_no_repeat,
+            )
+            project = project_from_dict(data)
+        except (OSError, ValueError, KeyError, TypeError, RecursionError) as e:
+            why = " ".join(str(e).split()) if isinstance(e, ValueError) else type(e).__name__
+            return _fail(f"cannot read demo project {args.demo_project}: {why}.")
+        if not project.panels:
+            return _fail(f"cannot read demo project {args.demo_project}: no panels read.")
+        files = [Path(args.demo_project)]
+    else:
+        project, read, files, folders = _load_inputs(args.inputs, cfg)
+        if not read:
+            return _fail("no input file could be read.")
     out = Path(args.out)
     try:
         # Windows drops trailing dots and spaces, and ':' opens a stream of the same file.
         # A '~' may be an 8.3 short name of another file.
         alias = ":" in out.name or "~" in out.name
         alias = alias or out.name.rstrip(" .").lower() == "findings.csv"
-        inputs = [Path(args.demo_project), *(cfg.dir / f for f in CONFIG_FILES)]
+        inputs = [*files, *(cfg.dir / f for f in CONFIG_FILES)]
         if (
             alias
             or out.is_dir()
+            or any(_same(out.parent, d) for d in folders)
             or any(_same(out, p) for p in (out.parent / "findings.csv", *inputs))
             or any(_same(out.parent / "findings.csv", p) for p in inputs)
         ):
             return _fail(
-                f"--out {args.out} must be a new report file, not a directory, an input "
-                "or findings.csv, and findings.csv beside it must not be an input."
+                f"--out {args.out} must be a new report file, not a directory, an input, "
+                "inside an input folder or findings.csv, and findings.csv beside it must not be an input."
             )
         given = project.run_info or RunInfo(tool_version="")
         project.run_info = RunInfo(

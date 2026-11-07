@@ -577,3 +577,101 @@ def test_input_hash_rows_not_merged(tmp_path):
     out = _hash_report(tmp_path, many)
     assert out.stat().st_size < 10_000_000
     assert "and 299950 more" in out.read_text(encoding="utf-8")
+
+
+SAMPLES = ROOT / "samples" / "csv"
+
+
+def _csv_run(tmp_path, *inputs, extra=()):
+    out = tmp_path / "out" / "report.html"
+    argv = ["check", *map(str, inputs), "--config", TEST_CFG, "--out", str(out), *extra]
+    return main(argv), out
+
+
+def _input_dir(tmp_path):
+    d = tmp_path / "in"
+    d.mkdir()
+    shutil.copy(SAMPLES / "two_panels.csv", d / "two_panels.csv")
+    return d
+
+
+def test_directory_input_exit_0(tmp_path):
+    rc, out = _csv_run(tmp_path, SAMPLES)
+    assert rc == 0 and out.exists() and (out.parent / "findings.csv").exists()
+    html = out.read_text(encoding="utf-8")
+    for name in ("two_panels.csv", "two_column.csv", "revit_style_circuits.txt"):
+        assert name in html
+
+
+def test_file_input_exit_0(tmp_path):
+    rc, out = _csv_run(tmp_path, SAMPLES / "two_panels.csv")
+    assert rc == 0 and "LP-1" in out.read_text(encoding="utf-8")
+
+
+def test_demo_and_inputs_exclusive(tmp_path, capsys):
+    rc, _ = _csv_run(tmp_path, SAMPLES / "two_panels.csv", extra=("--demo-project", DEMO))
+    assert rc == 2 and "not both" in capsys.readouterr().err
+
+
+def test_unsupported_file_listed(tmp_path):
+    d = _input_dir(tmp_path)
+    (d / "notes.pdf").write_bytes(b"%PDF")
+    rc, out = _csv_run(tmp_path, d)
+    html = out.read_text(encoding="utf-8")
+    assert rc == 0 and "notes.pdf" in html and "not read: unsupported file type" in html
+
+
+def test_no_readable_input_exits_2(tmp_path, capsys):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert _csv_run(tmp_path, empty)[0] == 2
+    assert _csv_run(tmp_path, tmp_path / "missing.csv")[0] == 2
+    bad = tmp_path / "bad.csv"
+    bad.write_bytes(b"a,b\x00\n")
+    assert _csv_run(tmp_path, bad)[0] == 2
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_read_file_no_panels_exits_0(tmp_path):
+    f = tmp_path / "plain.csv"
+    f.write_text("hello,world\n1,2\n", encoding="utf-8")
+    rc, out = _csv_run(tmp_path, f)
+    assert rc == 0 and out.exists() and "plain.csv" in out.read_text(encoding="utf-8")
+
+
+def test_unreadable_file_listed_others_read(tmp_path):
+    d = _input_dir(tmp_path)
+    (d / "broken.csv").write_bytes(b"a,b\x00\n")
+    rc, out = _csv_run(tmp_path, d)
+    html = out.read_text(encoding="utf-8")
+    assert rc == 0 and "broken.csv" in html and "LP-2" in html
+
+
+def test_parser_error_listed_not_raised(tmp_path, monkeypatch):
+    from redline import cli
+
+    real = cli.parse_file
+
+    def flaky(path, cfg):
+        if Path(path).name == "two_column.csv":
+            raise RuntimeError("boom")
+        return real(path, cfg)
+
+    monkeypatch.setattr(cli, "parse_file", flaky)
+    rc, out = _csv_run(tmp_path, SAMPLES)
+    html = out.read_text(encoding="utf-8")
+    assert rc == 0 and "RuntimeError" in html and "LP-1" in html
+
+
+def test_out_inside_input_dir_exits_2(tmp_path):
+    d = _input_dir(tmp_path)
+    argv = ["check", str(d), "--config", TEST_CFG, "--out", str(d / "report.html")]
+    assert main(argv) == 2
+    assert not (d / "report.html").exists() and not (d / "findings.csv").exists()
+
+
+def test_out_cannot_overwrite_input_file_exits_2(tmp_path):
+    f = _input_dir(tmp_path) / "two_panels.csv"
+    before = f.read_bytes()
+    assert main(["check", str(f), "--config", TEST_CFG, "--out", str(f)]) == 2
+    assert f.read_bytes() == before

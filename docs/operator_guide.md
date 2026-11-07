@@ -13,10 +13,22 @@ The venv lives outside OneDrive, at `%LOCALAPPDATA%\redline\venv`. Install from 
 This writes `report.html` and, beside it, `findings.csv`. Add `--skip-rule ID` to leave a rule out; it is listed in the report as not run.
 Use `--config config/` for the real skeleton config. Every VIOLATION is then shown as NEEDS_REVIEW, because no table is verified.
 
+## Check a folder of schedules
+
+    redline check samples/csv --config tests/test_config/ --out report.html
+
+Give one or more files or folders. A folder is read without going into sub-folders, files in name order. Redline reads `.csv`, `.txt` and `.xlsx`. A Revit schedule export saved as `.txt` is read as it is.
+Any other file is listed in the coverage table as "not read: unsupported file type". A file that cannot be read is listed with the reason, and the other files are still read.
+Do not combine inputs with `--demo-project`. Do not write `--out` inside an input folder, because the next run would read `findings.csv` as input.
+
+Text files are read as UTF-8, with a byte order mark if present, and as cp1252 when the bytes are not valid UTF-8. The encoding used is named in the coverage table.
+
 ## Exit codes
 
-- 0: the run completed. Findings do not change the code, because Redline screens and does not gate.
-- 2: a config failure, an unreadable or invalid demo project, or no input. One line on stderr says which.
+- 0 (the run exits 0): the run completed. Findings do not change the code, because Redline screens and does not gate.
+- 2 (the run exits 2): a config failure, an unreadable or invalid demo project, no input given, no input file that could be read, or an `--out` that would overwrite an input. One line on stderr says which.
+
+A file that was read but held no panel still exits 0. The report is written and lists the file as "no panel read".
 
 ## The TEST banner
 
