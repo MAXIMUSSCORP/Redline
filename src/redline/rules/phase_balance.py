@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from redline.config import Config, lookup, rule_ref
 from redline.engine import RuleSpec
-from redline.findings import Finding, Severity, checked, input_gate, inputs_used
+from redline.findings import Finding, Severity, checked, input_gate, inputs_used, unique_tag
 from redline.model import (
     MAX_CKT_DIGITS,
     Circuit,
@@ -78,10 +78,10 @@ def _panel(p: Panel, cfg: Config, ref: str) -> list[Finding]:
     req: dict[str, Value] = {}
     placed: list[tuple[Circuit, list[str]]] = []
     by_position = 0
-    for i, c in enumerate(live, 1):
+    for c in live:
         ph, pos = _phases(c, pattern)
         by_position += pos
-        tag = label(c) if f"{label(c)} load_va" not in req else f"{label(c)} (entry {i})"
+        tag = unique_tag(req, label(c), ("load_va", "phase"))
         req[f"{tag} load_va"] = c.load_va
         req[f"{tag} phase"] = ph
         if ph.usable:

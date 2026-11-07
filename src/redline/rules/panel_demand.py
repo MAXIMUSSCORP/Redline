@@ -4,7 +4,7 @@ import math
 
 from redline.config import Config, lookup, rule_ref
 from redline.engine import RuleSpec
-from redline.findings import Finding, Severity, checked, input_gate, inputs_used
+from redline.findings import Finding, Severity, checked, input_gate, inputs_used, unique_tag
 from redline.model import Panel, Project, Value, derived, is_mlo, label
 
 ID = "panel_demand"
@@ -38,8 +38,8 @@ def _nr(cfg: Config, p: Panel, msg: str, used: dict | None = None) -> Finding:
 def _computed(p: Panel, cfg: Config) -> Value | Finding:
     live = [c for c in p.circuits if not c.is_spare]
     req = {}
-    for i, c in enumerate(live, 1):
-        tag = label(c) if f"{label(c)} load_va" not in req else f"{label(c)} (entry {i})"
+    for c in live:
+        tag = unique_tag(req, label(c), ("load_va", "load_type"))
         req[f"{tag} load_va"] = c.load_va
         req[f"{tag} load_type"] = c.load_type
     if gate := input_gate(ID, rule_ref(cfg, ID), label(p), p.source, req, FIX):

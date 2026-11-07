@@ -154,7 +154,7 @@ def test_rule_voltage_drop_total_low_feeder_link_not_checked(test_cfg, cfg_set, 
     project.feeders[0].to_panel = val("LP-1", Confidence.LOW, locator="cell B2")
     (f,) = _run(project, _cfg(test_cfg, cfg_set))
     assert f.severity.value == "NOT_CHECKED"
-    assert "feeder to_panel is LOW" in f.message
+    assert "no feeder shown into LP-1" in f.message
 
 
 def test_rule_voltage_drop_total_unknown_source_panel_not_checked(test_cfg, cfg_set, val):
@@ -286,9 +286,10 @@ def test_rule_voltage_drop_long_chain_output_bounded(test_cfg, cfg_set, val):
     total = [f for f in out if "total voltage drop" in f.message and f.inputs_used]
     assert total and total[0].severity.value == "VIOLATION"
     longest = max(len(format_inputs(f)) for f in out)
-    # one entry per feeder, about 70 characters each, so 300 feeders stay well under 30000
-    assert longest < 30000
-    assert sum(1 for i in total[0].inputs_used if i.field.startswith("Feeder ")) == n
+    assert longest < 2000
+    cited = [i.field for i in total[0].inputs_used if i.field.startswith("Feeder ")]
+    assert cited == ["Feeder F-0 drop", f"Feeder F-{n - 1} drop"]
+    assert any(i.field == f"and {n - 2} more feeders" for i in total[0].inputs_used)
 
 
 def test_rule_voltage_drop_unparsed_feeder_named_separately(test_cfg, cfg_set, val):
@@ -303,3 +304,15 @@ def test_rule_voltage_drop_unparsed_feeder_named_separately(test_cfg, cfg_set, v
         assert f.severity.value == "NOT_CHECKED"
         assert want in f.message and "may also feed LP-1" in f.message
         assert "feeders feed" not in f.message
+
+
+def test_rule_voltage_drop_low_to_panel_feeder_named(test_cfg, cfg_set, val):
+    project = _chain_project(val)
+    low = replace(
+        project.feeders[0], id="F-9", to_panel=val("LP-1", Confidence.LOW, locator="cell B2")
+    )
+    project.feeders.append(low)
+    (f,) = _run(project, _cfg(test_cfg, cfg_set))
+    assert f.severity.value == "NOT_CHECKED"
+    assert 'Feeder F-9 to_panel "LP-1" is not usable (LOW)' in f.message
+    assert "may also feed LP-1" in f.message

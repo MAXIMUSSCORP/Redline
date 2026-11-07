@@ -173,6 +173,7 @@ class RunInfo:
     model_ids_versions_hashes: list[str] = field(default_factory=list)
     seeds: dict[str, int] = field(default_factory=dict)
     input_tool_version: str = ""  # set by the CLI from the input's tool_version
+    input_config_hashes: dict[str, str] = field(default_factory=dict)  # set by the CLI
 
 
 @dataclass
@@ -369,8 +370,9 @@ def _list(d: dict, key: str) -> list:
 def _run_info(ri: Any) -> RunInfo:
     ri = _dict(ri, "run_info")
     _check_keys(ri, {f.name for f in fields(RunInfo)}, "run_info")
-    if "input_tool_version" in ri:
-        raise ValueError("unknown key in run_info: input_tool_version")
+    for k in ("input_tool_version", "input_config_hashes"):
+        if k in ri:
+            raise ValueError(f"unknown key in run_info: {k}")
     out = RunInfo(**ri)
     maps = (out.config_hashes, out.extractor_versions, out.seeds)
     if not (
@@ -403,7 +405,7 @@ def project_from_dict(data: Any) -> Project:
     for pd in _list(data, "panels"):
         p = _build(Panel, {k: v for k, v in _dict(pd, "Panel").items() if k != "circuits"})
         p.circuits = [_build(Circuit, c) for c in _list(pd, "circuits")]
-        if bad := next((c.panel for c in p.circuits if c.panel != p.name), None):
+        if (bad := next((c.panel for c in p.circuits if c.panel != p.name), None)) is not None:
             raise ValueError(f"circuit names panel {bad} but sits under panel {p.name}")
         panels.append(p)
     feeders = [_build(Feeder, f) for f in _list(data, "feeders")]

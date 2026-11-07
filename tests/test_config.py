@@ -528,3 +528,16 @@ def test_config_multipliers_must_be_positive(tmp_path, path, bad):
 def test_config_zero_reactance_still_loads(tmp_path):
     path = (*_VD, "impedance", "per_size", "copper", "12 AWG", "x")
     load_config(_copy_edit(tmp_path, "cec_tables.yaml", _put(path, 0)))
+
+
+@pytest.mark.parametrize(
+    "path, bad",
+    [
+        ((*_VD, "impedance", "per_size", "copper", "12 AWG", "r"), 0),
+        ((*_VD, "impedance", "power_factor"), 0),
+        ((*_VD, "impedance", "power_factor"), 1.5),
+    ],
+)
+def test_config_impedance_r_and_pf_bounded(tmp_path, path, bad):
+    with pytest.raises(ConfigError):
+        load_config(_copy_edit(tmp_path, "cec_tables.yaml", _put(path, bad)))

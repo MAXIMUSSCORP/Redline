@@ -1,6 +1,6 @@
 from redline.engine import run
 from redline.findings import Severity
-from redline.model import Circuit, Confidence, Method, Panel, Project, Source
+from redline.model import Circuit, Confidence, Method, Panel, Project, Source, Value
 from redline.rules.phase_balance import SPEC
 
 SRC = Source("t.csv", "row 1", Method.CSV, Confidence.HIGH)
@@ -149,3 +149,14 @@ def test_rule_phase_balance_bad_circuit_number_message(val, test_cfg):
         assert "phase shown as" not in msg and "circuit number not usable for position" in msg
         assert len(msg) < 400
     assert "…" in msg
+
+
+def test_rule_phase_balance_tag_collision_still_gated(val, test_cfg):
+    p = _panel(val, [3000, 1000, 1000])
+    low = Source("t.csv", "row 2", Method.OCR, Confidence.LOW, model="m-1")
+    p.circuits[0].number = "1 (entry 3)"
+    p.circuits[0].load_va = Value(3000, low)
+    p.circuits[1].number = p.circuits[2].number = "1"
+    out = _run(p, test_cfg)
+    assert [f.severity for f in out] == [Severity.NEEDS_REVIEW]
+    assert "row 2" in out[0].message

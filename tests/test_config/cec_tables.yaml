@@ -77,15 +77,15 @@ tables:
       phase_multiplier: { single: 2, three: 1 }
       per_size:
         copper:
-          "14 AWG": { r: 4.37, x: 0 }
-          "12 AWG": { r: 1.61, x: 0 }
-          "10 AWG": { r: 1.19, x: 0 }
-          "6 AWG": { r: 0.47, x: 0 }
+          "14 AWG": { r: 17.3, x: 0 }
+          "12 AWG": { r: 11.9, x: 0 }
+          "10 AWG": { r: 7.7, x: 0 }
+          "6 AWG": { r: 3.1, x: 0 }
         aluminum:
-          "14 AWG": { r: 7.43, x: 0 }
-          "12 AWG": { r: 3.11, x: 0 }
-          "10 AWG": { r: 1.73, x: 0 }
-          "6 AWG": { r: 0.89, x: 0 }
+          "14 AWG": { r: 23.9, x: 0 }
+          "12 AWG": { r: 15.7, x: 0 }
+          "10 AWG": { r: 9.9, x: 0 }
+          "6 AWG": { r: 4.3, x: 0 }
   demand_factors:
     verified: true
     source: "TEST ONLY, NOT CEC VALUES"
