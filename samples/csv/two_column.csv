@@ -1,0 +1,13 @@
+Panel,LP-3
+Voltage,120/208
+Phases,3
+Bus,100
+Main,MLO
+Fed From,DP-1
+Ckt,Description,Load (VA),Wire,Breaker,Poles,Poles,Breaker,Wire,Load (VA),Description,Ckt
+1,Lighting zone 1,1500,12 AWG,20,1,1,15,12 AWG,1100,Lighting zone 3,2
+3,Receptacles zone 1,1800,12 AWG,20,1,1,20,12 AWG,1600,Receptacles zone 3,4
+5,Lighting zone 2,1350,12 AWG,15,1,1,15,12 AWG,750,Fan,6
+9,Heater,2400,10 AWG,30,2,1,15,12 AWG,1250,Lighting zone 4,8
+7,Receptacles zone 2,1200,12 AWG,20,1,1,20,12 AWG,1900,Receptacles zone 4,10
+11,Pump,900,12 AWG,15,1,,,,,,
