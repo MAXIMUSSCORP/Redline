@@ -179,6 +179,10 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 {% for name, h in hashes.items() %}
 <tr><td>{{ name }} SHA-256</td><td>{{ h }}</td></tr>
 {% endfor %}
+{% for name, h in input_hashes.items() %}
+<tr><td>Input {{ name }} SHA-256</td><td>{{ h }}</td></tr>
+{% endfor %}
+<tr><td>Input files</td><td>{% if input_files %}{{ input_files }}{% else %}none listed{% endif %}</td></tr>
 <tr><td>Extractors</td><td>{% if extractors %}{% for k, v in extractors.items() %}{{ k }} {{ v }}{{ '; ' if not loop.last }}{% endfor %}{% else %}none in this run{% endif %}</td></tr>
 <tr><td>Seeds</td><td>{% if seeds %}{% for k, v in seeds.items() %}{{ k }} {{ v }}{{ '; ' if not loop.last }}{% endfor %}{% else %}{{ empty }}{% endif %}</td></tr>
 <tr><td>Models</td><td>{% if models %}{{ models|join('; ') }}{% else %}none in this run{% endif %}</td></tr>

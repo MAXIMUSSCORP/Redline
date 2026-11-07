@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from redline.findings import Finding
+from redline.model import clip
 
 CSV_COLUMNS = (
     "rule_id",
@@ -48,8 +49,8 @@ def write_findings_csv(findings: Iterable[Finding], path: Path) -> None:
                 f.rule_id,
                 f.severity.value,
                 f.rule_ref,
-                f.source.file if f.source else "",
-                f.source.locator if f.source else "",
+                clip(f.source.file, 260) if f.source else "",
+                clip(f.source.locator) if f.source else "",
                 f.message,
                 f.suggested_fix,
                 format_inputs(f),

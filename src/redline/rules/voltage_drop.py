@@ -124,7 +124,7 @@ class _Index:
         self.unparsed: list[Feeder] = []  # to_panel not read or not shown: could feed any panel
         self.panels: dict[str, Panel] = {}
         for f in project.feeders:
-            if f.to_panel.value is not None:
+            if f.to_panel.usable:
                 self.into.setdefault(f.to_panel.value, []).append(f)
             else:
                 self.unparsed.append(f)
@@ -161,11 +161,12 @@ def _chain(
         if idx.unparsed:  # a feeder whose to_panel is unread could also feed this panel
             u = idx.unparsed[0]
             raw = clip(u.to_panel.raw or "")
-            lead = (
-                f'{label(u)} to_panel shown as "{raw}" is not parsed'
-                if raw
-                else f"{label(u)} has no to_panel shown"
-            )
+            if u.to_panel.value is not None:
+                lead = f'{label(u)} to_panel "{clip(u.to_panel.value)}" is not usable (LOW)'
+            elif raw:
+                lead = f'{label(u)} to_panel shown as "{raw}" is not parsed'
+            else:
+                lead = f"{label(u)} has no to_panel shown"
             return None, used, f"{lead}, so it may also feed {label(cur)}", ""
         feeder = into[0]
         fp = feeder.from_panel
@@ -178,8 +179,6 @@ def _chain(
                 f"{label(feeder)} from_panel disagrees with {label(cur)} fed_from",
                 "",
             )
-        if not feeder.to_panel.usable:
-            return None, used, f"{label(feeder)} feeder to_panel is LOW", ""
         if drops.get(feeder.id) is None:
             return None, used, f"{label(feeder)} voltage drop was not computed", ""
         total += drops[feeder.id]
@@ -187,7 +186,7 @@ def _chain(
         src = cur.fed_from.value
         cur = idx.panels.get(src)
         if cur is None:
-            return None, used, f"source panel {src} not in project", ""
+            return None, used, f"source panel {clip(src)} not in project", ""
     # The chain ends where no feed source is shown. The drops only add, so the partial sum
     # is a lower bound: over the limit it is still a violation, within it nothing is proven.
     return (total if used else None), used, f"feed source not shown for {label(cur)}", cur.name
@@ -262,6 +261,15 @@ def _circuit(
     return [f for f in found if f]
 
 
+def _cites(all_: list[InputUsed]) -> tuple[InputUsed, ...]:
+    """The nearest and the farthest feeder, then a count, so a long chain stays small."""
+    if len(all_) <= 2:
+        return tuple(all_)
+    rest = all_[1:-1]
+    low = min(c.confidence for c in rest if c.confidence is not None)
+    return (all_[0], InputUsed(f"and {len(rest)} more feeders", "", "see feeders", low), all_[-1])
+
+
 def check(project: Project, cfg: Config) -> list[Finding]:
     ref = rule_ref(cfg, ID)
     basis = _vd(cfg, "current_basis")
@@ -295,14 +303,14 @@ def check(project: Project, cfg: Config) -> list[Finding]:
                 lower = ", so the feeder part is a lower bound" if used else ""
                 msg = (
                     f"{label(p)}: total voltage drop within the limit is not confirmed. "
-                    f"Supply above {top} is not shown{lower}."
+                    f"Supply above {clip(top)} is not shown{lower}."
                 )
-                fix = f"Reviewer to add the supply conductor drop above {top} by hand."
+                fix = f"Reviewer to add the supply conductor drop above {clip(top)} by hand."
             else:
                 msg = f"{label(p)}: total voltage drop not checked. Broken link: {why}."
                 fix = "Show the missing link or correct the feeder, then re-run."
             out.append(Finding(ID, Severity.NOT_CHECKED, msg, ref, p.source, (), fix))
-        cites = tuple(cited[fd.id] for fd in used)
+        cites = _cites([cited[fd.id] for fd in used])
         for c in p.circuits:
             if not c.is_spare:
                 out += checked(
