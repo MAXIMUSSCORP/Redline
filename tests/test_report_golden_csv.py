@@ -69,3 +69,11 @@ def test_revit_style_headers_map_high():
 def test_csv_test_config_has_violation(tmp_path):
     rows = _rows(_run(TEST_CFG, tmp_path) / "findings.csv")
     assert any(r["severity"] == "VIOLATION" for r in rows)
+
+
+def test_csv_violations_are_planted(tmp_path):
+    rows = _rows(_run(TEST_CFG, tmp_path) / "findings.csv")
+    found = sorted(
+        (r["rule_id"], r["message"].split(":")[0]) for r in rows if r["severity"] == "VIOLATION"
+    )
+    assert found == [("ampacity", "LP-1 ckt 9"), ("continuous_load", "LP-2 ckt 2")]
