@@ -50,6 +50,8 @@ def _read(path: Path) -> dict[str, Any]:
 
 _NUM, _STR, _BOOL = "a finite number", "a string", "true or false"
 _SCALAR = "a string or number"
+_POS = "a number above zero"  # a divisor
+_PHASE = "A, B or C"
 _ROW = (_NUM, _NUM)  # a tuple is a list of exactly that shape, "*" in a dict is any key
 _VD_PHASE = {"single": _NUM, "three": _NUM}
 # Expected type of every config leaf a rule reads. A null is allowed anywhere: it makes the
@@ -84,7 +86,7 @@ _SHAPE = {
             **{k: _NUM for k in ("branch_max_pct", "feeder_max_pct", "total_max_pct")},
             "k_factor": {
                 "constant_by_material": {"*": _NUM},
-                "area_by_size": {"*": _NUM},
+                "area_by_size": {"*": _POS},
                 "phase_multiplier": _VD_PHASE,
             },
             "impedance": {
@@ -105,7 +107,7 @@ _SHAPE = {
             },
         },
         "phase_balance": {"max_deviation_pct": _NUM, "min_circuits_to_check": _NUM},
-        "phase_layout": {"three_phase_pattern": [_STR]},
+        "phase_layout": {"three_phase_pattern": [_PHASE]},
     },
 }
 
@@ -115,6 +117,8 @@ _LEAF = {
     _STR: lambda x: isinstance(x, str),
     _BOOL: lambda x: isinstance(x, bool),
     _SCALAR: lambda x: isinstance(x, str | int | float) and not isinstance(x, bool),
+    _POS: lambda x: isinstance(x, int | float) and not isinstance(x, bool) and x > 0,
+    _PHASE: lambda x: x in ("A", "B", "C"),
 }
 
 
@@ -144,6 +148,9 @@ def _conform(node: Any, shape: Any, path: str, seen: set | None = None) -> None:
                 _conform(v, sub, f"{path}.{k}", seen)
     elif not isinstance(shape, str):
         for i, v in enumerate(node):
+            # A null cell of a row is a null leaf. A null row or list element is not a table.
+            if v is None and not isinstance(shape, tuple):
+                raise ConfigError(f"cec_tables.yaml: {path}[{i}] must not be empty")
             _conform(v, shape[i] if isinstance(shape, tuple) else shape[0], f"{path}[{i}]", seen)
 
 
@@ -165,6 +172,9 @@ def _check_cec(cec: dict[str, Any]) -> None:
     comp = cec.get("completeness")
     if not isinstance(comp, dict):
         raise ConfigError("cec_tables.yaml: completeness must be a mapping")
+    for key in (f"require_{k}" for k in ("description", "load", "breaker", "conductor_size")):
+        if not isinstance(comp.get(key), bool):
+            raise ConfigError(f"cec_tables.yaml: completeness {key} must be true or false")
     for key in ("code_edition", "config_version"):
         if not isinstance(cec.get(key), str):
             raise ConfigError(f"cec_tables.yaml: {key} must be a string")

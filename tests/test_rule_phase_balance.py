@@ -117,3 +117,23 @@ def test_rule_phase_balance_non_finite_result_needs_review(val, test_cfg):
     (f,) = _run(_panel(val, [1e308, 1e308, 1e308, 1e308, 1e308, 1e308]), test_cfg)
     assert f.severity == Severity.NEEDS_REVIEW
     assert "could not be computed" in f.message and "LP-1" in f.message
+
+
+def test_rule_phase_balance_one_bad_unit_does_not_stop_rule(val, test_cfg):
+    bad = _panel(val, [1000, 1000, 1000], by_column=False)
+    bad.name = "LP-2"
+    for c, n in zip(bad.circuits, ("²", "2", "3"), strict=True):
+        c.panel, c.number = "LP-2", n
+    out = run(Project("p", panels=[_panel(val, [1000, 1000, 1000]), bad]), test_cfg, [SPEC])
+    assert out.ran == ("phase_balance",) and not out.skipped
+    by = {f.message.split(":")[0]: f for f in out.findings}
+    assert by["LP-1"].severity == Severity.INFO
+    assert by["LP-2"].severity == Severity.NEEDS_REVIEW
+    assert "LP-2 ckt ²" in by["LP-2"].message
+
+
+def test_rule_phase_balance_long_circuit_number_not_a_position(val, test_cfg):
+    p = _panel(val, [1000, 1000, 1000], by_column=False)
+    p.circuits[0].number = "1" * 5000
+    out = _run(p, test_cfg)
+    assert out[0].severity == Severity.NEEDS_REVIEW and 'phase shown as "111111"' in out[0].message

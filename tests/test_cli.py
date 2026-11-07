@@ -321,3 +321,50 @@ def test_out_short_name_alias_refused(tmp_path, capsys):
     rc, err = _run(tmp_path, text, capsys, tmp_path / "FINDIN~1.CSV")
     assert rc == 2 and "Traceback" not in err
     assert not (tmp_path / "findings.csv").exists() and not (tmp_path / "FINDIN~1.CSV").exists()
+
+
+def test_csv_path_cannot_overwrite_inputs_exits_2(tmp_path, capsys):
+    proj = tmp_path / "findings.csv"
+    shutil.copy(DEMO, proj)
+    before = proj.read_bytes()
+    argv = ["check", "--demo-project", str(proj), "--config", TEST_CFG]
+    assert main([*argv, "--out", str(tmp_path / "report.html")]) == 2
+    assert proj.read_bytes() == before and not (tmp_path / "report.html").exists()
+    assert "Traceback" not in capsys.readouterr().err
+    cfg = tmp_path / "cfg"
+    shutil.copytree(TEST_CFG, cfg)
+    (cfg / "findings.csv").write_text("x", encoding="utf-8")
+    assert (
+        main(["check", "--demo-project", DEMO, "--config", str(cfg), "--out", str(cfg / "r.html")])
+        == 0
+    )
+
+
+def _provenance(tmp_path, edition):
+    data = json.loads(Path(DEMO).read_text(encoding="utf-8"))
+    data["code_edition"] = edition
+    data["run_info"] = {
+        "tool_version": "9.9",
+        "extractor_versions": {"acad_dump": "3.1-made-up"},
+        "model_ids_versions_hashes": ["detector-x 2.0 sha256:abc123"],
+    }
+    f = tmp_path / "p.json"
+    f.write_text(json.dumps(data), encoding="utf-8")
+    out = tmp_path / "r.html"
+    assert main(["check", "--demo-project", str(f), "--config", TEST_CFG, "--out", str(out)]) == 0
+    return out.read_text(encoding="utf-8")
+
+
+def test_input_provenance_reported(tmp_path):
+    html = _provenance(tmp_path, "TEST EDITION, NOT CEC")
+    assert "detector-x 2.0 sha256:abc123" in html and "acad_dump 3.1-made-up" in html
+    assert "Models: none" not in html and "none in this run" not in html
+
+
+def test_project_edition_mismatch_stated(tmp_path):
+    same = _provenance(tmp_path, "TEST EDITION, NOT CEC")
+    assert "Project code edition: TEST EDITION, NOT CEC" in same
+    assert "different code edition" not in same
+    other = _provenance(tmp_path, "Some Other Edition")
+    assert "Project code edition: Some Other Edition" in other
+    assert "different code edition" in other
