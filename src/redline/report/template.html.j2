@@ -177,10 +177,18 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 <tr><td>Input tool version</td><td>{{ input_tool_version }}</td></tr>
 <tr><td>Config version</td><td>{{ config_version }}</td></tr>
 {% for name, h in hashes %}
+{% if h is none %}
+<tr><td>{{ name }}</td><td>{{ empty }}</td></tr>
+{% else %}
 <tr><td>{{ name }} SHA-256</td><td>{{ h }}</td></tr>
+{% endif %}
 {% endfor %}
 {% for name, h in input_hashes %}
+{% if h is none %}
+<tr><td>{{ name }}</td><td>{{ empty }}</td></tr>
+{% else %}
 <tr><td>Input {{ name }} SHA-256</td><td>{{ h }}</td></tr>
+{% endif %}
 {% endfor %}
 <tr><td>Input files</td><td>{% if input_files %}{{ input_files }}{% else %}none listed{% endif %}</td></tr>
 <tr><td>Extractors</td><td>{% if extractors %}{{ extractors }}{% else %}none in this run{% endif %}</td></tr>
