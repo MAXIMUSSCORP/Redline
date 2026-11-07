@@ -541,3 +541,52 @@ def test_config_zero_reactance_still_loads(tmp_path):
 def test_config_impedance_r_and_pf_bounded(tmp_path, path, bad):
     with pytest.raises(ConfigError):
         load_config(_copy_edit(tmp_path, "cec_tables.yaml", _put(path, bad)))
+
+
+def _cm(tmp_path, edit):
+    return _copy_edit(tmp_path, "column_maps.yaml", edit)
+
+
+def _rejects(tmp_path, edit, match):
+    with pytest.raises(ConfigError, match=match):
+        load_config(_cm(tmp_path, edit))
+
+
+def test_column_maps_alias_list_required(tmp_path):
+    for section in ("csv_panel_schedule", "panel_header_block"):
+        for bad in ("ckt", ["ckt", ""], ["ckt", 3], [" "], None, {"a": "b"}):
+            _rejects(
+                tmp_path, lambda c, s=section, b=bad: c[s].update({"circuit_number": b}), section
+            )
+    _rejects(tmp_path, lambda c: c.update({"csv_panel_schedule": ["ckt"]}), "csv_panel_schedule")
+
+
+def test_column_maps_extra_keys_and_shared_alias_load(tmp_path):
+    def edit(c):
+        c["csv_panel_schedule"]["brand_new_field"] = ["zzz"]
+        c["csv_panel_schedule"]["other_field"] = c["csv_panel_schedule"]["phase"]
+
+    assert load_config(_cm(tmp_path, edit)).column_maps["csv_panel_schedule"]["brand_new_field"]
+
+
+def test_column_maps_min_header_matches_checked(tmp_path):
+    for bad in (0, -1, "3", True, None, 2.5):
+        _rejects(
+            tmp_path,
+            lambda c, b=bad: c["parsing"].update({"min_header_alias_matches": b}),
+            "min_header_alias_matches",
+        )
+
+
+def test_column_maps_two_column_flag_bool(tmp_path):
+    for bad in ("true", 1, None):
+        _rejects(
+            tmp_path,
+            lambda c, b=bad: c["two_column_layout"].update({"detect_when_headers_repeat": b}),
+            "detect_when_headers_repeat",
+        )
+
+
+def test_real_and_test_configs_load():
+    for d in (ROOT / "config", ROOT / "tests" / "test_config"):
+        assert load_config(d).column_maps["parsing"]["min_header_alias_matches"] >= 1
