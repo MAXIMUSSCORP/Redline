@@ -71,12 +71,21 @@ def checked(
     return list(out) if isinstance(out, list) else [out]  # type: ignore[list-item]
 
 
+def unique_tag(taken: Mapping[str, object], name: str, fields: tuple[str, ...]) -> str:
+    """A tag whose keys are all free, so no circuit's input can replace another's."""
+    tag, n = name, 1
+    while any(f"{tag} {f}" in taken for f in fields):
+        n += 1
+        tag = f"{name} #{n}"
+    return tag
+
+
 def _bad_part(n: str, v: Value) -> str:
     if v.source is None:
         return f"{n} (missing)"
     if v.value is None and v.raw:
         return f'{n} shown as "{clip(v.raw)}" (not parsed, at {clip(v.source.locator)})'
-    note = f", {v.source.note}" if v.source.note else ""
+    note = f", {clip(v.source.note)}" if v.source.note else ""
     return f"{n} ({v.confidence.name}{note}, at {clip(v.source.locator)})"
 
 

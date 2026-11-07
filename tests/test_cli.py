@@ -243,6 +243,14 @@ def test_out_windows_alias_of_csv_exits_2(tmp_path, capsys):
         assert not (tmp_path / "findings.csv").exists() and not (tmp_path / "r.html").exists()
 
 
+def test_demo_project_empty_circuit_panel_exits_2(tmp_path, capsys):
+    def edit(d):
+        d["panels"][0]["circuits"][0]["panel"] = ""
+
+    rc, err = _demo_edit(tmp_path, capsys, edit)
+    assert rc == 2 and "Traceback" not in err
+
+
 def test_demo_project_no_panels_exits_2(tmp_path, capsys):
     rc, err = _run(tmp_path, '{"name": "x", "panels": []}', capsys)
     assert rc == 2 and "no panels" in err and not (tmp_path / "r.html").exists()
@@ -430,3 +438,76 @@ def test_input_provenance_empty_strings_refused(tmp_path, run_info):
 def test_demo_project_run_info_not_object_exits_2(tmp_path, capsys, bad):
     rc, err = _demo_edit(tmp_path, capsys, lambda d: d.update(run_info=bad))
     assert rc == 2 and "Traceback" not in err
+
+
+def _chain_dict(n):
+    d = _demo_dict()
+    lp, top = d["panels"][1], d["panels"][0]
+    f0 = d["feeders"][0]
+    panels = []
+    for i in range(n):
+        p = json.loads(json.dumps(lp))
+        p["name"] = f"P{i}"
+        for c in p["circuits"]:
+            c["panel"] = f"P{i}"
+        p["fed_from"] = {
+            "value": f"P{i + 1}" if i < n - 1 else None,
+            "raw": None,
+            "source": top["voltage_v"]["source"],
+        }
+        panels.append(p)
+    d["panels"] = panels
+    base = lp["circuits"][0]
+    panels[0]["circuits"] = [dict(base, number=str(i), panel="P0") for i in range(300)]
+    d["feeders"] = [
+        dict(
+            f0,
+            id=f"F{i}",
+            from_panel=dict(f0["from_panel"], value=f"P{i + 1}"),
+            to_panel=dict(f0["to_panel"], value=f"P{i}"),
+        )
+        for i in range(n - 1)
+    ]
+    return d
+
+
+def _adv_big_note():
+    d = _demo_dict()
+    big = d["panels"][1]
+    big["voltage_v"]["source"]["note"] = "N" * 100_000
+    big["voltage_v"]["source"]["confidence"] = "LOW"
+    base = dict(big["circuits"][2], voltage_v={"value": None, "raw": None, "source": None})
+    big["circuits"] = [
+        dict(base, number=str(i), poles=dict(base["poles"], value=2)) for i in range(300)
+    ]
+    return d
+
+
+def _adv_locator():
+    d = _demo_dict()
+    d["panels"][1]["source"]["locator"] = "L" * 4_000_000
+    return d
+
+
+@pytest.mark.parametrize(
+    "build",
+    [_adv_big_note, _adv_locator, lambda: _chain_dict(300)],
+    ids=["note", "locator", "chain"],
+)
+def test_output_bounded_adversarial(tmp_path, build):
+    d = build()
+    f = tmp_path / "p.json"
+    f.write_text(json.dumps(d), encoding="utf-8")
+    out = tmp_path / "r.html"
+    assert main(["check", "--demo-project", str(f), "--config", TEST_CFG, "--out", str(out)]) == 0
+    assert out.stat().st_size + (tmp_path / "findings.csv").stat().st_size < 10_000_000
+
+
+def test_input_files_and_config_hashes_reported(tmp_path):
+    rc, out = _provenance_with(
+        tmp_path, {"tool_version": "1", "config_hashes": {"cec_tables.yaml": "feedface-input"}}
+    )
+    html = out.read_text(encoding="utf-8")
+    assert rc == 0
+    assert "demo_panels.csv; demo_feeders.csv" in html
+    assert "feedface-input" in html and "Input cec_tables.yaml SHA-256" in html
