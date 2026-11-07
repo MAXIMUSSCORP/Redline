@@ -7,7 +7,7 @@ name = "redline"
 version = "0.1.0"
 description = "Screens building electrical design packages for a qualified reviewer."
 requires-python = ">=3.12"
-dependencies = ["PyYAML>=6.0", "Jinja2>=3.1"]
+dependencies = ["PyYAML>=6.0", "Jinja2>=3.1", "openpyxl>=3.1"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff"]
