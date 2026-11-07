@@ -98,3 +98,46 @@ def test_rule_ampacity_float_rounding_no_false_violation(test_cfg, cfg_set, val)
     cfg = _cfg(test_cfg, cfg_set, 50)
     cfg = cfg_set(cfg, ("tables", "ambient_temp_correction", "values", "75"), [[100, 0.58]])
     assert engine.run(_project(val, breaker_a=val(29)), cfg, [SPEC]).findings == ()
+
+
+def _two_circuits(val):
+    def ckt(n, temp):
+        return Circuit(
+            panel="LP-1",
+            number=n,
+            source=SRC,
+            breaker_a=val(20),
+            conductor_size=val("12 AWG"),
+            conductor_material=val("Cu"),
+            insulation_temp_c=val(temp),
+            conductors_in_raceway=val(3),
+            ambient_c=val(25),
+        )
+
+    return Project("t", panels=[Panel("LP-1", SRC, circuits=[ckt("1", 75), ckt("2", 90)])])
+
+
+def test_rule_ampacity_one_bad_unit_does_not_stop_rule(test_cfg, cfg_set, val):
+    cfg = _cfg(test_cfg, cfg_set, 15)
+    cfg = cfg_set(cfg, (*CELL, "90"), 15)
+    cfg = cfg_set(cfg, ("tables", "ambient_temp_correction", "values", "75"), [5])
+    out = engine.run(_two_circuits(val), cfg, [SPEC])
+    assert out.ran == ("ampacity",) and not out.skipped
+    by = {f.message.split(":")[0]: f for f in out.findings}
+    assert by["LP-1 ckt 2"].severity.value == "VIOLATION"
+    assert by["LP-1 ckt 1"].severity.value == "NEEDS_REVIEW"
+    assert "could not be checked" in by["LP-1 ckt 1"].message
+
+
+def test_rule_ampacity_non_finite_result_needs_review(test_cfg, cfg_set, val):
+    cfg = _cfg(test_cfg, cfg_set, 1e308)
+    cfg = cfg_set(cfg, ("tables", "conductor_count_correction", "values"), [[100, 1e308]])
+    (f,) = engine.run(_project(val), cfg, [SPEC]).findings
+    assert f.severity.value == "NEEDS_REVIEW"
+    assert "could not be computed" in f.message and "LP-1 ckt 7" in f.message
+
+
+def test_rule_ampacity_fractional_insulation_temp_not_truncated(test_cfg, cfg_set, val):
+    cfg = _cfg(test_cfg, cfg_set, 15)
+    (f,) = engine.run(_project(val, temp=75.5), cfg, [SPEC]).findings
+    assert f.severity.value == "NEEDS_REVIEW" and "not a whole number" in f.message

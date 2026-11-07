@@ -4,7 +4,7 @@ import math
 
 from redline.config import Config, lookup, rule_ref
 from redline.engine import RuleSpec
-from redline.findings import Finding, Severity, input_gate, inputs_used
+from redline.findings import Finding, Severity, checked, input_gate, inputs_used
 from redline.model import Panel, Project, Value, derived, is_mlo, label
 
 ID = "panel_demand"
@@ -125,7 +125,12 @@ def _panel(p: Panel, cfg: Config) -> list[Finding]:
 
 
 def check(project: Project, cfg: Config) -> list[Finding]:
-    return [f for p in project.panels for f in _panel(p, cfg)]
+    ref = rule_ref(cfg, ID)
+    return [
+        f
+        for p in project.panels
+        for f in checked(ID, ref, label(p), p.source, lambda p=p: _panel(p, cfg))
+    ]
 
 
 SPEC = RuleSpec(ID, "Panel demand", check, ("demand_factors",))

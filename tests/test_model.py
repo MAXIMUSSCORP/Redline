@@ -268,3 +268,21 @@ def test_check_value_huge_int_raises_type_error():
     with pytest.raises(TypeError):
         check_value("conductor_size", Value(5, _src()))
     assert check_value("breaker_a", Value(MAX_INT, _src())).usable
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["poles", "phases", "wires", "sets_in_parallel", "conductors_in_raceway", "insulation_temp_c"],
+)
+def test_int_field_fraction_not_usable(name, val):
+    v = check_value(name, val(2.5))
+    assert not v.usable and "not a whole number" in v.source.note
+    assert check_value(name, val(3.0)).usable
+
+
+@pytest.mark.parametrize("n", [0, 2, 4, 3.5])
+def test_phases_not_one_or_three_not_usable(n, val):
+    v = check_value("phases", val(n))
+    assert not v.usable and v.confidence == Confidence.LOW
+    assert check_value("phases", val(1)).usable and check_value("phases", val(3)).usable
+    assert check_value("phases", val(1.0)).usable

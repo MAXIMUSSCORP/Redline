@@ -85,6 +85,9 @@ def render_html(project: Project, result: RunResult, cfg: Config) -> str:
         is_test=is_test_config(cfg),
         test_label=cfg.cec.get("code_edition"),
         edition=_or_empty(cfg.cec.get("code_edition")),
+        project_edition=_or_empty(project.code_edition.strip()),
+        edition_differs=bool(project.code_edition.strip())
+        and project.code_edition.strip() != str(cfg.cec.get("code_edition")).strip(),
         edition_verified=cfg.cec.get("code_edition_verified") is True,
         config_version=_or_empty(cfg.cec.get("config_version")),
         hashes=cfg.hashes,

@@ -157,6 +157,10 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 <section id="config-tables">
 <h2>Config tables</h2>
 <p class="mono">Code edition: {{ edition }} · {{ 'verified' if edition_verified else 'NOT VERIFIED' }}</p>
+<p class="mono">Project code edition: {{ project_edition }}</p>
+{% if edition_differs %}
+<p class="warn">The project names a different code edition than the config. A qualified reviewer must confirm which edition applies before any finding is relied on.</p>
+{% endif %}
 <table>
 <tr><th>Table</th><th>Status</th><th>Source</th></tr>
 {% for t in tables %}

@@ -5,8 +5,18 @@ from dataclasses import replace
 
 from redline.config import Config, lookup, rule_ref
 from redline.engine import RuleSpec
-from redline.findings import Finding, Severity, input_gate, inputs_used
-from redline.model import Circuit, Confidence, Method, Panel, Project, Source, Value, label
+from redline.findings import Finding, Severity, checked, input_gate, inputs_used
+from redline.model import (
+    MAX_CKT_DIGITS,
+    Circuit,
+    Confidence,
+    Method,
+    Panel,
+    Project,
+    Source,
+    Value,
+    label,
+)
 
 ID = "phase_balance"
 FIX = "Move circuits from the heaviest phase to the lightest. Reviewer to confirm [VERIFY]."
@@ -31,6 +41,13 @@ def _phases(c: Circuit, pattern: list | None) -> tuple[Value, bool]:
     num = c.number.strip()
     if not (pattern and num.isdigit() and c.poles.usable):
         return Value.missing(), False
+    if not (
+        num.isascii() and len(num) <= MAX_CKT_DIGITS
+    ):  # isdigit also passes "²" and 5000 digits
+        low = replace(
+            c.source, confidence=Confidence.LOW, note="circuit number not usable for position"
+        )
+        return Value(None, low, num[:MAX_CKT_DIGITS]), False
     n, size = int(num) - 1, len(pattern)
     letters = tuple(pattern[(n + 2 * k) % size] for k in range(int(c.poles.value)))
     low = min(Confidence.MEDIUM, c.source.confidence)
@@ -101,7 +118,11 @@ def _panel(p: Panel, cfg: Config, ref: str) -> list[Finding]:
 
 def check(project: Project, cfg: Config) -> list[Finding]:
     ref = rule_ref(cfg, ID)
-    return [f for p in project.panels for f in _panel(p, cfg, ref)]
+    return [
+        f
+        for p in project.panels
+        for f in checked(ID, ref, label(p), p.source, lambda p=p: _panel(p, cfg, ref))
+    ]
 
 
 SPEC = RuleSpec(ID, "Phase balance", check, ("phase_balance", "phase_layout"))

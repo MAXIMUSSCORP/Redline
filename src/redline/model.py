@@ -241,6 +241,7 @@ _NONZERO = {
     "demand_va_supplied",
 }
 MAX_INT = 2**53
+MAX_CKT_DIGITS = 6  # a circuit number longer than this is not a position
 
 
 def check_value(name: str, v: Value) -> Value:
@@ -262,12 +263,16 @@ def check_value(name: str, v: Value) -> Value:
             why = "not a finite number"
         elif abs(val) > MAX_INT:
             why = "too large a number"
+        elif kind == "int" and val != int(val):
+            why = "not a whole number"
         elif val < 0 and name not in _SIGNED:
             why = "negative quantity"
         elif val == 0 and name in _NONZERO:
             why = "zero"
         elif name == "poles" and val not in (1, 2, 3):
             why = "poles not 1, 2 or 3"
+        elif name == "phases" and val not in (1, 3):
+            why = "phases not 1 or 3"
     if kind == "str" and name == "load_type" and val is not None and val not in LOAD_TYPES:
         why = "not a known load type"
     if not why or v.source is None:
@@ -351,6 +356,23 @@ def _list(d: dict, key: str) -> list:
     return v
 
 
+def _run_info(ri: Any) -> RunInfo:
+    ri = _dict(ri, "run_info")
+    _check_keys(ri, {f.name for f in fields(RunInfo)}, "run_info")
+    out = RunInfo(**ri)
+    maps = (out.config_hashes, out.extractor_versions, out.seeds)
+    if not (
+        isinstance(out.tool_version, str)
+        and all(isinstance(m, dict) and all(isinstance(k, str) for k in m) for m in maps)
+        and all(isinstance(v, str) for m in maps[:2] for v in m.values())
+        and all(isinstance(v, int) and not isinstance(v, bool) for v in out.seeds.values())
+        and isinstance(out.model_ids_versions_hashes, list)
+        and all(isinstance(m, str) for m in out.model_ids_versions_hashes)
+    ):
+        raise TypeError("run_info has a value of the wrong type")
+    return out
+
+
 _PROJECT_KEYS = {f.name for f in fields(Project)}
 
 
@@ -384,5 +406,5 @@ def project_from_dict(data: Any) -> Project:
         devices=[_build(Device, x) for x in _list(data, "devices")],
         unparsed=[_build(Unparsed, u) for u in _list(data, "unparsed")],
         coverage=[_build(CoverageEntry, c) for c in _list(data, "coverage")],
-        run_info=RunInfo(**_dict(ri, "run_info")) if ri else None,
+        run_info=_run_info(ri) if ri else None,
     )

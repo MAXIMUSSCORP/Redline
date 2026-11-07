@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from redline.config import Config, lookup, rule_ref
 from redline.engine import RuleSpec
-from redline.findings import Finding, Severity, input_gate, inputs_used
+from redline.findings import Finding, Severity, checked, input_gate, inputs_used
 from redline.model import Project, Source, Value, label
 from redline.units import MATERIAL_TABLE_KEY
 
@@ -35,7 +35,13 @@ def _check_one(
     key = MATERIAL_TABLE_KEY.get(material.value, "") + "_size"
     if not rows or not order:
         return _review(cfg, unit, source, "Table entry missing.", req)
-    row = next((r for r in rows if (r.get("max_ocpd_a") or 0) >= ocpd.value), None)
+    row = None
+    for r in rows:
+        if r.get("max_ocpd_a") is None:  # a null limit is a missing entry, not zero
+            return _review(cfg, unit, source, "Table entry missing for this rating or size.", req)
+        if r["max_ocpd_a"] >= ocpd.value:
+            row = r
+            break
     need = row.get(key) if row else None
     if need not in order or bonding.value not in order:
         return _review(cfg, unit, source, "Table entry missing for this rating or size.", req)
@@ -74,18 +80,30 @@ def check(project: Project, cfg: Config) -> list[Finding]:
                 continue
             if c.bonding_size.source is None:
                 shown.append(label(c))
-            elif f := _check_one(
-                cfg, label(c), c.source, c.breaker_a, c.conductor_material, c.bonding_size
-            ):
-                out.append(f)
+            else:
+                out += checked(
+                    ID,
+                    rule_ref(cfg, ID),
+                    label(c),
+                    c.source,
+                    lambda c=c: _check_one(
+                        cfg, label(c), c.source, c.breaker_a, c.conductor_material, c.bonding_size
+                    ),
+                )
         if shown:
             out.append(_omitted(cfg, label(p), p.source, shown, "circuits"))
     gone = [f for f in project.feeders if f.bonding_size.source is None]
     for f in project.feeders:
-        if f.bonding_size.source is not None and (
-            g := _check_one(cfg, label(f), f.source, f.ocpd_a, f.conductor_material, f.bonding_size)
-        ):
-            out.append(g)
+        if f.bonding_size.source is not None:
+            out += checked(
+                ID,
+                rule_ref(cfg, ID),
+                label(f),
+                f.source,
+                lambda f=f: _check_one(
+                    cfg, label(f), f.source, f.ocpd_a, f.conductor_material, f.bonding_size
+                ),
+            )
     if gone:
         out.append(_omitted(cfg, "Feeders", gone[0].source, [label(f) for f in gone], "feeders"))
     return out

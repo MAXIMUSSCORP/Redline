@@ -55,7 +55,7 @@ tables:
     source: "TEST ONLY, NOT CEC VALUES"
     values:
       - { max_ocpd_a: 11, copper_size: "6 AWG", aluminum_size: "10 AWG" }
-      - { max_ocpd_a: 19, copper_size: "10 AWG", aluminum_size: "12 AWG" }
+      - { max_ocpd_a: 19, copper_size: "10 AWG", aluminum_size: "6 AWG" }
       - { max_ocpd_a: 107, copper_size: "12 AWG", aluminum_size: "14 AWG" }
   conductor_size_order: { verified: true, source: "TEST ONLY, NOT CEC VALUES", values: ["14 AWG", "12 AWG", "10 AWG", "6 AWG"] }
   voltage_drop:
@@ -77,15 +77,15 @@ tables:
       phase_multiplier: { single: 2, three: 1 }
       per_size:
         copper:
-          "14 AWG": { r: 5, x: 0 }
-          "12 AWG": { r: 2, x: 0 }
-          "10 AWG": { r: 1, x: 0 }
-          "6 AWG": { r: 0.5, x: 0 }
+          "14 AWG": { r: 4.37, x: 0 }
+          "12 AWG": { r: 1.93, x: 0 }
+          "10 AWG": { r: 1.19, x: 0 }
+          "6 AWG": { r: 0.47, x: 0 }
         aluminum:
-          "14 AWG": { r: 10, x: 0 }
-          "12 AWG": { r: 4, x: 0 }
-          "10 AWG": { r: 2, x: 0 }
-          "6 AWG": { r: 1, x: 0 }
+          "14 AWG": { r: 7.43, x: 0 }
+          "12 AWG": { r: 3.11, x: 0 }
+          "10 AWG": { r: 1.73, x: 0 }
+          "6 AWG": { r: 0.89, x: 0 }
   demand_factors:
     verified: true
     source: "TEST ONLY, NOT CEC VALUES"
