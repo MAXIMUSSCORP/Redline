@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from redline.model import Confidence, Source, Value
+from redline.model import Confidence, Source, Value, clip
 
 
 class Severity(StrEnum):
@@ -37,7 +37,7 @@ class Finding:
 def _locator(v: Value) -> str:
     if v.source is None:
         return ""
-    return "config default" if v.source.note == "config default" else v.source.locator
+    return "config default" if v.source.note == "config default" else clip(v.source.locator)
 
 
 def inputs_used(fields: Mapping[str, Value]) -> tuple[InputUsed, ...]:
@@ -46,11 +46,12 @@ def inputs_used(fields: Mapping[str, Value]) -> tuple[InputUsed, ...]:
         model = v.source.model if v.source else None
         if v.value is None and v.raw:
             # No confidence word: a parse failure must not read as a good value.
-            shown = f'shown as "{v.raw}" (not parsed)'
+            shown = f'shown as "{clip(v.raw)}" (not parsed)'
             out.append(InputUsed(name, shown, _locator(v), None, model))
             continue
         val = v.value
         text = ", ".join(map(str, val)) if isinstance(val, tuple | list) else str(val)
+        text = clip(text, 200)
         out.append(InputUsed(name, "" if val is None else text, _locator(v), v.confidence, model))
     return tuple(out)
 
@@ -62,10 +63,7 @@ def checked(
     try:
         out = fn()
     except Exception as e:  # noqa: BLE001 - one bad unit must not stop the others
-        msg = (
-            f"{unit}: could not be checked. An input or a config table entry for this unit "
-            f"could not be read ({type(e).__name__})."
-        )
+        msg = f"{unit}: could not be checked. The cause was not identified ({type(e).__name__})."
         fix = "Reviewer to check this unit by hand, and to check the config tables [VERIFY]."
         return [Finding(rule_id, Severity.NEEDS_REVIEW, msg, rule_ref, source, (), fix)]
     if out is None:
@@ -77,9 +75,9 @@ def _bad_part(n: str, v: Value) -> str:
     if v.source is None:
         return f"{n} (missing)"
     if v.value is None and v.raw:
-        return f'{n} shown as "{v.raw}" (not parsed, at {v.source.locator})'
+        return f'{n} shown as "{clip(v.raw)}" (not parsed, at {clip(v.source.locator)})'
     note = f", {v.source.note}" if v.source.note else ""
-    return f"{n} ({v.confidence.name}{note}, at {v.source.locator})"
+    return f"{n} ({v.confidence.name}{note}, at {clip(v.source.locator)})"
 
 
 def input_gate(

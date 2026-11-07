@@ -100,6 +100,8 @@ def render_html(project: Project, result: RunResult, cfg: Config) -> str:
             for name, t in cfg.cec["tables"].items()
         ],
         tool_version=_or_empty(ri.tool_version if ri else ""),
+        input_tool_version=_or_empty(ri.input_tool_version if ri else ""),
+        seeds=ri.seeds if ri else {},
         extractors=ri.extractor_versions if ri else {},
         models=ri.model_ids_versions_hashes if ri else [],
         liability=LIABILITY_SENTENCE,

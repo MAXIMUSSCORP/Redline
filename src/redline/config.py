@@ -51,9 +51,10 @@ def _read(path: Path) -> dict[str, Any]:
 _NUM, _STR, _BOOL = "a finite number", "a string", "true or false"
 _SCALAR = "a string or number"
 _POS = "a number above zero"  # a divisor
+_NONNEG = "a number of zero or more"
 _PHASE = "A, B or C"
 _ROW = (_NUM, _NUM)  # a tuple is a list of exactly that shape, "*" in a dict is any key
-_VD_PHASE = {"single": _NUM, "three": _NUM}
+_VD_PHASE = {"single": _POS, "three": _POS}
 # Expected type of every config leaf a rule reads. A null is allowed anywhere: it makes the
 # table unverified. Keys not named here are not read by any rule and are left alone.
 _SHAPE = {
@@ -85,18 +86,18 @@ _SHAPE = {
             "show_passing": _BOOL,
             **{k: _NUM for k in ("branch_max_pct", "feeder_max_pct", "total_max_pct")},
             "k_factor": {
-                "constant_by_material": {"*": _NUM},
+                "constant_by_material": {"*": _POS},
                 "area_by_size": {"*": _POS},
                 "phase_multiplier": _VD_PHASE,
             },
             "impedance": {
                 "power_factor": _NUM,
                 "phase_multiplier": _VD_PHASE,
-                "per_size": {"*": {"*": {"r": _NUM, "x": _NUM}}},
+                "per_size": {"*": {"*": {"r": _NONNEG, "x": _NONNEG}}},
             },
         },
         "demand_factors": {
-            "by_load_type": {"*": [{"up_to_va": _NUM, "factor": _NUM}]},
+            "by_load_type": {"*": [{"up_to_va": _NUM, "factor": _POS}]},
             **{
                 k: _NUM
                 for k in (
@@ -118,6 +119,7 @@ _LEAF = {
     _BOOL: lambda x: isinstance(x, bool),
     _SCALAR: lambda x: isinstance(x, str | int | float) and not isinstance(x, bool),
     _POS: lambda x: isinstance(x, int | float) and not isinstance(x, bool) and x > 0,
+    _NONNEG: lambda x: isinstance(x, int | float) and not isinstance(x, bool) and x >= 0,
     _PHASE: lambda x: x in ("A", "B", "C"),
 }
 

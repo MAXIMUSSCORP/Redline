@@ -289,3 +289,17 @@ def test_rule_voltage_drop_long_chain_output_bounded(test_cfg, cfg_set, val):
     # one entry per feeder, about 70 characters each, so 300 feeders stay well under 30000
     assert longest < 30000
     assert sum(1 for i in total[0].inputs_used if i.field.startswith("Feeder ")) == n
+
+
+def test_rule_voltage_drop_unparsed_feeder_named_separately(test_cfg, cfg_set, val):
+    cfg = _cfg(test_cfg, cfg_set)
+    for to_panel, want in (
+        (Value(None, SRC, "L P-9"), 'Feeder F-9 to_panel shown as "L P-9" is not parsed'),
+        (Value.missing(), "Feeder F-9 has no to_panel shown"),
+    ):
+        project = _chain_project(val)
+        project.feeders.append(replace(project.feeders[0], id="F-9", to_panel=to_panel))
+        (f,) = _run(project, cfg)
+        assert f.severity.value == "NOT_CHECKED"
+        assert want in f.message and "may also feed LP-1" in f.message
+        assert "feeders feed" not in f.message
