@@ -62,8 +62,8 @@ tables:
     verified: true
     source: "TEST ONLY, NOT CEC VALUES"
     method: "k_factor"
-    branch_max_pct: 2
-    feeder_max_pct: 2
+    branch_max_pct: 1.7
+    feeder_max_pct: 2.3
     total_max_pct: 3.5
     current_basis: "load"
     show_passing: false
@@ -78,7 +78,7 @@ tables:
       per_size:
         copper:
           "14 AWG": { r: 4.37, x: 0 }
-          "12 AWG": { r: 1.93, x: 0 }
+          "12 AWG": { r: 1.61, x: 0 }
           "10 AWG": { r: 1.19, x: 0 }
           "6 AWG": { r: 0.47, x: 0 }
         aluminum:

@@ -174,11 +174,13 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 <table>
 <tr><th>Item</th><th>Value</th></tr>
 <tr><td>Tool version</td><td>{{ tool_version }}</td></tr>
+<tr><td>Input tool version</td><td>{{ input_tool_version }}</td></tr>
 <tr><td>Config version</td><td>{{ config_version }}</td></tr>
 {% for name, h in hashes.items() %}
 <tr><td>{{ name }} SHA-256</td><td>{{ h }}</td></tr>
 {% endfor %}
 <tr><td>Extractors</td><td>{% if extractors %}{% for k, v in extractors.items() %}{{ k }} {{ v }}{{ '; ' if not loop.last }}{% endfor %}{% else %}none in this run{% endif %}</td></tr>
+<tr><td>Seeds</td><td>{% if seeds %}{% for k, v in seeds.items() %}{{ k }} {{ v }}{{ '; ' if not loop.last }}{% endfor %}{% else %}{{ empty }}{% endif %}</td></tr>
 <tr><td>Models</td><td>{% if models %}{{ models|join('; ') }}{% else %}none in this run{% endif %}</td></tr>
 </table>
 <p class="note">{{ liability }}</p>
