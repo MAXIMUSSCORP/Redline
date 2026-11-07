@@ -71,13 +71,24 @@ def checked(
     return list(out) if isinstance(out, list) else [out]  # type: ignore[list-item]
 
 
-def unique_tag(taken: Mapping[str, object], name: str, fields: tuple[str, ...]) -> str:
-    """A tag whose keys are all free, so no circuit's input can replace another's."""
-    tag, n = name, 1
-    while any(f"{tag} {f}" in taken for f in fields):
+def unique_tag(
+    taken: Mapping[str, object],
+    name: str,
+    fields: tuple[str, ...],
+    nexts: dict[str, int] | None = None,
+) -> str:
+    """A tag whose keys are all free, so no circuit's input can replace another's.
+
+    nexts remembers the last suffix used per label, so many repeats of one label do not rescan.
+    """
+    nexts = {} if nexts is None else nexts
+    n = nexts.get(name, 1)
+    while True:
+        tag = name if n == 1 else f"{name} #{n}"
+        if not any(f"{tag} {f}" in taken for f in fields):
+            nexts[name] = n
+            return tag
         n += 1
-        tag = f"{name} #{n}"
-    return tag
 
 
 def _bad_part(n: str, v: Value) -> str:
