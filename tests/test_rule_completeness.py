@@ -42,6 +42,39 @@ def test_rule_completeness_spare_has_no_finding(val, test_cfg):
     assert _run([spare], test_cfg) == []
 
 
+def _spare(val, load, desc="SPARE"):
+    return Circuit("LP-1", "20", SRC, description=val(desc), load_va=load, is_spare=True)
+
+
+def test_rule_completeness_spare_with_load_needs_review(val, test_cfg):
+    (f,) = _run([_spare(val, val(1200))], test_cfg)
+    assert f.severity == Severity.NEEDS_REVIEW and f.rule_id == "completeness"
+    assert "LP-1 ckt 20" in f.message
+    assert "marked spare but shows a load" in f.message and "1200 VA" in f.message
+    assert f.rule_ref == "TEST drawing standard CMP-1"
+    assert f.source.locator == "row 5"
+    assert f.suggested_fix
+
+
+def test_rule_completeness_spare_load_text_needs_review(val, test_cfg):
+    (f,) = _run([_spare(val, Value(None, SRC, "abc"))], test_cfg)
+    assert f.severity == Severity.NEEDS_REVIEW
+    assert 'shows a load of "abc"' in f.message
+
+
+def test_rule_completeness_spare_placeholder_or_zero_load_no_finding(val, test_cfg):
+    zero = _spare(val, val(0))
+    tbd = _spare(val, Value(None, SRC, "tbd"))
+    blank = _spare(val, Value(None, SRC, "  "))
+    assert _run([zero, tbd, blank], test_cfg) == []
+
+
+def test_rule_completeness_spare_load_stays_needs_review(val, test_cfg, cfg_set):
+    cfg = cfg_set(test_cfg, ("completeness", "severity"), "INFO")
+    (f,) = _run([_spare(val, val(500))], cfg)
+    assert f.severity == Severity.NEEDS_REVIEW
+
+
 def test_rule_completeness_low_input(val, test_cfg):
     c = _full(val, "1", breaker_a=val(20, Confidence.LOW, locator="row 5 breaker"))
     (f,) = _run([c], test_cfg)

@@ -7,6 +7,7 @@ from redline.model import Circuit, Project, Value, clip, label
 
 ID = "completeness"
 FIX = "Add the load description and connected load, or mark the circuit SPARE."
+SPARE_FIX = "Remove the load, or describe the circuit and remove the spare mark."
 FIELDS = (
     ("description", "require_description"),
     ("load_va", "require_load"),
@@ -37,6 +38,22 @@ def _circuit(
     return Finding(ID, sev, msg, ref, c.source, inputs_used(used), FIX)
 
 
+def _spare_load(c: Circuit, placeholders: set[str], ref: str) -> Finding | None:
+    v = c.load_va
+    if isinstance(v.value, (int, float)) and not isinstance(v.value, bool):
+        if v.value <= 0:
+            return None
+        shown = f"{v.value:g} VA"
+    else:
+        raw = str(v.raw or "").strip()
+        if v.value is not None or not raw or raw.upper() in placeholders:
+            return None
+        shown = f'"{clip(raw)}"'
+    msg = f"{label(c)}: marked spare but shows a load of {shown}. No rule checked this circuit."
+    used = {"load_va": v, "description": c.description}
+    return Finding(ID, Severity.NEEDS_REVIEW, msg, ref, c.source, inputs_used(used), SPARE_FIX)
+
+
 def check(project: Project, cfg: Config) -> list[Finding]:
     block = cfg.cec["completeness"]
     s = str(block.get("severity")).upper()
@@ -47,9 +64,14 @@ def check(project: Project, cfg: Config) -> list[Finding]:
         f
         for p in project.panels
         for c in p.circuits
-        if not c.is_spare
         for f in checked(
-            ID, ref, label(c), c.source, lambda c=c: _circuit(c, block, placeholders, sev, ref)
+            ID,
+            ref,
+            label(c),
+            c.source,
+            (lambda c=c: _spare_load(c, placeholders, ref))
+            if c.is_spare
+            else (lambda c=c: _circuit(c, block, placeholders, sev, ref)),
         )
     ]
 
