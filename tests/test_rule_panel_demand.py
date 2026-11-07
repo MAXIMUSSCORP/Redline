@@ -101,3 +101,16 @@ def test_rule_panel_demand_non_finite_result_needs_review(val, test_cfg):
     out = _run(panel, test_cfg)
     assert [f.severity for f in out] == [Severity.NEEDS_REVIEW]
     assert "could not be computed" in out[0].message
+
+
+def test_rule_panel_demand_one_bad_unit_does_not_stop_rule(val, test_cfg, cfg_set):
+    bad = _panel(val, [4000])
+    bad.name = "LP-2"
+    for c in bad.circuits:
+        c.panel, c.load_type = "LP-2", val("motor")
+    cfg = cfg_set(test_cfg, ("tables", "demand_factors", "by_load_type", "motor"), [None])
+    out = run(Project("p", panels=[_panel(val, [4000]), bad]), cfg, [SPEC])
+    assert out.ran == ("panel_demand",) and not out.skipped
+    by = {f.message.split(":")[0]: f for f in out.findings}
+    assert by["LP-1"].severity == Severity.INFO
+    assert by["LP-2"].severity == Severity.NEEDS_REVIEW

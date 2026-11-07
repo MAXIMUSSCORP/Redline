@@ -67,3 +67,19 @@ def test_rule_bonding_null_table_entry(val, test_cfg, cfg_set):
     (f,) = _run(_project(val), _rows(test_cfg, cfg_set, None))
     assert f.severity == Severity.NEEDS_REVIEW
     assert "Table entry missing" in f.message
+
+
+def test_rule_bonding_one_bad_unit_does_not_stop_rule(val, test_cfg, cfg_set):
+    def ckt(n, amps):
+        c = Circuit("LP-1", n, SRC, breaker_a=val(amps), conductor_material=val("Cu"))
+        c.bonding_size = val("14 AWG", locator=f"row {n} bond")
+        return c
+
+    rows = [{"max_ocpd_a": 11, "copper_size": "12 AWG", "aluminum_size": "10 AWG"}, 5]
+    cfg = cfg_set(test_cfg, ("tables", "bonding_conductor_size", "values"), rows)
+    project = Project("p", panels=[Panel("LP-1", SRC, circuits=[ckt("1", 8), ckt("2", 15)])])
+    out = run(project, cfg, [SPEC])
+    assert out.ran == ("bonding",) and not out.skipped
+    by = {f.message.split(":")[0]: f for f in out.findings}
+    assert by["LP-1 ckt 1"].severity == Severity.VIOLATION
+    assert by["LP-1 ckt 2"].severity == Severity.NEEDS_REVIEW

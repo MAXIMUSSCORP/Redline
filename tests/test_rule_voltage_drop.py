@@ -1,7 +1,10 @@
 from dataclasses import replace
 
+import pytest
+
 from redline import engine
 from redline.model import Circuit, Confidence, Feeder, Method, Panel, Project, Source, Value
+from redline.report.csv_out import format_inputs
 from redline.rules.voltage_drop import SPEC
 
 SRC = Source("test.csv", "row 7", Method.CSV, Confidence.HIGH)
@@ -227,3 +230,62 @@ def test_rule_voltage_drop_ambiguous_feeder_broken_link(test_cfg, cfg_set, val):
     (g,) = _run(wrong, cfg)
     assert g.severity.value == "NOT_CHECKED"
     assert "Broken link" in g.message and "from_panel disagrees" in g.message
+
+
+def test_rule_voltage_drop_one_bad_unit_does_not_stop_rule(test_cfg, cfg_set, val):
+    cfg = _cfg(test_cfg, cfg_set)
+    cfg = cfg_set(cfg, (*VD, "k_factor", "area_by_size", "10 AWG"), 0)
+    project = _project(val, 5)
+    project.panels[0].circuits.append(
+        replace(_circuit(val, 5, conductor_size=val("10 AWG")), number="8")
+    )
+    out = engine.run(project, cfg, [SPEC])
+    assert out.ran == ("voltage_drop",) and not out.skipped
+    by = {f.message.split(":")[0]: f for f in _run(project, cfg)}
+    assert by["LP-1 ckt 7"].severity.value == "VIOLATION"
+    assert by["LP-1 ckt 8"].severity.value == "NEEDS_REVIEW"
+    assert "could not be checked" in by["LP-1 ckt 8"].message
+
+
+@pytest.mark.parametrize("edge", ["blank_fed_from", "unparsed_to_panel", "low_from_panel"])
+def test_rule_voltage_drop_feeder_edges_broken_link(test_cfg, cfg_set, val, edge):
+    project = _chain_project(val)
+    if edge == "blank_fed_from":
+        project.panels[0].fed_from = Value.missing()
+    elif edge == "unparsed_to_panel":
+        project.feeders.append(
+            replace(project.feeders[0], id="F-2", to_panel=Value(None, SRC, "L P-1"))
+        )
+    else:
+        project.feeders[0].from_panel = val("MDP", Confidence.LOW, locator="cell A1")
+    out = _run(project, _cfg(test_cfg, cfg_set))
+    notes = [f for f in out if f.severity.value == "NOT_CHECKED"]
+    assert len(notes) == 1 and "Broken link" in notes[0].message
+    assert "Supply above" not in notes[0].message
+
+
+def test_rule_voltage_drop_long_chain_output_bounded(test_cfg, cfg_set, val):
+    n = 300
+    panels = [
+        Panel(f"P{i}", SRC, fed_from=val(f"P{i + 1}") if i < n else Value.missing())
+        for i in range(n + 1)
+    ]
+    panels[0].voltage_v = val(100)
+    panels[0].circuits = [replace(_circuit(val, 5), panel="P0")]
+    feeders = [
+        replace(
+            _project(val, feeder_length=1.5).feeders[0],
+            id=f"F-{i}",
+            from_panel=val(f"P{i + 1}"),
+            to_panel=val(f"P{i}"),
+        )
+        for i in range(n)
+    ]
+    project = Project("t", panels=panels, feeders=feeders)
+    out = _raw(project, _cfg(test_cfg, cfg_set))
+    total = [f for f in out if "total voltage drop" in f.message and f.inputs_used]
+    assert total and total[0].severity.value == "VIOLATION"
+    longest = max(len(format_inputs(f)) for f in out)
+    # one entry per feeder, about 70 characters each, so 300 feeders stay well under 30000
+    assert longest < 30000
+    assert sum(1 for i in total[0].inputs_used if i.field.startswith("Feeder ")) == n

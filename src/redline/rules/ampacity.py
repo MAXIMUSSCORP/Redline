@@ -5,8 +5,8 @@ from collections.abc import Mapping
 
 from redline.config import Config, default_value, lookup, rule_ref
 from redline.engine import RuleSpec
-from redline.findings import Finding, Severity, input_gate, inputs_used
-from redline.model import Circuit, Feeder, Project, Value, label
+from redline.findings import Finding, Severity, checked, input_gate, inputs_used
+from redline.model import Circuit, Feeder, Project, Value, check_value, label
 from redline.units import MATERIAL_TABLE_KEY
 
 ID = "ampacity"
@@ -26,7 +26,12 @@ FIX = (
 
 
 def _factor(rows: list | None, x: float) -> float | None:
-    return next((f for bound, f in rows or () if x <= bound), None)
+    for bound, f in rows or ():
+        if bound is None or f is None:  # a null cell is a missing entry, not a bound
+            return None
+        if x <= bound:
+            return f
+    return None
 
 
 def _missing(
@@ -50,7 +55,7 @@ def _unit(
         "breaker_a": ocpd,
         "conductor_size": u.conductor_size,
         "conductor_material": u.conductor_material,
-        "insulation_temp_c": u.insulation_temp_c,
+        "insulation_temp_c": check_value("insulation_temp_c", u.insulation_temp_c),
         "termination_temp_c": default_value(cfg, "termination_temp_c"),
         # a missing value falls back to the config default; a LOW one goes to the gate
         "conductors_in_raceway": u.conductors_in_raceway
@@ -88,6 +93,9 @@ def _unit(
     base, ambient, count = found.values()
     corrected = base * ambient * count * (fields["sets_in_parallel"].value if sets else 1)
     breaker = fields["breaker_a"].value
+    if not math.isfinite(corrected):
+        msg = f"{name}: not checked. Corrected ampacity could not be computed."
+        return Finding(ID, Severity.NEEDS_REVIEW, msg, ref, u.source, inputs_used(fields), GATE_FIX)
     if corrected >= breaker or math.isclose(corrected, breaker):
         return None
     if lookup(cfg, "allow_next_standard_size", "enabled") is True:
@@ -111,14 +119,26 @@ def _unit(
 
 def check(project: Project, cfg: Config) -> list[Finding]:
     ref = rule_ref(cfg, ID)
-    out = [
-        _unit(cfg, ref, label(c), c, c.breaker_a, None)
-        for p in project.panels
-        for c in p.circuits
-        if not c.is_spare
-    ]
-    out += [_unit(cfg, ref, label(f), f, f.ocpd_a, f.sets_in_parallel) for f in project.feeders]
-    return [f for f in out if f]
+    out: list[Finding] = []
+    for p in project.panels:
+        for c in p.circuits:
+            if not c.is_spare:
+                out += checked(
+                    ID,
+                    ref,
+                    label(c),
+                    c.source,
+                    lambda c=c: _unit(cfg, ref, label(c), c, c.breaker_a, None),
+                )
+    for f in project.feeders:
+        out += checked(
+            ID,
+            ref,
+            label(f),
+            f.source,
+            lambda f=f: _unit(cfg, ref, label(f), f, f.ocpd_a, f.sets_in_parallel),
+        )
+    return out
 
 
 SPEC = RuleSpec(ID, "Ampacity", check, TABLES)

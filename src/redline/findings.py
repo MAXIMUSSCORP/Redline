@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -53,6 +53,24 @@ def inputs_used(fields: Mapping[str, Value]) -> tuple[InputUsed, ...]:
         text = ", ".join(map(str, val)) if isinstance(val, tuple | list) else str(val)
         out.append(InputUsed(name, "" if val is None else text, _locator(v), v.confidence, model))
     return tuple(out)
+
+
+def checked(
+    rule_id: str, rule_ref: str, unit: str, source: Source | None, fn: Callable[[], object]
+) -> list[Finding]:
+    """Run one unit's check alone. A failure becomes that unit's NEEDS_REVIEW, not the rule's."""
+    try:
+        out = fn()
+    except Exception as e:  # noqa: BLE001 - one bad unit must not stop the others
+        msg = (
+            f"{unit}: could not be checked. An input or a config table entry for this unit "
+            f"could not be read ({type(e).__name__})."
+        )
+        fix = "Reviewer to check this unit by hand, and to check the config tables [VERIFY]."
+        return [Finding(rule_id, Severity.NEEDS_REVIEW, msg, rule_ref, source, (), fix)]
+    if out is None:
+        return []
+    return list(out) if isinstance(out, list) else [out]  # type: ignore[list-item]
 
 
 def _bad_part(n: str, v: Value) -> str:

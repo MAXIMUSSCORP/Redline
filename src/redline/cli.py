@@ -100,12 +100,20 @@ def main(argv: list[str] | None = None) -> int:
             alias
             or out.is_dir()
             or any(_same(out, p) for p in (out.parent / "findings.csv", *inputs))
+            or any(_same(out.parent / "findings.csv", p) for p in inputs)
         ):
             return _fail(
                 f"--out {args.out} must be a new report file, not a directory, an input "
-                "or findings.csv."
+                "or findings.csv, and findings.csv beside it must not be an input."
             )
-        project.run_info = RunInfo(tool_version=__version__, config_hashes=dict(cfg.hashes))
+        given = project.run_info or RunInfo(tool_version="")
+        project.run_info = RunInfo(
+            tool_version=__version__,
+            config_hashes=dict(cfg.hashes),
+            extractor_versions=dict(given.extractor_versions),
+            model_ids_versions_hashes=list(given.model_ids_versions_hashes),
+            seeds=dict(given.seeds),
+        )
         result = run(project, cfg, RULES, args.skip_rule)
         html = render_html(project, result, cfg)
         html.encode("utf-8")
