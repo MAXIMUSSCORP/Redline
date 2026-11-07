@@ -1,0 +1,7 @@
+config_version: "test-0.1"
+verified: true
+source: "TEST ONLY, NOT CEC VALUES"
+device_blocks: { exit_sign: ["TEST_EXIT"], pull_station: ["TEST_PULL"], emergency_light: ["TEST_EMLT"], exit_door: ["TEST_DOOR"] }
+exit_signs:         { rule_ref: "TODO [VERIFY]", require_at_each_exit: true, max_spacing_along_path_m: 10 }
+pull_stations:      { rule_ref: "TODO [VERIFY]", max_distance_from_exit_m: 5 }
+emergency_lighting: { rule_ref: "TODO [VERIFY]", coverage_radius_m: 5, max_gap_along_path_m: 2 }

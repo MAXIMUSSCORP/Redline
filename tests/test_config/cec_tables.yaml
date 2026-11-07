@@ -1,0 +1,110 @@
+# TEST CONFIG. Every number below is made up to keep test arithmetic obvious. None is a code value.
+# Odd numbers on purpose: 25 C ambient, 7000 VA demand tiers with a 0.43 remainder factor, and breaker ratings 7 13 29 41 53 97, so none can pass for a code value.
+config_version: "test-0.1"
+code_edition: "TEST EDITION, NOT CEC"
+code_edition_verified: true
+
+defaults: { conductors_in_raceway: null, ambient_c: 25, voltage_v: 100, power_factor: 1.0, conductor_material: "Cu", termination_temp_c: 75 }
+
+rule_refs:
+  ampacity: "TEST Rule AMP-1"
+  continuous_load: "TEST Rule CON-1"
+  voltage_drop: "TEST Rule VD-1"
+  bonding: "TEST Rule BOND-1"
+  panel_demand: "TEST Rule DEM-1"
+  phase_balance: "TEST practice PB-1"
+  completeness: "TEST drawing standard CMP-1"
+  fire_alarm_exit_signs: "TODO [VERIFY]"
+  fire_alarm_pull_stations: "TODO [VERIFY]"
+  emergency_lighting: "TODO [VERIFY]"
+
+tables:
+  conductor_ampacity:         # material -> size -> insulation temp C -> amps
+    verified: true
+    source: "TEST ONLY, NOT CEC VALUES"
+    values:
+      copper:
+        "14 AWG": { "60": 3.7, "75": 7.3, "90": 9.1 }
+        "12 AWG": { "60": 9.7, "75": 23.3, "90": 36.1 }
+        "10 AWG": { "60": 17.9, "75": 41.3, "90": 63.7 }
+        "6 AWG": { "60": 51.1, "75": 103.7, "90": 151.3 }
+      aluminum:
+        "14 AWG": { "60": 2.3, "75": 4.9, "90": 7.7 }
+        "12 AWG": { "60": 4.7, "75": 9.3, "90": 12.9 }
+        "10 AWG": { "60": 9.1, "75": 19.7, "90": 26.3 }
+        "6 AWG": { "60": 24.1, "75": 46.7, "90": 74.3 }
+  ambient_temp_correction:    # insulation temp C -> [[ambient_upper_bound_c, factor], ...]
+    verified: true
+    source: "TEST ONLY, NOT CEC VALUES"
+    values:
+      "60": [[25, 1.0], [43, 0.5], [61, 0.25]]
+      "75": [[25, 1.0], [43, 0.5], [61, 0.25]]
+      "90": [[25, 1.0], [43, 0.5], [61, 0.25]]
+  conductor_count_correction: # [[max_conductor_count, factor], ...]
+    verified: true
+    source: "TEST ONLY, NOT CEC VALUES"
+    values: [[4, 1.0], [11, 0.5], [100, 0.25]]
+  continuous_load:
+    verified: true
+    source: "TEST ONLY, NOT CEC VALUES"
+    max_fraction_of_breaker: 0.5
+  standard_breaker_ratings: { verified: true, source: "TEST ONLY, NOT CEC VALUES", values_a: [7, 13, 29, 41, 53, 97] }
+  allow_next_standard_size: { verified: true, source: "TEST ONLY, NOT CEC VALUES", enabled: false }
+  bonding_conductor_size:     # ascending by max_ocpd_a
+    verified: true
+    source: "TEST ONLY, NOT CEC VALUES"
+    values:
+      - { max_ocpd_a: 11, copper_size: "6 AWG", aluminum_size: "10 AWG" }
+      - { max_ocpd_a: 19, copper_size: "10 AWG", aluminum_size: "6 AWG" }
+      - { max_ocpd_a: 107, copper_size: "12 AWG", aluminum_size: "14 AWG" }
+  conductor_size_order: { verified: true, source: "TEST ONLY, NOT CEC VALUES", values: ["14 AWG", "12 AWG", "10 AWG", "6 AWG"] }
+  voltage_drop:
+    verified: true
+    source: "TEST ONLY, NOT CEC VALUES"
+    method: "k_factor"
+    branch_max_pct: 1.7
+    feeder_max_pct: 2.3
+    total_max_pct: 3.5
+    current_basis: "load"
+    show_passing: false
+    k_factor:
+      constant_by_material: { copper: 10, aluminum: 20 }
+      area_by_size: { "14 AWG": 2, "12 AWG": 4, "10 AWG": 8, "6 AWG": 20 }
+      length_unit_note: "metres"
+      phase_multiplier: { single: 2, three: 1 }
+    impedance:
+      power_factor: 1.0
+      phase_multiplier: { single: 2, three: 1 }
+      per_size:
+        copper:
+          "14 AWG": { r: 17.3, x: 0 }
+          "12 AWG": { r: 11.9, x: 0 }
+          "10 AWG": { r: 7.7, x: 0 }
+          "6 AWG": { r: 3.1, x: 0 }
+        aluminum:
+          "14 AWG": { r: 23.9, x: 0 }
+          "12 AWG": { r: 15.7, x: 0 }
+          "10 AWG": { r: 9.9, x: 0 }
+          "6 AWG": { r: 4.3, x: 0 }
+  demand_factors:
+    verified: true
+    source: "TEST ONLY, NOT CEC VALUES"
+    default_method: "computed"
+    supplied_vs_computed_tolerance_pct: 10
+    # Tiers by cumulative VA. The last tier uses a huge bound, since the test config holds no null.
+    by_load_type:
+      continuous: [{ up_to_va: 7000, factor: 1.0 }, { up_to_va: 700000000, factor: 0.43 }]
+      noncontinuous: [{ up_to_va: 7000, factor: 1.0 }, { up_to_va: 700000000, factor: 0.43 }]
+      receptacle: [{ up_to_va: 7000, factor: 1.0 }, { up_to_va: 700000000, factor: 0.43 }]
+      motor: [{ up_to_va: 700000000, factor: 1.0 }]
+      unknown: [{ up_to_va: 700000000, factor: 1.0 }]
+    bus_loading_limit_fraction: 1.0
+    main_loading_limit_fraction: 0.5
+  phase_balance: { verified: true, source: "TEST ONLY, NOT CEC VALUES", max_deviation_pct: 10, min_circuits_to_check: 3 }
+  phase_layout:
+    verified: true
+    source: "TEST ONLY, NOT CEC VALUES"
+    three_phase_pattern: ["A", "A", "B", "B", "C", "C"]
+    single_phase_pattern: ["A", "B"]
+
+completeness: { require_description: true, require_load: true, require_breaker: true, require_conductor_size: true, spare_keywords: ["SPARE", "SPACE"], placeholder_texts: ["TBD", "-", "N/A"], severity: "NEEDS_REVIEW" }
