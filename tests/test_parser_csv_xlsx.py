@@ -1,3 +1,4 @@
+import codecs
 import copy
 import re
 import zipfile
@@ -996,3 +997,83 @@ def test_xlsx_shared_string_reuse_normal_workbook_unaffected(tmp_path, cfg):
     path = _shared_string_book(tmp_path, "Lights", {"LP-0": 3, "LP-1": 2})
     got = parse_file(path, cfg)
     assert [p.name for p in got.panels] == ["LP-0", "LP-1"] and not got.unparsed
+
+
+def _with_doctype(path, member, utf16=False):
+    import shutil
+
+    ent = "<!DOCTYPE x [<!ENTITY e '" + "<a/>" * 74 + "'>]>"
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item)
+            if item.filename == member:
+                text = data.decode("utf-8")
+                head, _, rest = text.partition("?>")
+                body = f"{head}?>{ent}{rest}" if text.startswith("<?xml") else ent + text
+                if utf16:
+                    body = body.replace('encoding="UTF-8"', 'encoding="UTF-16"')
+                    data = codecs.BOM_UTF16_LE + body.encode("utf-16-le")
+                else:
+                    data = body.encode("utf-8")
+            zout.writestr(item, data)
+        if member not in zin.namelist():  # openpyxl writes no sharedStrings for this book
+            zout.writestr(member, ent + "<sst/>")
+    shutil.move(tmp, path)
+
+
+def _refused_without_expansion(tmp_path, cfg, member, utf16):
+    import tracemalloc
+
+    path = workbook(tmp_path, {"LP-1": [["Ckt", "Description", "Breaker"], [1, "A", 20]]})
+    _with_doctype(path, member, utf16)
+    tracemalloc.start()
+    with pytest.raises(InputError, match="DOCTYPE"):
+        parse_file(path, cfg)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 50 * 2**20
+
+
+@pytest.mark.parametrize(
+    "member",
+    ["xl/styles.xml", "xl/worksheets/sheet1.xml", "xl/workbook.xml", "xl/sharedStrings.xml"],
+)
+def test_xlsx_xml_entity_declaration_refused(tmp_path, cfg, member):
+    _refused_without_expansion(tmp_path, cfg, member, False)
+
+
+def test_xlsx_utf16_doctype_refused(tmp_path, cfg):
+    _refused_without_expansion(tmp_path, cfg, "xl/styles.xml", True)
+
+
+def test_xlsx_many_xfs_sharing_long_format_linear(tmp_path, cfg):
+    import time
+
+    n = 300_000
+    styles = (
+        f'<styleSheet {_SS}><numFmts count="1"><numFmt numFmtId="164" formatCode="'
+        + "0" * 255
+        + f'"/></numFmts><cellXfs count="{n}">'
+        + '<xf numFmtId="164"/>' * n
+        + "</cellXfs></styleSheet>"
+    )
+    path = _styled_book(tmp_path, styles)
+    start = time.monotonic()
+    parse_file(path, cfg)
+    assert time.monotonic() - start < 2
+
+
+def test_xlsx_dxf_numfmt_does_not_override_date_style(tmp_path, cfg):
+    path = _date_book(tmp_path)
+
+    def add_dxf(x):
+        dxf = '<dxfs count="1"><dxf><numFmt numFmtId="164" formatCode="0"/></dxf></dxfs>'
+        x = x.replace("<dxfs/>", "").replace('<dxfs count="0"/>', "")
+        return x.replace("</styleSheet>", dxf + "</styleSheet>")
+
+    _stuff(path, "xl/styles.xml", add_dxf)
+    # The date-styled cell must stay a date whatever a dxf declares for the same id.
+    got = parse_file(path, cfg)
+    _, c2, _ = got.panels[0].circuits
+    assert c2.breaker_a.value is None
