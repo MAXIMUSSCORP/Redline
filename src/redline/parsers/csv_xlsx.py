@@ -15,7 +15,7 @@ from redline.model import Confidence, CoverageEntry, Method, Source, Unparsed
 from redline.parsers.tabular import Parsed, rows_to_panels
 
 if TYPE_CHECKING:
-    from openpyxl.worksheet._read_only import ReadOnlyWorksheet
+    from openpyxl.reader.excel import ExcelReader
 
 SUFFIXES = (".csv", ".txt", ".xlsx")
 MAX_ROWS = 20_000
@@ -69,11 +69,14 @@ def _text_rows(path: Path) -> tuple[list[list[str]], str]:
     return rows, encoding
 
 
-def _sheet_rows(ws: ReadOnlyWorksheet, name: str) -> tuple[list[list[str]], str | None, int]:
+def _sheet_rows(
+    reader: ExcelReader, target: str, name: str
+) -> tuple[list[list[str]], str | None, int]:
     """Rows of one sheet, a reason it is refused instead of being cut, and the rows charged."""
     # The sheet XML is parsed cell by cell, so a cell at any column is seen with its
     # real column number and no padded row is built for it. The declared dimension is
-    # never used.
+    # never used. The part is opened straight from the archive: nothing but worksheet
+    # parts is ever parsed.
     from openpyxl.worksheet._reader import WorkSheetParser
 
     rows: list[list[str]] = []
@@ -81,14 +84,14 @@ def _sheet_rows(ws: ReadOnlyWorksheet, name: str) -> tuple[list[list[str]], str 
     last_idx = 0
     refused: str | None = None
     try:
-        with ws._get_source() as src:
+        with reader.archive.open(target) as src:
             parser = WorkSheetParser(
                 src,
-                ws._shared_strings,
-                data_only=ws.parent.data_only,
-                epoch=ws.parent.epoch,
-                date_formats=ws.parent._date_formats,
-                timedelta_formats=ws.parent._timedelta_formats,
+                reader.shared_strings,
+                data_only=True,
+                epoch=reader.wb.epoch,
+                date_formats=reader.wb._date_formats,
+                timedelta_formats=reader.wb._timedelta_formats,
             )
             for idx, cells in parser.parse():
                 parsed += 1
@@ -130,7 +133,7 @@ def _sheet_rows(ws: ReadOnlyWorksheet, name: str) -> tuple[list[list[str]], str 
 
 
 def _check_size(path: Path) -> None:
-    """Refuse a workbook whose sheets would inflate past the cap, before openpyxl parses it."""
+    """Refuse a workbook whose sheets would inflate past the cap, before anything is parsed."""
     try:
         with zipfile.ZipFile(path) as z:
             infos = z.infolist()
@@ -144,60 +147,79 @@ def _check_size(path: Path) -> None:
             f"the workbook holds more than {MAX_XLSX_BYTES // 2**20} MB of data "
             "once unpacked, so it is not read"
         )
-    _check_sheet_entries(path)
 
 
-def _check_sheet_entries(path: Path) -> None:
-    """Refuse a workbook that lists one sheet part twice or lists too many sheets."""
-    # openpyxl sizes every sheet entry on load, so N entries naming one part cost N scans of
-    # it before any row budget applies. Targets are resolved by openpyxl's own reader (content
-    # types, workbook rels, joined paths, normpath), so no respelling of a target gets past
-    # this check. The pre-pass parses only the manifest, workbook.xml and its rels, never a
-    # sheet.
+def _open_reader(path: Path) -> tuple[ExcelReader, list[tuple[str, str | None]]]:
+    """Open the package once; return the reader and (title, part) per sheet entry.
+
+    The part is None for a chartsheet.
+
+    openpyxl.load_workbook is never called: it parses every external link, chartsheet
+    drawing and sheet entry per entry, so a small file can cost unbounded time. Only the
+    manifest, shared strings, workbook and stylesheet are read here, each once. Targets
+    are resolved by openpyxl's own reader (content types, workbook rels, joined paths), so
+    no respelling of a target gets past the duplicate check.
+    """
     from openpyxl.reader.excel import ExcelReader
+    from openpyxl.styles.stylesheet import apply_stylesheet
+    from openpyxl.workbook.child import INVALID_TITLE_REGEX, avoid_duplicate_name
 
+    reader = None
     try:
-        reader = ExcelReader(path, read_only=True, keep_links=False)
-        try:
-            reader.read_manifest()
-            reader.read_workbook()
-            if len(reader.parser.sheets) > MAX_SHEETS:
-                raise InputError(
-                    f"the workbook lists more than {MAX_SHEETS} sheets, so it is not read"
-                )
-            targets = [rel.target for _, rel in reader.parser.find_sheets()]
-        finally:
-            reader.archive.close()
+        reader = ExcelReader(path, read_only=True, data_only=True, keep_links=False)
+        reader.read_manifest()
+        reader.read_strings()
+        reader.read_workbook()
+        if len(reader.parser.sheets) > MAX_SHEETS:
+            raise InputError(f"the workbook lists more than {MAX_SHEETS} sheets, so it is not read")
+        found = [(s, rel) for s, rel in reader.parser.find_sheets()]
+        targets = [rel.target for _, rel in found]
+        if len(targets) != len(set(targets)):
+            raise InputError(
+                "the workbook lists one sheet part under more than one sheet, so it is not read"
+            )
+        apply_stylesheet(reader.archive, reader.wb)
+        names: list[str] = []
+        entries: list[tuple[str, str | None]] = []
+        for sheet, rel in found:
+            if rel.target not in reader.valid_files:
+                continue
+            # Same title rules as openpyxl's sheet objects: no empty or special-character
+            # name, and a repeated name gets a number.
+            if not sheet.name or INVALID_TITLE_REGEX.search(sheet.name):
+                raise ValueError("invalid sheet title")
+            title = avoid_duplicate_name(names, sheet.name)
+            names.append(title)
+            entries.append((title, None if "chartsheet" in rel.Type else rel.target))
+        return reader, entries
     except InputError:
+        if reader is not None:
+            reader.archive.close()
         raise
     except Exception as e:
+        if reader is not None:
+            reader.archive.close()
         raise InputError(f"cannot open the workbook: {type(e).__name__}") from e
-    if len(targets) != len(set(targets)):
-        raise InputError(
-            "the workbook lists one sheet part under more than one sheet, so it is not read"
-        )
 
 
 def _xlsx(path: Path, cfg: Config) -> Parsed:
-    import openpyxl
-
     out = Parsed()
     _check_size(path)
-    try:
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    except Exception as e:
-        raise InputError(f"cannot open the workbook: {type(e).__name__}") from e
+    reader, entries = _open_reader(path)
     try:
         budget = MAX_TOTAL_ROWS
-        for ws in wb.worksheets:
-            name = ws.title
+        for name, target in entries:
+            if target is None:
+                src = Source(path.name, f"sheet={name}", Method.XLSX, Confidence.LOW)
+                out.unparsed.append(Unparsed("sheet", name, f"chartsheet {name} is not read", src))
+                continue
             if budget <= 0:
                 rows, refused = (
                     [],
                     f"the workbook has more than {MAX_TOTAL_ROWS} rows, so sheet {name} is not read",
                 )
             else:
-                rows, refused, charged = _sheet_rows(ws, name)
+                rows, refused, charged = _sheet_rows(reader, target, name)
                 budget -= charged
             if refused:
                 src = Source(path.name, f"sheet={name}", Method.XLSX, Confidence.LOW)
@@ -218,7 +240,7 @@ def _xlsx(path: Path, cfg: Config) -> Parsed:
             out.panels += part.panels
             out.coverage += part.coverage
     finally:
-        wb.close()
+        reader.archive.close()
     return out
 
 
