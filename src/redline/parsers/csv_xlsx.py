@@ -7,12 +7,18 @@ import csv
 import io
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from redline.config import Config
-from redline.model import CoverageEntry, Method
+from redline.model import Confidence, CoverageEntry, Method, Source, Unparsed
 from redline.parsers.tabular import Parsed, rows_to_panels
 
+if TYPE_CHECKING:
+    from openpyxl.worksheet._read_only import ReadOnlyWorksheet
+
 SUFFIXES = (".csv", ".txt", ".xlsx")
+MAX_ROWS = 20_000
+MAX_COLS = 200
 
 
 class InputError(Exception):
@@ -55,6 +61,26 @@ def _text_rows(path: Path) -> tuple[list[list[str]], str]:
     return rows, encoding
 
 
+def _sheet_rows(ws: ReadOnlyWorksheet, name: str) -> tuple[list[list[str]], str | None]:
+    """Rows of one sheet, or a reason the sheet is refused instead of being cut."""
+    # The declared dimension is untrusted, so drop it and bound what is read.
+    ws.reset_dimensions()
+    rows = []
+    try:
+        for n, values in enumerate(ws.iter_rows(values_only=True, max_col=MAX_COLS + 1), 1):
+            if n > MAX_ROWS:
+                return [], f"sheet {name} has more than {MAX_ROWS} rows, so it is not read"
+            end = len(values)
+            while end and (values[end - 1] is None or not str(values[end - 1]).strip()):
+                end -= 1
+            if end > MAX_COLS:
+                return [], f"sheet {name} has more than {MAX_COLS} columns, so it is not read"
+            rows.append(["" if v is None else str(v) for v in values[:end]])
+    except Exception as e:
+        raise InputError(f"cannot read the workbook: {type(e).__name__}") from e
+    return rows, None
+
+
 def _xlsx(path: Path, cfg: Config) -> Parsed:
     import openpyxl
 
@@ -65,13 +91,12 @@ def _xlsx(path: Path, cfg: Config) -> Parsed:
         raise InputError(f"cannot open the workbook: {type(e).__name__}") from e
     try:
         for ws in wb.worksheets:
-            rows = []
-            for values in ws.iter_rows(values_only=True):
-                row = ["" if v is None else str(v) for v in values]
-                while row and not row[-1].strip():
-                    row.pop()
-                rows.append(row)
             name = ws.title
+            rows, refused = _sheet_rows(ws, name)
+            if refused:
+                src = Source(path.name, f"sheet={name}", Method.XLSX, Confidence.LOW)
+                out.unparsed.append(Unparsed("sheet", name, refused, src))
+                continue
             part = rows_to_panels(
                 rows,
                 cfg,
@@ -86,8 +111,6 @@ def _xlsx(path: Path, cfg: Config) -> Parsed:
                 out.unparsed.append(u)
             out.panels += part.panels
             out.coverage += part.coverage
-    except Exception as e:
-        raise InputError(f"cannot read the workbook: {type(e).__name__}") from e
     finally:
         wb.close()
     return out

@@ -222,17 +222,17 @@ def test_xlsx_sheet_without_header(tmp_path, cfg):
 
 
 def test_unreadable_file_raises_input_error(tmp_path, cfg):
-    with pytest.raises(InputError):
+    with pytest.raises(InputError, match="cannot open the workbook"):
         parse_file(write(tmp_path, "bad.xlsx", b"this is not a zip"), cfg)
-    with pytest.raises(InputError):
+    with pytest.raises(InputError, match="NUL bytes"):
         parse_file(write(tmp_path, "nul.csv", b"Panel,Ckt\nLP-1,\x001\n"), cfg)
-    with pytest.raises(InputError):
+    with pytest.raises(InputError, match="cannot split the file into rows"):
         parse_file(write(tmp_path, "big.csv", "Panel,Ckt\nLP-1," + "x" * 200_000 + "\n"), cfg)
-    with pytest.raises(InputError):
+    with pytest.raises(InputError, match="cannot decode the file"):
         parse_file(write(tmp_path, "undecodable.csv", b"Panel,Ckt\nLP-1,\x81\n"), cfg)
-    with pytest.raises(InputError):
+    with pytest.raises(InputError, match="cannot read the file"):
         parse_file(tmp_path / "missing.csv", cfg)
-    with pytest.raises(InputError):
+    with pytest.raises(InputError, match="unsupported file type"):
         parse_file(write(tmp_path, "other.pdf", b"%PDF"), cfg)
 
 
@@ -275,3 +275,83 @@ def test_source_file_is_name_only(tmp_path, cfg):
 def test_shipped_config_reads_the_sample(skeleton_cfg):
     parsed = parse_file(SAMPLES / "two_panels.csv", skeleton_cfg)
     assert [len(p.circuits) for p in parsed.panels] == [20, 20]
+
+
+def _inflate_dimension(path):
+    import re
+    import shutil
+    import zipfile
+
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                xml = data.decode("utf-8")
+                xml = re.sub(r'<dimension ref="[^"]*"', '<dimension ref="A1:XFD1048576"', xml)
+                xml = xml.replace('<row r="2"', '<row r="1048576"')
+                xml = re.sub(r'<c r="([A-Z]+)2"', r'<c r="\g<1>1048576"', xml)
+                data = xml.encode("utf-8")
+            zout.writestr(item, data)
+    shutil.move(tmp, path)
+
+
+def test_xlsx_inflated_dimension_parses_quickly(tmp_path, cfg):
+    import time
+
+    path = workbook(tmp_path, {"LP-1": [["Ckt", "Description", "Breaker"], [1, "Lights", 20]]})
+    _inflate_dimension(path)
+    start = time.monotonic()
+    try:
+        parse_file(path, cfg)
+    except InputError:
+        pass
+    assert time.monotonic() - start < 5
+
+
+def test_xlsx_parser_bug_is_not_reported_as_unreadable_workbook(tmp_path, cfg, monkeypatch):
+    import redline.parsers.csv_xlsx as mod
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mod, "rows_to_panels", boom)
+    path = workbook(tmp_path, {"LP-1": [["Ckt", "Breaker"], [1, 20]]})
+    with pytest.raises(RuntimeError, match="boom"):
+        parse_file(path, cfg)
+
+
+def _refused(parsed, name):
+    return [u for u in parsed.unparsed if u.kind == "sheet" and u.raw == name]
+
+
+def test_xlsx_wide_sheet_listed_not_cut(tmp_path, cfg):
+    from redline.parsers.csv_xlsx import MAX_COLS
+
+    wide = ["Ckt", "Description", "Breaker"] + [""] * (MAX_COLS - 3) + ["SECRET"]
+    path = workbook(
+        tmp_path,
+        {
+            "Wide": [wide, [1, "Lights", 20]],
+            "LP-2": [["Ckt", "Description", "Breaker"], [1, "A", 15]],
+        },
+    )
+    parsed = parse_file(path, cfg)
+    (entry,) = _refused(parsed, "Wide")
+    assert f"more than {MAX_COLS} columns" in entry.reason
+    assert [p.name for p in parsed.panels] == ["LP-2"]
+
+
+def test_xlsx_long_sheet_listed_other_sheets_read(tmp_path, cfg, monkeypatch):
+    import redline.parsers.csv_xlsx as mod
+
+    monkeypatch.setattr(mod, "MAX_ROWS", 3)
+    rows = [["Ckt", "Description", "Breaker"]] + [[i, "L", 20] for i in range(1, 6)]
+    path = workbook(
+        tmp_path,
+        {"Long": rows, "LP-2": [["Ckt", "Description", "Breaker"], [1, "A", 15]]},
+    )
+    parsed = parse_file(path, cfg)
+    (entry,) = _refused(parsed, "Long")
+    assert "more than 3 rows" in entry.reason
+    assert [p.name for p in parsed.panels] == ["LP-2"]
