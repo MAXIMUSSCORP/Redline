@@ -528,12 +528,16 @@ def _table(
 _CKT_TEXT_MAX = 12
 
 
-def _is_circuit_row(ctx: _Ctx, row: list[str], keys: list[str | None]) -> bool:
+def _ckt_cols(keys: list[str | None]) -> list[int]:
+    return [j for j, k in enumerate(keys) if k == "circuit_number"]
+
+
+def _is_circuit_row(ctx: _Ctx, row: list[str], keys: list[str | None], ckt: list[int]) -> bool:
     """A number-like circuit cell, on a line that is not an exact header block key.
 
-    keys is the field key of each column of the table above.
+    keys is the field key of each column of the table above, ckt its circuit column indexes
+    (computed once per header so a wide header costs nothing per row).
     """
-    ckt = [j for j, k in enumerate(keys) if k == "circuit_number"]
     texts = [row[i].strip() for i in ckt if i < len(row)]
     if not any(len(t) <= _CKT_TEXT_MAX and any(ch in "0123456789" for ch in t) for t in texts):
         return False
@@ -552,6 +556,14 @@ def _is_circuit_row(ctx: _Ctx, row: list[str], keys: list[str | None]) -> bool:
     # description or another mapped field it is a circuit whose text holds a block word.
     at = next(j for j, c in enumerate(row) if c.strip())
     return at < len(keys) and keys[at] not in (None, "panel_name")
+
+
+def _is_short_block_line(ctx: _Ctx, row: list[str]) -> bool:
+    cells = [c.strip() for c in row if c.strip()]
+    if not cells or len(cells) > 2:
+        return False
+    hit = ctx.block_match(cells[0].partition(":")[0])
+    return hit.key is not None and (hit.conf == Confidence.HIGH or ":" in cells[0])
 
 
 def rows_to_panels(
@@ -585,14 +597,16 @@ def rows_to_panels(
     need = (maps.get("parsing") or {}).get("min_header_alias_matches", 3)
     heads: list[int] = []
     prev: list[str | None] = []
+    prev_ckt: list[int] = []
     for i, r in enumerate(grid):
         keys = {m.key for c in r if (m := ctx.match(c)).key}
         if len(keys) < need:
             continue
-        if prev and _is_circuit_row(ctx, r, prev):
+        if prev and _is_circuit_row(ctx, r, prev, prev_ckt):
             continue  # under the table above, this line has a circuit number: it is data
         heads.append(i)
         prev = [ctx.match(c).key for c in r]
+        prev_ckt = _ckt_cols(prev)
     if not heads:
         first = next((i for i, r in enumerate(grid) if any(c.strip() for c in r)), None)
         if first is None:
@@ -609,10 +623,16 @@ def rows_to_panels(
     cols = [[_Col(i, c.strip(), ctx.match(c)) for i, c in enumerate(grid[h])] for h in heads]
     starts, ends = [0], []
     for n in range(1, len(heads)):
-        ckt = [c.hit.key for c in cols[n - 1]]
+        keys = [c.hit.key for c in cols[n - 1]]
+        ckt = _ckt_cols(keys)
         k = heads[n] - 1
-        # The previous table ends at its last row that looks like a circuit.
-        while k > heads[n - 1] and not _is_circuit_row(ctx, grid[k], ckt):
+        # The previous table ends at its last row that looks like a circuit, and no lower
+        # than its first short block line (an exact key or a "key: value" line).
+        for j in range(heads[n - 1] + 1, k + 1):
+            if _is_short_block_line(ctx, grid[j]):
+                k = j - 1
+                break
+        while k > heads[n - 1] and not _is_circuit_row(ctx, grid[k], keys, ckt):
             k -= 1
         starts.append(k + 1)
         ends.append(k + 1)
