@@ -441,7 +441,7 @@ def _table(
         ctx.last_name = None
     else:
         # Only a header repeated directly under the table above continues its panel.
-        if block.read_rows or any(c.strip() for r in rows[start:h] for c in r):
+        if block.read_rows:
             ctx.last_name = None
         if block.name:
             table_name = ctx.last_name = block.name
@@ -569,9 +569,10 @@ def _is_circuit_row(
         # A panel named like an exact key ("MAIN") is data when it sits in the panel column
         # of a row with more than a key and a value, and a neighbouring row repeats it
         # (a panel's rows are grouped); a lone "Bus Rating,225,A" is a block line.
-        wide = sum(1 for c in row if c.strip()) > 2
-        grouped = ":" not in first and any(_cell(n, at) == first for n in near)
-        return wide and grouped and at < len(keys) and keys[at] == "panel_name"
+        # Over three cells it is data on its own: a block line has a key, a value and a unit.
+        n = sum(1 for c in row if c.strip())
+        grouped = ":" not in first and any(_cell(n_, at) == first for n_ in near)
+        return (n > 3 or (n > 2 and grouped)) and at < len(keys) and keys[at] == "panel_name"
     # A word match excludes only a key/value shaped line: a panel named "Panel A" is a circuit.
     if ":" in first:
         return False
