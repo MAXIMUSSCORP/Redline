@@ -1,4 +1,6 @@
 import copy
+import re
+import zipfile
 from pathlib import Path
 
 import openpyxl
@@ -6,7 +8,7 @@ import pytest
 from test_parser_tabular import M0_SCHEDULE, cfg_with
 
 from redline.model import Confidence
-from redline.parsers.csv_xlsx import SUFFIXES, InputError, parse_file
+from redline.parsers.csv_xlsx import MAX_SHEETS, SUFFIXES, InputError, parse_file
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples" / "csv"
 HEADER = [
@@ -534,4 +536,100 @@ def test_xlsx_one_sheet_part_under_two_sheets_refused(tmp_path, cfg):
     )
     _stuff(path, "xl/_rels/workbook.xml.rels", lambda x: x.replace("sheet2.xml", "sheet1.xml"))
     with pytest.raises(InputError, match="more than one sheet"):
+        parse_file(path, cfg)
+
+
+def _two_sheets(tmp_path):
+    return workbook(
+        tmp_path,
+        {"A": [["Ckt", "Breaker"], [1, 20]], "B": [["Ckt", "Breaker"], [1, 20]]},
+    )
+
+
+def _point_sheet2_at_sheet1(spelling):
+    # The writer gives absolute targets; sheet 2 is re-pointed at sheet 1 with this spelling.
+    return lambda x: x.replace("/xl/worksheets/sheet2.xml", spelling)
+
+
+def test_xlsx_shared_rid_sheet_entries_refused(tmp_path, cfg):
+    # Two <sheet> entries with one r:id: the rels list a single part, the sheets name it twice.
+    path = _two_sheets(tmp_path)
+    _stuff(path, "xl/workbook.xml", lambda x: x.replace('r:id="rId2"', 'r:id="rId1"'))
+    with pytest.raises(InputError, match="more than one sheet"):
+        parse_file(path, cfg)
+
+
+def test_xlsx_dot_relative_duplicate_target_refused(tmp_path, cfg):
+    path = _two_sheets(tmp_path)
+    _stuff(path, "xl/_rels/workbook.xml.rels", _point_sheet2_at_sheet1("./worksheets/sheet1.xml"))
+    with pytest.raises(InputError, match="more than one sheet"):
+        parse_file(path, cfg)
+
+
+def _move_workbook_part(path):
+    # openpyxl finds the workbook part through the content types, so moving it leaves
+    # xl/workbook.xml absent while the file still opens.
+    src = path.with_suffix(".src")
+    path.rename(src)
+    with zipfile.ZipFile(src) as zi, zipfile.ZipFile(path, "w") as zo:
+        for it in zi.infolist():
+            d = zi.read(it.filename)
+            name = {
+                "xl/workbook.xml": "xl/wb/book.xml",
+                "xl/_rels/workbook.xml.rels": "xl/wb/_rels/book.xml.rels",
+            }.get(it.filename, it.filename)
+            if name == "[Content_Types].xml":
+                d = d.replace(b"/xl/workbook.xml", b"/xl/wb/book.xml")
+            zo.writestr(name, d)
+    src.unlink()
+
+
+def test_xlsx_sheet_part_named_by_respelled_or_untyped_targets_refused(tmp_path, cfg):
+    rels = "xl/_rels/workbook.xml.rels"
+    cases = {
+        "double_slash": lambda p: _stuff(
+            p, rels, _point_sheet2_at_sheet1("worksheets//sheet1.xml")
+        ),
+        "dot_segments": lambda p: _stuff(
+            p, rels, _point_sheet2_at_sheet1("worksheets/././sheet1.xml")
+        ),
+        "relative_beside_absolute": lambda p: _stuff(
+            p, rels, _point_sheet2_at_sheet1("worksheets/sheet1.xml")
+        ),
+        "untyped": lambda p: _stuff(
+            p,
+            rels,
+            lambda x: _point_sheet2_at_sheet1("/xl/worksheets/sheet1.xml")(x).replace(
+                '/worksheet"', '/other"'
+            ),
+        ),
+        "single_quoted": lambda p: _stuff(
+            p,
+            rels,
+            lambda x: _point_sheet2_at_sheet1("/xl/worksheets/sheet1.xml")(x).replace('"', "'"),
+        ),
+        "moved_workbook_part": lambda p: (
+            # Relative targets now resolve from xl/wb/, so ../ is what names sheet 1 again.
+            _stuff(p, rels, _point_sheet2_at_sheet1("../worksheets//sheet1.xml")),
+            _move_workbook_part(p),
+        ),
+    }
+    for label, mutate in cases.items():
+        d = tmp_path / label
+        d.mkdir()
+        path = _two_sheets(d)
+        mutate(path)
+        with pytest.raises(InputError, match="more than one sheet"):
+            parse_file(path, cfg)
+
+
+def test_xlsx_too_many_sheet_entries_refused(tmp_path, cfg):
+    path = _two_sheets(tmp_path)
+
+    def many(x):
+        m = re.search(r"<sheet [^>]*/>", x).group(0)
+        return x.replace(m, m * (MAX_SHEETS + 1))
+
+    _stuff(path, "xl/workbook.xml", many)
+    with pytest.raises(InputError, match="more than 255 sheets"):
         parse_file(path, cfg)
