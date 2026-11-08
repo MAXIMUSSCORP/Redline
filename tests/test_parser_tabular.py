@@ -548,3 +548,23 @@ def test_word_matched_block_line_not_a_circuit(cfg):
     parsed = parse(rows, cfg)
     assert sorted(p.name for p in parsed.panels) == ["LP-1", "LP-2"]
     assert all(c.number == "1" for p in parsed.panels for c in p.circuits)
+
+
+def test_word_matched_description_last_row_stays_circuit(cfg):
+    head = ["Description", "Ckt", "Breaker", "Poles"]
+    for desc, tail in (("Panel LP-2 feeder", "3"), ("Main lobby lights", "3")):
+        rows = [
+            ["Panel", "LP-1"],
+            head,
+            ["Lights", "1", "20", "1"],
+            [desc, tail],
+            [],
+            ["Panel", "LP-2"],
+            head,
+            ["Recep", "1", "20", "1"],
+        ]
+        by = {p.name: p for p in parse(rows, cfg).panels}
+        assert sorted(by) == ["LP-1", "LP-2"], desc
+        assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], desc
+        assert [c.number for c in by["LP-2"].circuits] == ["1"], desc
+        assert by["LP-2"].main_breaker_a.value is None, desc

@@ -528,8 +528,12 @@ def _table(
 _CKT_TEXT_MAX = 12
 
 
-def _is_circuit_row(ctx: _Ctx, row: list[str], ckt: list[int]) -> bool:
-    """A number-like circuit cell, on a line that is not an exact header block key."""
+def _is_circuit_row(ctx: _Ctx, row: list[str], keys: list[str | None]) -> bool:
+    """A number-like circuit cell, on a line that is not an exact header block key.
+
+    keys is the field key of each column of the table above.
+    """
+    ckt = [j for j, k in enumerate(keys) if k == "circuit_number"]
     texts = [row[i].strip() for i in ckt if i < len(row)]
     if not any(len(t) <= _CKT_TEXT_MAX and any(ch in "0123456789" for ch in t) for t in texts):
         return False
@@ -540,7 +544,14 @@ def _is_circuit_row(ctx: _Ctx, row: list[str], ckt: list[int]) -> bool:
     if hit.conf == Confidence.HIGH:
         return False
     # A word match excludes only a key/value shaped line: a panel named "Panel A" is a circuit.
-    return not (":" in first or sum(1 for c in row if c.strip()) <= 2)
+    if ":" in first:
+        return False
+    if sum(1 for c in row if c.strip()) > 2:
+        return True
+    # A short line is a block line only under the panel column or an unmapped one; under
+    # description or another mapped field it is a circuit whose text holds a block word.
+    at = next(j for j, c in enumerate(row) if c.strip())
+    return at < len(keys) and keys[at] not in (None, "panel_name")
 
 
 def rows_to_panels(
@@ -573,7 +584,7 @@ def rows_to_panels(
     )
     need = (maps.get("parsing") or {}).get("min_header_alias_matches", 3)
     heads: list[int] = []
-    prev: list[int] = []
+    prev: list[str | None] = []
     for i, r in enumerate(grid):
         keys = {m.key for c in r if (m := ctx.match(c)).key}
         if len(keys) < need:
@@ -581,7 +592,7 @@ def rows_to_panels(
         if prev and _is_circuit_row(ctx, r, prev):
             continue  # under the table above, this line has a circuit number: it is data
         heads.append(i)
-        prev = [j for j, c in enumerate(r) if ctx.match(c).key == "circuit_number"]
+        prev = [ctx.match(c).key for c in r]
     if not heads:
         first = next((i for i, r in enumerate(grid) if any(c.strip() for c in r)), None)
         if first is None:
@@ -598,7 +609,7 @@ def rows_to_panels(
     cols = [[_Col(i, c.strip(), ctx.match(c)) for i, c in enumerate(grid[h])] for h in heads]
     starts, ends = [0], []
     for n in range(1, len(heads)):
-        ckt = [c.i for c in cols[n - 1] if c.hit.key == "circuit_number"]
+        ckt = [c.hit.key for c in cols[n - 1]]
         k = heads[n] - 1
         # The previous table ends at its last row that looks like a circuit.
         while k > heads[n - 1] and not _is_circuit_row(ctx, grid[k], ckt):
