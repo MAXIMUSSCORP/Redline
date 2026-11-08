@@ -90,8 +90,8 @@ def _sheet_rows(
                 reader.shared_strings,
                 data_only=True,
                 epoch=reader.wb.epoch,
-                date_formats=reader.wb._date_formats,
-                timedelta_formats=reader.wb._timedelta_formats,
+                date_formats=set(),  # styles.xml is never parsed: a date reads as its serial
+                timedelta_formats=set(),
             )
             for idx, cells in parser.parse():
                 parsed += 1
@@ -156,13 +156,11 @@ def _open_reader(path: Path) -> tuple[ExcelReader, list[tuple[str, str | None]]]
 
     openpyxl.load_workbook is never called: it parses every external link, chartsheet
     drawing and sheet entry per entry, so a small file can cost unbounded time. Only the
-    manifest, shared strings, workbook and stylesheet are read here, each once. Targets
+    manifest, shared strings and workbook are read here, each once. Targets
     are resolved by openpyxl's own reader (content types, workbook rels, joined paths), so
     no respelling of a target gets past the duplicate check.
     """
     from openpyxl.reader.excel import ExcelReader
-    from openpyxl.styles.stylesheet import apply_stylesheet
-    from openpyxl.workbook.child import INVALID_TITLE_REGEX, avoid_duplicate_name
 
     reader = None
     try:
@@ -178,19 +176,11 @@ def _open_reader(path: Path) -> tuple[ExcelReader, list[tuple[str, str | None]]]
             raise InputError(
                 "the workbook lists one sheet part under more than one sheet, so it is not read"
             )
-        apply_stylesheet(reader.archive, reader.wb)
-        names: list[str] = []
         entries: list[tuple[str, str | None]] = []
         for sheet, rel in found:
             if rel.target not in reader.valid_files:
                 continue
-            # Same title rules as openpyxl's sheet objects: no empty or special-character
-            # name, and a repeated name gets a number.
-            if not sheet.name or INVALID_TITLE_REGEX.search(sheet.name):
-                raise ValueError("invalid sheet title")
-            title = avoid_duplicate_name(names, sheet.name)
-            names.append(title)
-            entries.append((title, None if "chartsheet" in rel.Type else rel.target))
+            entries.append((sheet.name, None if "chartsheet" in rel.Type else rel.target))
         return reader, entries
     except InputError:
         if reader is not None:

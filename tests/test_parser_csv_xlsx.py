@@ -777,3 +777,93 @@ def test_xlsx_reader_never_calls_load_workbook(tmp_path, cfg, monkeypatch):
     got = parse_file(path, cfg)
     assert [p.name for p in got.panels] == ["LP-1", "LP-2"]
     assert got == want
+
+
+def _dup_title_book(tmp_path, second="LP-1"):
+    rows = [
+        ["Ckt", "Description", "Load (VA)", "Load Type", "Poles", "Breaker"],
+        [1, "Motor", 12000, "motor", 2, 60],
+    ]
+    path = workbook(tmp_path, {"LP-1": rows, "LP-2": rows})
+    _stuff(path, "xl/workbook.xml", lambda x: x.replace('name="LP-2"', f'name="{second}"'))
+    return path
+
+
+def test_xlsx_duplicate_sheet_titles_kept_and_flagged_repeated(tmp_path, cfg):
+    import csv
+
+    from redline.cli import main
+
+    path = _dup_title_book(tmp_path)
+    got = parse_file(path, cfg)
+    assert [p.name for p in got.panels] == ["LP-1", "LP-1"]
+    assert all("sheet=LP-1" in p.source.locator for p in got.panels)
+    # A case-only duplicate is not renamed either.
+    assert [p.name for p in parse_file(_dup_title_book(tmp_path, "lp-1"), cfg).panels] == [
+        "LP-1",
+        "lp-1",
+    ]
+    cfg_dir = Path(__file__).resolve().parent / "test_config"
+    out = tmp_path / "out" / "report.html"
+    assert main(["check", str(path), "--config", str(cfg_dir), "--out", str(out)]) == 0
+    with (out.parent / "findings.csv").open(encoding="utf-8", newline="") as fh:
+        rows = [r for r in csv.DictReader(fh) if r["rule_id"] == "panel_demand"]
+    lp1 = [r for r in rows if "LP-1" in r["message"]]
+    assert lp1 and all(r["severity"] == "NEEDS_REVIEW" for r in lp1)
+    assert any("panel name LP-1 repeats" in r["message"] for r in lp1)
+
+
+def _styled_book(tmp_path, styles):
+    path = workbook(tmp_path, {"LP-1": [["Ckt", "Description", "Breaker"], [1, "A", 20]]})
+    _stuff(path, "xl/styles.xml", lambda x: styles)
+    return path
+
+
+def _bounded(path, cfg, monkeypatch):
+    import time
+
+    import openpyxl.styles.stylesheet as ss
+
+    def boom(*a, **k):
+        raise AssertionError("apply_stylesheet was called")
+
+    monkeypatch.setattr(ss, "apply_stylesheet", boom)
+    start = time.monotonic()
+    got = parse_file(path, cfg)
+    assert time.monotonic() - start < 5
+    assert [p.name for p in got.panels] == ["LP-1"] and not _refused(got, "LP-1")
+
+
+_SS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+
+
+def test_xlsx_long_number_format_bounded(tmp_path, cfg, monkeypatch):
+    styles = (
+        f'<styleSheet {_SS}><numFmts count="1"><numFmt numFmtId="164" formatCode="'
+        + "[" * 400_000
+        + '"/></numFmts></styleSheet>'
+    )
+    _bounded(_styled_book(tmp_path, styles), cfg, monkeypatch)
+
+
+def test_xlsx_many_xfs_one_format_bounded(tmp_path, cfg, monkeypatch):
+    styles = (
+        f'<styleSheet {_SS}><numFmts count="1"><numFmt numFmtId="164" formatCode="'
+        + "[" * 200_000
+        + '"/></numFmts><cellXfs count="3000">'
+        + '<xf numFmtId="164"/>' * 3000
+        + "</cellXfs></styleSheet>"
+    )
+    _bounded(_styled_book(tmp_path, styles), cfg, monkeypatch)
+
+
+def test_xlsx_many_named_styles_bounded(tmp_path, cfg, monkeypatch):
+    n = 5000
+    styles = (
+        f'<styleSheet {_SS}><numFmts count="{n}">'
+        + "".join(f'<numFmt numFmtId="{200 + i}" formatCode="0.{i}"/>' for i in range(n))
+        + f'</numFmts><cellStyles count="{n}">'
+        + "".join(f'<cellStyle name="S{i}" xfId="{i}"/>' for i in range(n))
+        + "</cellStyles></styleSheet>"
+    )
+    _bounded(_styled_book(tmp_path, styles), cfg, monkeypatch)
