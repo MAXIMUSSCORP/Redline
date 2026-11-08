@@ -615,6 +615,7 @@ def test_csv_wide_header_with_many_rows_parses_in_linear_time(cfg):
 _D = "Description,Ckt,Breaker,Poles"
 _P = "Panel,Ckt,Description,Breaker"
 _H = "Ckt,Description,Breaker,Poles"
+_H = "Ckt,Description,Breaker,Poles"
 LAYOUTS = [
     pytest.param(
         [
@@ -627,8 +628,7 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
         [],
         id="two_csv_description_last_row_block_words",
     ),
@@ -643,8 +643,7 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
         [],
         id="two_b_csv_main_lobby_lights_last_row",
     ),
@@ -659,8 +658,7 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-2": {"bus": 225.0}},
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0})],
         [],
         id="A_panel_then_word_bus_line",
     ),
@@ -675,43 +673,37 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "225"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "225"], {}), ("LP-2", ["1"], {})],
         [],
         id="B_residual_word_bus_line_above_panel_reads_as_circuit",
     ),
     pytest.param(
         ["Panel,LP-1", _D, "Lights,1,20,1", "", "Panel,LP-2", "Bus Rating,225", _D, "Recep,1,20,1"],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-2": {"bus": 225.0}},
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0})],
         [],
         id="C_exact_bus_line_after_panel",
     ),
     pytest.param(
         ["Panel,LP-1", _D, "Lights,1,20,1", "Main: 100", "Panel,LP-2", _D, "Recep,1,20,1"],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-2": {"main": 100.0}},
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"main": 100.0})],
         [],
         id="D_main_colon_between",
     ),
     pytest.param(
         ["Panel,LP-1", _D, "Lights,1,20,1", "Panel,LP-2", "Main Bkr (A),100", _D, "Recep,1,20,1"],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-2": {"main": 100.0}},
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"main": 100.0})],
         [],
         id="E_main_bkr_word_after_panel_no_gap",
     ),
     pytest.param(
         [_P, "LP-1,1,a,20", "Bus Rating (A),225,A", _P, "LP-2,1,b,20"],
-        [("LP-1", ["1"]), ("Bus Rating (A)", ["225"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1"], {}), ("Bus Rating (A)", ["225"], {}), ("LP-2", ["1"], {})],
         [],
         id="F_residual_three_cell_block_line_makes_panel",
     ),
     pytest.param(
         [_P, "Panel A,1,a,20", "Panel A,2", _P, "Panel B,1,b,20"],
-        [("Panel A", ["1"]), ("Panel B", ["1"])],
-        {},
+        [("Panel A", ["1"], {}), ("Panel B", ["1"], {})],
         [("2", "panel name in header block not used; table has a panel column")],
         id="G_residual_panel_column_word_name_short_last_row_unparsed",
     ),
@@ -726,8 +718,7 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "1,x,20,1",
         ],
-        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
         [],
         id="H_ckt_first_last_row_block_words",
     ),
@@ -741,8 +732,7 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-2": {"bus": 225.0}},
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0})],
         [],
         id="I_block_words_beyond_header_first_cell",
     ),
@@ -758,15 +748,13 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
         [],
         id="J_colon_description_mid_table_two_cells",
     ),
     pytest.param(
         ["Panel,LP-1", _D, "Lights,1,20,1", "Main lobby: lights,3", "Recep,5,20,1"],
-        [("LP-1", ["1", "3", "5"])],
-        {},
+        [("LP-1", ["1", "3", "5"], {})],
         [],
         id="J0_colon_description_single_table",
     ),
@@ -781,8 +769,7 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
         [],
         id="K_room_colon_mid_table",
     ),
@@ -797,22 +784,19 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
         [],
         id="L_note_colon_mid_table",
     ),
     pytest.param(
         [_P, "MAIN,1,a,20", "MAIN,2", "MAIN,3,c,20", _P, "LP-2,1,b,20"],
-        [("MAIN", ["1", "2", "3"]), ("LP-2", ["1"])],
-        {},
+        [("MAIN", ["1", "2", "3"], {}), ("LP-2", ["1"], {})],
         [],
         id="M_panel_column_MAIN_short_row",
     ),
     pytest.param(
         ["Panel,LP-1", _D, "Lights,1,20,1", "Recep,3,20,1", _D, "Fan,5,20,1"],
-        [("LP-1", ["1", "3"]), ("LP-1", ["5"])],
-        {},
+        [("LP-1", ["1", "3"], {}), ("LP-1", ["5"], {})],
         [],
         id="N_repeated_header_page_break_without_panel_column",
     ),
@@ -827,22 +811,19 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
         [],
         id="O_exact_key_description_mid_table",
     ),
     pytest.param(
         [_P, "MAIN,1,a,20", "MAIN,3,c,20", _P, "LP-2,1,b,20"],
-        [("MAIN", ["1", "3"]), ("LP-2", ["1"])],
-        {},
+        [("MAIN", ["1", "3"], {}), ("LP-2", ["1"], {})],
         [],
         id="M2_panel_column_MAIN_no_short_row",
     ),
     pytest.param(
         [_P, "LP-2,1,b,20", _P, "MAIN,1,a,20", "MAIN,3,c,20"],
-        [("LP-2", ["1"]), ("MAIN", ["1", "3"])],
-        {},
+        [("LP-2", ["1"], {}), ("MAIN", ["1", "3"], {})],
         [],
         id="M3_panel_column_MAIN_second_table",
     ),
@@ -863,8 +844,10 @@ LAYOUTS = [
             "Description,Ckt,Breaker,Poles,Load VA",
             "Fan,1,20,1,500",
         ],
-        [("LP-1", ["1", "3", "5", "7"]), ("LP-2", ["1"])],
-        {"LP-1": {"bus": 100.0, "main": 100.0, "voltage": 208.0}},
+        [
+            ("LP-1", ["1", "3", "5", "7"], {"bus": 100.0, "main": 100.0, "voltage": 208.0}),
+            ("LP-2", ["1"], {}),
+        ],
         [],
         id="j2_block_then_colon_row_then_next_panel",
     ),
@@ -880,8 +863,7 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-2": {"bus": 225.0, "main": 100.0}},
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0, "main": 100.0})],
         [],
         id="RV25_block_values_stay_with_second_panel",
     ),
@@ -896,8 +878,7 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-2": {"main": 100.0}},
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"main": 100.0})],
         [],
         id="RV31_word_main_after_panel_line",
     ),
@@ -912,15 +893,13 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-2": {"bus": 225.0}},
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0})],
         [],
         id="RV31_word_bus_after_panel_line",
     ),
     pytest.param(
         [_P, "Panel A,1,a,20", "Panel A,3,c,20", _P, "Panel A,2,b,20"],
-        [("Panel A", ["1", "3"]), ("Panel A", ["2"])],
-        {},
+        [("Panel A", ["1", "3"], {}), ("Panel A", ["2"], {})],
         [],
         id="RV3_panel_A_name_keeps_rows_across_repeated_header",
     ),
@@ -935,15 +914,13 @@ LAYOUTS = [
             "1,a,20",
             "3,b,20",
         ],
-        [("LP-3", ["1", "3"])],
-        {"LP-3": {"bus": 225.0, "voltage": 208.0}},
+        [("LP-3", ["1", "3"], {"bus": 225.0, "voltage": 208.0})],
         [],
         id="header_block_schedule",
     ),
     pytest.param(
         [_P, "LP-1,1,Lights,20", "", "Panel,Description,Breaker", "LP-2,Heater,30"],
-        [("LP-1", ["1"])],
-        {},
+        [("LP-1", ["1"], {})],
         [("LP-2, Heater, 30", "no circuit number column")],
         id="later_table_without_circuit_column",
     ),
@@ -954,8 +931,7 @@ LAYOUTS = [
             "LP-1,2,Load bank,1000,continuous,20,breaker locked",
             "LP-1,3,Pump,1000,20,12,1",
         ],
-        [("LP-1", ["1", "2", "3"])],
-        {},
+        [("LP-1", ["1", "2", "3"], {})],
         [],
         id="alias_word_data_row_not_a_header",
     ),
@@ -966,8 +942,7 @@ LAYOUTS = [
             "1,a,20,2,b,20",
             "3,c,20,4,d,20",
         ],
-        [("LP-3", ["1", "2", "3", "4"])],
-        {},
+        [("LP-3", ["1", "2", "3", "4"], {})],
         [],
         id="two_column_layout",
     ),
@@ -985,8 +960,7 @@ LAYOUTS = [
             "Ckt,Description,Breaker",
             "1,b,20",
         ],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-1": {"voltage": 208.0}, "LP-2": {"voltage": 120.0}},
+        [("LP-1", ["1"], {"voltage": 208.0}), ("LP-2", ["1"], {"voltage": 120.0})],
         [],
         id="two_panels_samples_style_block",
     ),
@@ -1002,8 +976,7 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
         [],
         id="RV34_room_colon_mid_table_keeps_following_rows",
     ),
@@ -1019,8 +992,7 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
         [],
         id="RV34_main_lobby_colon_keeps_following_rows",
     ),
@@ -1036,15 +1008,13 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
         [],
         id="RV34_exact_location_row_keeps_following_rows",
     ),
     pytest.param(
         [_P, "MAIN,1,a,20", "MAIN,3,c,20", _P, "LP-2,1,b,20"],
-        [("MAIN", ["1", "3"]), ("LP-2", ["1"])],
-        {},
+        [("MAIN", ["1", "3"], {}), ("LP-2", ["1"], {})],
         [],
         id="RV35_panel_named_MAIN_not_block_key",
     ),
@@ -1059,8 +1029,7 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "1,z,20,1",
         ],
-        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
-        {"LP-2": {"bus": 225.0}},
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {"bus": 225.0})],
         [("A", "extra cells on a header block line")],
         id="RV40_bus_rating_three_cells_after_panel_column_table",
     ),
@@ -1073,8 +1042,7 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "1,z,20,1",
         ],
-        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
         [("120/208V", "extra cells on a header block line")],
         id="RV40_panel_line_with_voltage_after_panel_column_table",
     ),
@@ -1092,8 +1060,7 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "9,misc,20,1",
         ],
-        [("LP-1", ["1"]), ("LP-2", ["1"])],
-        {"LP-1": {"bus": 100.0, "voltage": 208.0}},
+        [("LP-1", ["1"], {"bus": 100.0, "voltage": 208.0}), ("LP-2", ["1"], {})],
         [("9, misc, 20, 1", "no panel name")],
         id="RV41_no_inherit_past_panel_column_table",
     ),
@@ -1108,8 +1075,7 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "5,misc,20,1",
         ],
-        [("LP-1", ["1"])],
-        {"LP-1": {"bus": 100.0}},
+        [("LP-1", ["1"], {"bus": 100.0})],
         [("Bus Rating, 225", "no panel name"), ("5, misc, 20, 1", "no panel name")],
         id="RV41_own_block_without_panel_line_does_not_inherit",
     ),
@@ -1123,8 +1089,7 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "1,z,20,1",
         ],
-        [("LP-1", ["1"]), ("MAIN", ["1"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1"], {}), ("MAIN", ["1"], {}), ("LP-2", ["1"], {})],
         [],
         id="RV45_single_row_block_key_panel_at_end_then_block_table",
     ),
@@ -1137,15 +1102,13 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "1,z,20,1",
         ],
-        [("LP-1", ["1"]), ("MAIN", ["1"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1"], {}), ("MAIN", ["1"], {}), ("LP-2", ["1"], {})],
         [],
         id="RV45_single_row_block_key_panel_no_blank_line",
     ),
     pytest.param(
         [_P, "LP-1,1,x,20", "MAIN,1,feeder,400", "", _P, "LP-2,1,z,20"],
-        [("LP-1", ["1"]), ("MAIN", ["1"]), ("LP-2", ["1"])],
-        {},
+        [("LP-1", ["1"], {}), ("MAIN", ["1"], {}), ("LP-2", ["1"], {})],
         [],
         id="RV45_single_row_block_key_panel_then_panel_column_table",
     ),
@@ -1160,8 +1123,7 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "5,c,20,1",
         ],
-        [("LP-1", ["1", "3"]), ("LP-1", ["5"])],
-        {},
+        [("LP-1", ["1", "3"], {"bus": 100.0}), ("LP-1", ["5"], {})],
         [("Panel LP-1 (continued)", "header block key panel_name has no value")],
         id="RV46_continued_title_line_keeps_inheritance",
     ),
@@ -1177,27 +1139,111 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "5,c,20,1",
         ],
-        [("LP-1", ["1"]), ("LP-1", ["5"])],
-        {},
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-1", ["5"], {})],
         [("LP-1 continued", "not a header block key: no alias matches")],
         id="RV46_continued_line_after_blank_keeps_inheritance",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus Rating,100", _D, "Lights,1,20,1", "", _D, "Fan,5,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-1", ["5"], {})],
+        [],
+        id="RV39_page_break_part_one_keeps_block_values_part_two_has_none",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", "LP-1,3,y,20", "", "Panel,LP-2,120/208V,3PH", _H, "1,z,20,1"],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [("120/208V, 3PH", "extra cells on a header block line")],
+        id="RV50_panel_line_four_cells_after_panel_column_table",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", "LP-1,3,y,20", "", "Bus Rating,225,A,Cu", "Panel,LP-2", _H, "1,z,20,1"],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {"bus": 225.0})],
+        [("A, Cu", "extra cells on a header block line")],
+        id="RV50_bus_rating_four_cells_above_panel_line",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "",
+            "Voltage,120/208,3PH,4W",
+            "Panel,LP-2",
+            _H,
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {"voltage": 208.0})],
+        [("3PH, 4W", "extra cells on a header block line")],
+        id="RV50_voltage_four_cells_above_panel_line",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", "LP-1,3,y,20", "", "Panel: LP-2,208V,3PH,rev 3", _H, "1,z,20,1"],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [("208V, 3PH, rev 3", "extra cells on a header block line")],
+        id="RV50_colon_panel_line_four_cells_after_panel_column_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Voltage,120",
+            "Phases,1",
+            "Bus Rating,100",
+            "Main Breaker,100",
+            _H,
+            "1,Heat,4000,1",
+            "",
+            "LP-2 Lighting Panel",
+            _H,
+            "1,Lights,500,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "main": 100.0, "voltage": 120.0})],
+        [
+            ("LP-2 Lighting Panel", "header block key panel_name has no value"),
+            ("1, Lights, 500, 1", "no panel name"),
+        ],
+        id="RV51_title_naming_other_panel_ends_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "",
+            "LP-10 Lighting",
+            _H,
+            "1,Lights,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0})],
+        [
+            ("LP-10 Lighting", "not a header block key: no alias matches"),
+            ("1, Lights, 20, 1", "no panel name"),
+        ],
+        id="RV51_title_naming_LP_10_is_not_LP_1",
     ),
 ]
 
 
-@pytest.mark.parametrize(("lines", "panels", "block", "unparsed"), LAYOUTS)
-def test_layout_corpus(cfg, lines, panels, block, unparsed):
+@pytest.mark.parametrize(("lines", "panels", "unparsed"), LAYOUTS)
+def test_layout_corpus(cfg, lines, panels, unparsed):
+    # Panels are compared by position: (name, circuit numbers, block values) per panel part,
+    # so a page-break continuation cannot hide the block values of its first part.
     parsed = parse([line.split(",") for line in lines], cfg)
-    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == panels
-    got = {}
+    got = []
     for p in parsed.panels:
         vals = {
             "bus": p.bus_rating_a.value,
             "main": p.main_breaker_a.value,
             "voltage": p.voltage_v.value,
         }
-        got[p.name] = {k: v for k, v in vals.items() if v is not None}
-    assert {k: v for k, v in got.items() if v} == block
+        got.append(
+            (
+                p.name,
+                [c.number for c in p.circuits],
+                {k: v for k, v in vals.items() if v is not None},
+            )
+        )
+    assert got == panels
     assert [(u.raw, u.reason) for u in parsed.unparsed if u.kind != "column"] == unparsed
 
 
@@ -1363,3 +1409,59 @@ def test_page_break_with_continued_line_keeps_block_panel_name(cfg):
     got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
     assert got == [("LP-1", ["1", "3"]), ("LP-1", ["5", "7", "9"])]
     assert not [u for u in parsed.unparsed if u.reason == "no panel name"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        ["Panel", "LP-2", "120/208V", "3PH"],
+        ["Bus Rating", "225", "A", "Cu"],
+        ["Voltage", "120/208", "3PH", "4W"],
+        ["Panel: LP-2", "208V", "3PH", "rev 3"],
+    ],
+)
+def test_exact_key_four_cell_block_line_after_panel_column_table_stays_block(cfg, line):
+    head = ["Panel", "Ckt", "Description", "Breaker"]
+    rows = [
+        head,
+        ["LP-1", "1", "x", "20"],
+        ["LP-1", "3", "y", "20"],
+        [],
+        line,
+        *([["Panel", "LP-2"]] if line[0] in ("Bus Rating", "Voltage") else []),
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "z", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-1", ["1", "3"]),
+        ("LP-2", ["1"]),
+    ]
+    lp2 = parsed.panels[1]
+    assert lp2.bus_rating_a.value == (225 if line[0] == "Bus Rating" else None)
+    assert lp2.voltage_v.value == (208 if line[0] == "Voltage" else None)
+
+
+def test_title_naming_other_panel_ends_inheritance(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    titles = {
+        "LP-2 Lighting Panel": False,
+        "LP-10 Lighting": False,
+        "Panel LP-1 (continued)": True,
+        "lp-1 CONTINUED": True,
+    }
+    for title, kept in titles.items():
+        rows = [
+            ["Panel", "LP-1"],
+            ["Bus Rating", "100"],
+            sub,
+            ["1", "Heat", "4000", "1"],
+            [],
+            [title],
+            sub,
+            ["1", "Lights", "500", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        assert got == ([("LP-1", ["1"])] * (2 if kept else 1)), title
+        assert any(u.reason == "no panel name" for u in parsed.unparsed) is not kept, title
