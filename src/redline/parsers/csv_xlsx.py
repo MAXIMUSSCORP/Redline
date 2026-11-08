@@ -7,10 +7,14 @@ import csv
 import io
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from redline.config import Config
 from redline.model import Confidence, CoverageEntry, Method, Source, Unparsed
 from redline.parsers.tabular import Parsed, rows_to_panels
+
+if TYPE_CHECKING:
+    from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 
 SUFFIXES = (".csv", ".txt", ".xlsx")
 MAX_ROWS = 20_000
@@ -57,7 +61,7 @@ def _text_rows(path: Path) -> tuple[list[list[str]], str]:
     return rows, encoding
 
 
-def _sheet_rows(ws, name: str) -> tuple[list[list[str]], str | None]:
+def _sheet_rows(ws: ReadOnlyWorksheet, name: str) -> tuple[list[list[str]], str | None]:
     """Rows of one sheet, or a reason the sheet is refused instead of being cut."""
     # The declared dimension is untrusted, so drop it and bound what is read.
     ws.reset_dimensions()
