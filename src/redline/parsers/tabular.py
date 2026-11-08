@@ -7,6 +7,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, fields, replace
+from itertools import takewhile
 
 from redline.config import Config, default_value
 from redline.model import (
@@ -538,15 +539,19 @@ def _is_circuit_row(ctx: _Ctx, row: list[str], keys: list[str | None], ckt: list
     keys is the field key of each column of the table above, ckt its circuit column indexes
     (computed once per header so a wide header costs nothing per row).
     """
-    texts = [row[i].strip() for i in ckt if i < len(row)]
+    texts = (row[i].strip() for i in takewhile(lambda i: i < len(row), ckt))  # ckt is sorted
     if not any(len(t) <= _CKT_TEXT_MAX and any(ch in "0123456789" for ch in t) for t in texts):
         return False
-    first = next((c.strip() for c in row if c.strip()), "")
+    at = next(j for j, c in enumerate(row) if c.strip())
+    first = row[at].strip()
     hit = ctx.block_match(first.partition(":")[0])
     if hit.key is None:
         return True
     if hit.conf == Confidence.HIGH:
-        return False
+        # A panel named like an exact key ("MAIN") is data when it sits in the panel column
+        # of a row with more than a key and a value.
+        wide = sum(1 for c in row if c.strip()) > 2
+        return wide and at < len(keys) and keys[at] == "panel_name"
     # A word match excludes only a key/value shaped line: a panel named "Panel A" is a circuit.
     if ":" in first:
         return False
@@ -563,7 +568,8 @@ def _is_short_block_line(ctx: _Ctx, row: list[str]) -> bool:
     if not cells or len(cells) > 2:
         return False
     hit = ctx.block_match(cells[0].partition(":")[0])
-    return hit.key is not None and (hit.conf == Confidence.HIGH or ":" in cells[0])
+    # Only a panel line starts the next table; another key or a colon line may be a circuit.
+    return hit.key == "panel_name" and (hit.conf == Confidence.HIGH or ":" in cells[0])
 
 
 def rows_to_panels(

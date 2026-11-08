@@ -607,3 +607,506 @@ def test_csv_wide_header_with_many_rows_parses_in_linear_time(cfg):
         t0 = time.perf_counter()
         parse(rows, cfg)
         assert time.perf_counter() - t0 < 5
+
+
+# Layout corpus (RV36). Every table shape a review round found, pinned to its expected panels,
+# circuits, header-block values and unparsed rows. A change to the header or block-line
+# heuristic that breaks an earlier shape fails here. "residual" ids pin an accepted limit.
+_D = "Description,Ckt,Breaker,Poles"
+_P = "Panel,Ckt,Description,Breaker"
+LAYOUTS = [
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Panel LP-2 feeder,3",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="two_csv_description_last_row_block_words",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Main lobby lights,3",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="two_b_csv_main_lobby_lights_last_row",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Panel,LP-2",
+            "Bus Rating (A),225",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-2": {"bus": 225.0}},
+        [],
+        id="A_panel_then_word_bus_line",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Bus Rating (A),225",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "225"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="B_residual_word_bus_line_above_panel_reads_as_circuit",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "", "Panel,LP-2", "Bus Rating,225", _D, "Recep,1,20,1"],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-2": {"bus": 225.0}},
+        [],
+        id="C_exact_bus_line_after_panel",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Main: 100", "Panel,LP-2", _D, "Recep,1,20,1"],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-2": {"main": 100.0}},
+        [],
+        id="D_main_colon_between",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Panel,LP-2", "Main Bkr (A),100", _D, "Recep,1,20,1"],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-2": {"main": 100.0}},
+        [],
+        id="E_main_bkr_word_after_panel_no_gap",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,a,20", "Bus Rating (A),225,A", _P, "LP-2,1,b,20"],
+        [("LP-1", ["1"]), ("Bus Rating (A)", ["225"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="F_residual_three_cell_block_line_makes_panel",
+    ),
+    pytest.param(
+        [_P, "Panel A,1,a,20", "Panel A,2", _P, "Panel B,1,b,20"],
+        [("Panel A", ["1"]), ("Panel B", ["1"])],
+        {},
+        [("2", "panel name in header block not used; table has a panel column")],
+        id="G_residual_panel_column_word_name_short_last_row_unparsed",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Ckt,Description,Breaker,Poles",
+            "1,Lights,20,1",
+            "3,Panel LP-2 feeder",
+            "",
+            "Panel,LP-2",
+            "Ckt,Description,Breaker,Poles",
+            "1,x,20,1",
+        ],
+        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="H_ckt_first_last_row_block_words",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            ",,,,Bus Rating (A),225",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-2": {"bus": 225.0}},
+        [],
+        id="I_block_words_beyond_header_first_cell",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Main lobby: lights,3",
+            "Recep,5,20,1",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="J_colon_description_mid_table_two_cells",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Main lobby: lights,3", "Recep,5,20,1"],
+        [("LP-1", ["1", "3", "5"])],
+        {},
+        [],
+        id="J0_colon_description_single_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Room 101: recep,3",
+            "Recep,5,20,1",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="K_room_colon_mid_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Note: spare,3",
+            "Recep,5,20,1",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="L_note_colon_mid_table",
+    ),
+    pytest.param(
+        [_P, "MAIN,1,a,20", "MAIN,2", "MAIN,3,c,20", _P, "LP-2,1,b,20"],
+        [("MAIN", ["1", "2", "3"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="M_panel_column_MAIN_short_row",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Recep,3,20,1", _D, "Fan,5,20,1"],
+        [("LP-1", ["1", "3"])],
+        {},
+        [("Fan, 5, 20, 1", "no panel name")],
+        id="N_residual_repeated_header_page_break_without_panel_column",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Location,3",
+            "Recep,5,20,1",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="O_exact_key_description_mid_table",
+    ),
+    pytest.param(
+        [_P, "MAIN,1,a,20", "MAIN,3,c,20", _P, "LP-2,1,b,20"],
+        [("MAIN", ["1", "3"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="M2_panel_column_MAIN_no_short_row",
+    ),
+    pytest.param(
+        [_P, "LP-2,1,b,20", _P, "MAIN,1,a,20", "MAIN,3,c,20"],
+        [("LP-2", ["1"]), ("MAIN", ["1", "3"])],
+        {},
+        [],
+        id="M3_panel_column_MAIN_second_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Voltage,208",
+            "Phases,3",
+            "Bus Rating,100",
+            "Main Breaker,100",
+            "Description,Ckt,Breaker,Poles,Load VA",
+            "Lights,1,20,1,1200",
+            "Room 101: recep,3",
+            "Heater A,5,40,2,9000",
+            "Heater B,7,40,2,9000",
+            "",
+            "Panel,LP-2",
+            "Description,Ckt,Breaker,Poles,Load VA",
+            "Fan,1,20,1,500",
+        ],
+        [("LP-1", ["1", "3", "5", "7"]), ("LP-2", ["1"])],
+        {"LP-1": {"bus": 100.0, "main": 100.0, "voltage": 208.0}},
+        [],
+        id="j2_block_then_colon_row_then_next_panel",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Panel,LP-2",
+            "Main Breaker,100",
+            "Bus Rating,225",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-2": {"bus": 225.0, "main": 100.0}},
+        [],
+        id="RV25_block_values_stay_with_second_panel",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Panel,LP-2",
+            "Main Bkr (A),100",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-2": {"main": 100.0}},
+        [],
+        id="RV31_word_main_after_panel_line",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Panel,LP-2",
+            "Bus Rating (A),225",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-2": {"bus": 225.0}},
+        [],
+        id="RV31_word_bus_after_panel_line",
+    ),
+    pytest.param(
+        [_P, "Panel A,1,a,20", "Panel A,3,c,20", _P, "Panel A,2,b,20"],
+        [("Panel A", ["1", "3"]), ("Panel A", ["2"])],
+        {},
+        [],
+        id="RV3_panel_A_name_keeps_rows_across_repeated_header",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-3",
+            "Voltage,208",
+            "Bus Rating,225",
+            "Main Breaker,MLO",
+            "",
+            "Ckt,Description,Breaker",
+            "1,a,20",
+            "3,b,20",
+        ],
+        [("LP-3", ["1", "3"])],
+        {"LP-3": {"bus": 225.0, "voltage": 208.0}},
+        [],
+        id="header_block_schedule",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,Lights,20", "", "Panel,Description,Breaker", "LP-2,Heater,30"],
+        [("LP-1", ["1"])],
+        {},
+        [("LP-2, Heater, 30", "no circuit number column")],
+        id="later_table_without_circuit_column",
+    ),
+    pytest.param(
+        [
+            "Panel,Ckt,Description,Load VA,Breaker,Wire,Poles",
+            "LP-1,1,Lights,1000,20,12,1",
+            "LP-1,2,Load bank,1000,continuous,20,breaker locked",
+            "LP-1,3,Pump,1000,20,12,1",
+        ],
+        [("LP-1", ["1", "2", "3"])],
+        {},
+        [],
+        id="alias_word_data_row_not_a_header",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-3",
+            "Ckt,Description,Breaker,Ckt,Description,Breaker",
+            "1,a,20,2,b,20",
+            "3,c,20,4,d,20",
+        ],
+        [("LP-3", ["1", "2", "3", "4"])],
+        {},
+        [],
+        id="two_column_layout",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Voltage,208",
+            "",
+            "Ckt,Description,Breaker",
+            "1,a,20",
+            "",
+            "Panel,LP-2",
+            "Voltage,120",
+            "",
+            "Ckt,Description,Breaker",
+            "1,b,20",
+        ],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-1": {"voltage": 208.0}, "LP-2": {"voltage": 120.0}},
+        [],
+        id="two_panels_samples_style_block",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Room 101: recep,3",
+            "Recep,5,20,1",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="RV34_room_colon_mid_table_keeps_following_rows",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Main lobby: lights,3",
+            "Recep,5,20,1",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="RV34_main_lobby_colon_keeps_following_rows",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Location,3",
+            "Recep,5,20,1",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="RV34_exact_location_row_keeps_following_rows",
+    ),
+    pytest.param(
+        [_P, "MAIN,1,a,20", "MAIN,3,c,20", _P, "LP-2,1,b,20"],
+        [("MAIN", ["1", "3"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="RV35_panel_named_MAIN_not_block_key",
+    ),
+]
+
+
+@pytest.mark.parametrize(("lines", "panels", "block", "unparsed"), LAYOUTS)
+def test_layout_corpus(cfg, lines, panels, block, unparsed):
+    parsed = parse([line.split(",") for line in lines], cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == panels
+    got = {}
+    for p in parsed.panels:
+        vals = {
+            "bus": p.bus_rating_a.value,
+            "main": p.main_breaker_a.value,
+            "voltage": p.voltage_v.value,
+        }
+        got[p.name] = {k: v for k, v in vals.items() if v is not None}
+    assert {k: v for k, v in got.items() if v} == block
+    assert [(u.raw, u.reason) for u in parsed.unparsed if u.kind != "column"] == unparsed
+
+
+@pytest.mark.parametrize(
+    "mid", [["Room 101: recep", "3"], ["Main lobby: lights", "3"], ["Location", "3"]]
+)
+def test_short_block_word_circuit_row_mid_table_keeps_following_rows(cfg, mid):
+    h = _DESC_FIRST
+    rows = [
+        ["Panel", "LP-1"],
+        h,
+        ["Lights", "1", "20", "1"],
+        mid,
+        ["Recep", "5", "20", "1"],
+        [],
+        ["Panel", "LP-2"],
+        h,
+        ["Recep", "1", "20", "1"],
+    ]
+    by = {p.name: p for p in parse(rows, cfg).panels}
+    assert [c.number for c in by["LP-1"].circuits] == ["1", "3", "5"]
+    assert [c.number for c in by["LP-2"].circuits] == ["1"]
+
+
+def test_panel_column_exact_block_key_name_keeps_table_rows(cfg):
+    head = ["Panel", "Ckt", "Description", "Breaker"]
+    rows = [
+        head,
+        ["MAIN", "1", "a", "20"],
+        ["MAIN", "3", "c", "20"],
+        head,
+        ["LP-2", "1", "b", "20"],
+    ]
+    by = {p.name: p for p in parse(rows, cfg).panels}
+    assert [c.number for c in by["MAIN"].circuits] == ["1", "3"]
+    assert [c.number for c in by["LP-2"].circuits] == ["1"]
+    assert by["LP-2"].main_breaker_a.confidence is Confidence.MISSING
+
+
+def test_wide_circuit_header_with_blank_lines_is_linear(cfg):
+    import time
+
+    head = ["ckt"] * 6000 + ["load", "breaker"]
+    rows = [head] + [[""]] * 100000 + [["ckt", "load", "breaker"]]
+    t0 = time.perf_counter()
+    parse(rows, cfg)
+    assert time.perf_counter() - t0 < 5
