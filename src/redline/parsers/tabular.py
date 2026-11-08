@@ -71,7 +71,29 @@ _NUM_TOKEN = re.compile(r"-?[0-9,]*(?:\.[0-9]+)?")
 _THOUSANDS = re.compile(r"-?[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?")
 _SLASH_V = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*/\s*([0-9]+(?:\.[0-9]+)?)\s*v?", re.IGNORECASE)
 # Unit words a header may carry after its alias; any not read by the field is refused.
-_UNIT_WORDS = {"va", "kva", "kw", "w", "mw", "hp", "ft", "feet", "in", "mm", "cm", "f", "k"}
+_UNIT_WORDS = {
+    "va",
+    "kva",
+    "kw",
+    "w",
+    "mw",
+    "hp",
+    "ft",
+    "feet",
+    "in",
+    "mm",
+    "cm",
+    "f",
+    "k",
+    "a",
+    "ka",
+    "v",
+    "kv",
+    "mva",
+    "m",
+    "km",
+    "c",
+}
 _PHASES = re.compile(r"[ABC]([\s,/&+-]*[ABC])*", re.IGNORECASE)
 
 
@@ -512,9 +534,13 @@ def _is_circuit_row(ctx: _Ctx, row: list[str], ckt: list[int]) -> bool:
     if not any(len(t) <= _CKT_TEXT_MAX and any(ch in "0123456789" for ch in t) for t in texts):
         return False
     first = next((c.strip() for c in row if c.strip()), "")
-    # Only an exact key excludes the line: a panel named "Panel A" matches by words alone.
     hit = ctx.block_match(first.partition(":")[0])
-    return hit.key is None or hit.conf != Confidence.HIGH
+    if hit.key is None:
+        return True
+    if hit.conf == Confidence.HIGH:
+        return False
+    # A word match excludes only a key/value shaped line: a panel named "Panel A" is a circuit.
+    return not (":" in first or sum(1 for c in row if c.strip()) <= 2)
 
 
 def rows_to_panels(
@@ -547,16 +573,15 @@ def rows_to_panels(
     )
     need = (maps.get("parsing") or {}).get("min_header_alias_matches", 3)
     heads: list[int] = []
+    prev: list[int] = []
     for i, r in enumerate(grid):
         keys = {m.key for c in r if (m := ctx.match(c)).key}
         if len(keys) < need:
             continue
-        if heads:
-            # A later header repeats the circuit column, and that cell is not a circuit number.
-            ckt = [j for j, c in enumerate(r) if ctx.match(c).key == "circuit_number"]
-            if not ckt or _is_circuit_row(ctx, r, ckt):
-                continue
+        if prev and _is_circuit_row(ctx, r, prev):
+            continue  # under the table above, this line has a circuit number: it is data
         heads.append(i)
+        prev = [j for j, c in enumerate(r) if ctx.match(c).key == "circuit_number"]
     if not heads:
         first = next((i for i, r in enumerate(grid) if any(c.strip() for c in r)), None)
         if first is None:
