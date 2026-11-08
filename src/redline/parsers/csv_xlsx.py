@@ -5,7 +5,6 @@ from __future__ import annotations
 import codecs
 import csv
 import io
-import re
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -25,6 +24,8 @@ MAX_COLS = 200
 # bytes per workbook, and total rows read across all sheets, bound memory and time.
 MAX_XLSX_BYTES = 8 * 2**20
 MAX_TOTAL_ROWS = 50_000
+# A real workbook has a handful of sheets; Excel itself rarely goes past a few dozen.
+MAX_SHEETS = 255
 _ORDER = "sheet {} has cells or rows out of order, so it is not read"
 
 
@@ -143,21 +144,34 @@ def _check_size(path: Path) -> None:
             f"the workbook holds more than {MAX_XLSX_BYTES // 2**20} MB of data "
             "once unpacked, so it is not read"
         )
+    _check_sheet_entries(path)
+
+
+def _check_sheet_entries(path: Path) -> None:
+    """Refuse a workbook that lists one sheet part twice or lists too many sheets."""
     # openpyxl sizes every sheet entry on load, so N entries naming one part cost N scans of
-    # it before any row budget applies. A real workbook names each sheet part once.
+    # it before any row budget applies. Targets are resolved by openpyxl's own reader (content
+    # types, workbook rels, joined paths, normpath), so no respelling of a target gets past
+    # this check. The pre-pass parses only the manifest, workbook.xml and its rels, never a
+    # sheet.
+    from openpyxl.reader.excel import ExcelReader
+
     try:
-        with zipfile.ZipFile(path) as z:
-            rels = z.read("xl/_rels/workbook.xml.rels").decode("utf-8", "replace")
-    except KeyError:
-        return
+        reader = ExcelReader(path, read_only=True, keep_links=False)
+        try:
+            reader.read_manifest()
+            reader.read_workbook()
+            if len(reader.parser.sheets) > MAX_SHEETS:
+                raise InputError(
+                    f"the workbook lists more than {MAX_SHEETS} sheets, so it is not read"
+                )
+            targets = [rel.target for _, rel in reader.parser.find_sheets()]
+        finally:
+            reader.archive.close()
+    except InputError:
+        raise
     except Exception as e:
         raise InputError(f"cannot open the workbook: {type(e).__name__}") from e
-    targets = [
-        t.lstrip("/").removeprefix("xl/")
-        for tag in re.findall(r"<Relationship\b[^>]*>", rels)
-        if tag.count('/worksheet"')
-        for t in re.findall(r'Target="([^"]*)"', tag)
-    ]
     if len(targets) != len(set(targets)):
         raise InputError(
             "the workbook lists one sheet part under more than one sheet, so it is not read"
