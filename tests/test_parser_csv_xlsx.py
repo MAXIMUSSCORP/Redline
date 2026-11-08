@@ -355,3 +355,73 @@ def test_xlsx_long_sheet_listed_other_sheets_read(tmp_path, cfg, monkeypatch):
     (entry,) = _refused(parsed, "Long")
     assert "more than 3 rows" in entry.reason
     assert [p.name for p in parsed.panels] == ["LP-2"]
+
+
+def test_xlsx_cell_past_column_limit_listed_not_cut(tmp_path, cfg):
+    from openpyxl.utils import get_column_letter
+
+    from redline.parsers.csv_xlsx import MAX_COLS
+
+    for col in (MAX_COLS + 1, MAX_COLS + 2, 250, 16384):
+        wb = openpyxl.Workbook()
+        wb.active.title = "Far"
+        wb["Far"].append(["Ckt", "Description", "Breaker"])
+        wb["Far"].append([1, "Lights", 20])
+        wb["Far"][f"{get_column_letter(col)}1"] = "Load VA"
+        wb["Far"][f"{get_column_letter(col)}2"] = 9000
+        ok = wb.create_sheet("LP-2")
+        ok.append(["Ckt", "Description", "Breaker"])
+        ok.append([1, "A", 15])
+        path = tmp_path / f"far{col}.xlsx"
+        wb.save(path)
+        parsed = parse_file(path, cfg)
+        (entry,) = _refused(parsed, "Far")
+        assert f"more than {MAX_COLS} columns" in entry.reason
+        assert [p.name for p in parsed.panels] == ["LP-2"]
+
+
+def _stuff(path, member, extra):
+    import shutil
+    import zipfile
+
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item)
+            if item.filename == member:
+                data = extra(data.decode("utf-8")).encode("utf-8")
+            zout.writestr(item, data)
+    shutil.move(tmp, path)
+
+
+def test_xlsx_uncompressed_size_over_cap_refused(tmp_path, cfg, monkeypatch):
+    import redline.parsers.csv_xlsx as mod
+
+    path = workbook(tmp_path, {"LP-1": [["Ckt", "Breaker"], [1, 20]]})
+    monkeypatch.setattr(mod, "MAX_XLSX_BYTES", 100_000)
+    _stuff(path, "xl/worksheets/sheet1.xml", lambda x: x + " " * 200_000)
+    with pytest.raises(InputError, match="once unpacked"):
+        parse_file(path, cfg)
+
+
+def test_xlsx_far_cells_every_row_quick(tmp_path, cfg):
+    import time
+
+    rows = 15_000
+    xml_rows = "".join(
+        f'<row r="{i}"><c r="A{i}" t="inlineStr"><is><t>x</t></is></c>'
+        f'<c r="XFD{i}"><v>1</v></c></row>'
+        for i in range(1, rows + 1)
+    )
+    path = workbook(tmp_path, {"Far": [["Ckt"]]})
+
+    def swap(x):
+        start = x.index("<sheetData>") + len("<sheetData>")
+        return x[:start] + xml_rows + x[x.index("</sheetData>") :]
+
+    _stuff(path, "xl/worksheets/sheet1.xml", swap)
+    start = time.monotonic()
+    parsed = parse_file(path, cfg)
+    assert time.monotonic() - start < 5
+    (entry,) = _refused(parsed, "Far")
+    assert "more than" in entry.reason and "columns" in entry.reason
