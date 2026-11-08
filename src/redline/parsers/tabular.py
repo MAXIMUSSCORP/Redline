@@ -441,7 +441,8 @@ def _table(
         ctx.last_name = None
     else:
         # Only a header repeated directly under the table above continues its panel.
-        if block.read_rows:
+        # A title line naming another panel ends it too ("Panel LP-1 (continued)" does not).
+        if block.read_rows or (ctx.last_name and not _names_only(rows[start:h], ctx.last_name[0])):
             ctx.last_name = None
         if block.name:
             table_name = ctx.last_name = block.name
@@ -572,7 +573,13 @@ def _is_circuit_row(
         # Over three cells it is data on its own: a block line has a key, a value and a unit.
         n = sum(1 for c in row if c.strip())
         grouped = ":" not in first and any(_cell(n_, at) == first for n_ in near)
-        return (n > 3 or (n > 2 and grouped)) and at < len(keys) and keys[at] == "panel_name"
+        if not (at < len(keys) and keys[at] == "panel_name"):
+            return False
+        # "Panel,LP-2,120/208V,3PH" or "Bus Rating,225,A,Cu" is a block line with extra
+        # cells: a long row is data only if its number columns hold numbers.
+        return (n > 2 and grouped) or (
+            n > 3 and hit.key != "panel_name" and _numbers_ok(ctx, row, keys)
+        )
     # A word match excludes only a key/value shaped line: a panel named "Panel A" is a circuit.
     if ":" in first:
         return False
@@ -582,6 +589,36 @@ def _is_circuit_row(
     # description or another mapped field it is a circuit whose text holds a block word.
     at = next(j for j, c in enumerate(row) if c.strip())
     return at < len(keys) and keys[at] not in (None, "panel_name")
+
+
+def _numbers_ok(ctx: _Ctx, row: list[str], keys: list[str | None]) -> bool:
+    """Every non-blank cell under a numeric column of the table above reads as a number."""
+    seen = False
+    for i, c in enumerate(row[: len(keys)]):
+        t = c.strip()
+        fld = _FIELD_OF.get(keys[i] or "", keys[i])
+        if not t or fld is None or fld in _TEXTS or fld in ("panel_name", "circuit_number"):
+            continue
+        for u in _UNITS.get(fld, {}):
+            if t.upper().endswith(u) and len(t) > len(u):
+                t = t[: -len(u)].strip()
+                break
+        try:
+            float(t.replace(",", ""))
+        except ValueError:
+            return False
+        seen = True
+    return seen
+
+
+def _names_only(lines: list[list[str]], name: str) -> bool:
+    """Every non-blank line between two tables names the panel (a "continued" title)."""
+    pat = re.compile(rf"(?<![\w-]){re.escape(name)}(?![\w-])", re.IGNORECASE)
+    return all(
+        pat.search(", ".join(c.strip() for c in r if c.strip()))
+        for r in lines
+        if any(c.strip() for c in r)
+    )
 
 
 def _near(grid: list[list[str]], i: int) -> tuple[list[str], list[str]]:
