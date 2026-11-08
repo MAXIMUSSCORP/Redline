@@ -293,6 +293,7 @@ class _Ctx:
     detect_two_column: bool
     out: Parsed
     last_name: tuple[str, Source] | None = None  # nearest header block panel name above
+    ambiguous: set[int] = field(default_factory=set)  # lines listed, read neither way
 
     def unp(self, kind: str, raw: str, reason: str, locator: str) -> None:
         src = Source(self.file, locator, self.method, Confidence.LOW)
@@ -378,6 +379,9 @@ def _header_block(ctx: _Ctx, rows: list[list[str]], start: int, h: int) -> _Bloc
             continue
         loc = ctx.locate(r)
         raw = ", ".join(nz)
+        if r in ctx.ambiguous:
+            ctx.unp("row", raw, "panel row or header block line; not read", loc)
+            continue
         key_text, colon, after = nz[0].partition(":")
         if colon and after.strip():
             val, extra = after.strip(), nz[1:]
@@ -567,18 +571,15 @@ def _is_circuit_row(
     if hit.key is None:
         return True
     if hit.conf == Confidence.HIGH:
-        # A panel named like an exact key ("MAIN") is data when it sits in the panel column
-        # of a row with more than a key and a value, and a neighbouring row repeats it
-        # (a panel's rows are grouped); a lone "Bus Rating,225,A" is a block line.
-        # Over three cells it is data on its own: a block line has a key, a value and a unit.
-        n = sum(1 for c in row if c.strip())
+        # A panel named like an exact key ("MAIN") is data only in the panel column of a row
+        # with more than a key and a value whose neighbour repeats it (a panel's rows are
+        # grouped). Any other such line is a block line, or _ambiguous_key_line.
         grouped = ":" not in first and any(_cell(n_, at) == first for n_ in near)
-        if not (at < len(keys) and keys[at] == "panel_name"):
-            return False
-        # "Panel,LP-2,120/208V,3PH" or "Bus Rating,225,A,Cu" is a block line with extra
-        # cells: a long row is data only if its number columns hold numbers.
-        return (n > 2 and grouped) or (
-            n > 3 and hit.key != "panel_name" and _numbers_ok(ctx, row, keys)
+        return (
+            at < len(keys)
+            and keys[at] == "panel_name"
+            and sum(1 for c in row if c.strip()) > 2
+            and grouped
         )
     # A word match excludes only a key/value shaped line: a panel named "Panel A" is a circuit.
     if ":" in first:
@@ -591,33 +592,40 @@ def _is_circuit_row(
     return at < len(keys) and keys[at] not in (None, "panel_name")
 
 
-def _numbers_ok(ctx: _Ctx, row: list[str], keys: list[str | None]) -> bool:
-    """Every non-blank cell under a numeric column of the table above reads as a number."""
-    seen = False
-    for i, c in enumerate(row[: len(keys)]):
-        t = c.strip()
-        fld = _FIELD_OF.get(keys[i] or "", keys[i])
-        if not t or fld is None or fld in _TEXTS or fld in ("panel_name", "circuit_number"):
-            continue
-        for u in _UNITS.get(fld, {}):
-            if t.upper().endswith(u) and len(t) > len(u):
-                t = t[: -len(u)].strip()
-                break
-        try:
-            float(t.replace(",", ""))
-        except ValueError:
-            return False
-        seen = True
-    return seen
+def _ambiguous_key_line(
+    ctx: _Ctx, row: list[str], keys: list[str | None], near: tuple[list[str], list[str]]
+) -> bool:
+    """A lone exact non-panel key line under a panel column: one-circuit panel or header line."""
+    cells = [c.strip() for c in row if c.strip()]
+    if len(cells) < 3 or ":" in cells[0]:
+        return False
+    hit = ctx.block_match(cells[0])
+    at = next(j for j, c in enumerate(row) if c.strip())
+    return (
+        hit.conf == Confidence.HIGH
+        and hit.key not in (None, "panel_name")
+        and at < len(keys)
+        and keys[at] == "panel_name"
+        and not any(_cell(n_, at) == cells[0] for n_ in near)
+    )
+
+
+_TOKEN_SPLIT = re.compile(r"[^\w-]+")
 
 
 def _names_only(lines: list[list[str]], name: str) -> bool:
-    """Every non-blank line between two tables names the panel (a "continued" title)."""
-    pat = re.compile(rf"(?<![\w-]){re.escape(name)}(?![\w-])", re.IGNORECASE)
+    """No line between two tables holds a designation (a token with a digit) but the name.
+
+    A title like "(continued)" keeps the panel; "LP-2 Lighting Panel" ends it. Linear in
+    the size of the lines and the name.
+    """
+    named = set(_TOKEN_SPLIT.split(name.lower()))
     return all(
-        pat.search(", ".join(c.strip() for c in r if c.strip()))
+        t in named
         for r in lines
-        if any(c.strip() for c in r)
+        for c in r
+        for t in _TOKEN_SPLIT.split(c.lower())
+        if any(ch.isdigit() for ch in t)
     )
 
 
@@ -704,6 +712,11 @@ def rows_to_panels(
             k -= 1
         starts.append(k + 1)
         ends.append(k + 1)
+        ctx.ambiguous |= {
+            j
+            for j in range(k + 1, heads[n])
+            if _ambiguous_key_line(ctx, grid[j], keys, _near(grid, j))
+        }
     ends.append(len(grid))
     for n, h in enumerate(heads):
         _table(ctx, grid, h, cols[n], starts[n], ends[n])
