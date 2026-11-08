@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from redline.config import Config
-from redline.model import CoverageEntry, Method
+from redline.model import Confidence, CoverageEntry, Method, Source, Unparsed
 from redline.parsers.tabular import Parsed, rows_to_panels
 
 SUFFIXES = (".csv", ".txt", ".xlsx")
@@ -57,23 +57,24 @@ def _text_rows(path: Path) -> tuple[list[list[str]], str]:
     return rows, encoding
 
 
-def _sheet_rows(ws, name: str) -> list[list[str]]:
+def _sheet_rows(ws, name: str) -> tuple[list[list[str]], str | None]:
+    """Rows of one sheet, or a reason the sheet is refused instead of being cut."""
     # The declared dimension is untrusted, so drop it and bound what is read.
     ws.reset_dimensions()
     rows = []
     try:
-        for n, values in enumerate(ws.iter_rows(values_only=True, max_col=MAX_COLS), 1):
+        for n, values in enumerate(ws.iter_rows(values_only=True, max_col=MAX_COLS + 1), 1):
             if n > MAX_ROWS:
-                raise InputError(f"sheet {name} has more than {MAX_ROWS} rows, so it is not read")
+                return [], f"sheet {name} has more than {MAX_ROWS} rows, so it is not read"
             end = len(values)
             while end and (values[end - 1] is None or not str(values[end - 1]).strip()):
                 end -= 1
+            if end > MAX_COLS:
+                return [], f"sheet {name} has more than {MAX_COLS} columns, so it is not read"
             rows.append(["" if v is None else str(v) for v in values[:end]])
-    except InputError:
-        raise
     except Exception as e:
         raise InputError(f"cannot read the workbook: {type(e).__name__}") from e
-    return rows
+    return rows, None
 
 
 def _xlsx(path: Path, cfg: Config) -> Parsed:
@@ -87,7 +88,11 @@ def _xlsx(path: Path, cfg: Config) -> Parsed:
     try:
         for ws in wb.worksheets:
             name = ws.title
-            rows = _sheet_rows(ws, name)
+            rows, refused = _sheet_rows(ws, name)
+            if refused:
+                src = Source(path.name, f"sheet={name}", Method.XLSX, Confidence.LOW)
+                out.unparsed.append(Unparsed("sheet", name, refused, src))
+                continue
             part = rows_to_panels(
                 rows,
                 cfg,
