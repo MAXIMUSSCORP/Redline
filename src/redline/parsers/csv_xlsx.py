@@ -5,6 +5,7 @@ from __future__ import annotations
 import codecs
 import csv
 import io
+import re
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -24,6 +25,7 @@ MAX_COLS = 200
 # bytes per workbook, and total rows read across all sheets, bound memory and time.
 MAX_XLSX_BYTES = 8 * 2**20
 MAX_TOTAL_ROWS = 50_000
+_ORDER = "sheet {} has cells or rows out of order, so it is not read"
 
 
 class InputError(Exception):
@@ -66,14 +68,17 @@ def _text_rows(path: Path) -> tuple[list[list[str]], str]:
     return rows, encoding
 
 
-def _sheet_rows(ws: ReadOnlyWorksheet, name: str) -> tuple[list[list[str]], str | None]:
-    """Rows of one sheet, or a reason the sheet is refused instead of being cut."""
+def _sheet_rows(ws: ReadOnlyWorksheet, name: str) -> tuple[list[list[str]], str | None, int]:
+    """Rows of one sheet, a reason it is refused instead of being cut, and the rows charged."""
     # The sheet XML is parsed cell by cell, so a cell at any column is seen with its
     # real column number and no padded row is built for it. The declared dimension is
     # never used.
     from openpyxl.worksheet._reader import WorkSheetParser
 
     rows: list[list[str]] = []
+    parsed = 0  # every row index parsed, charged even when the sheet is then refused
+    last_idx = 0
+    refused: str | None = None
     try:
         with ws._get_source() as src:
             parser = WorkSheetParser(
@@ -85,8 +90,16 @@ def _sheet_rows(ws: ReadOnlyWorksheet, name: str) -> tuple[list[list[str]], str 
                 timedelta_formats=ws.parent._timedelta_formats,
             )
             for idx, cells in parser.parse():
+                parsed += 1
                 if idx > MAX_ROWS:
-                    return [], f"sheet {name} has more than {MAX_ROWS} rows, so it is not read"
+                    refused = f"sheet {name} has more than {MAX_ROWS} rows, so it is not read"
+                    break
+                # Position comes from the r attributes. A repeated or backward row or
+                # cell would land in the wrong place, so the sheet is refused, not moved.
+                if idx <= last_idx:
+                    refused = _ORDER.format(name)
+                    break
+                last_idx = idx
                 values: list[str] = []
                 for cell in cells:
                     v = cell["value"]
@@ -95,17 +108,24 @@ def _sheet_rows(ws: ReadOnlyWorksheet, name: str) -> tuple[list[list[str]], str 
                         continue
                     col = cell["column"]
                     if col > MAX_COLS:
-                        return (
-                            [],
-                            f"sheet {name} has more than {MAX_COLS} columns, so it is not read",
+                        refused = (
+                            f"sheet {name} has more than {MAX_COLS} columns, so it is not read"
                         )
+                        break
+                    if col <= len(values):
+                        refused = _ORDER.format(name)
+                        break
                     values.extend([""] * (col - len(values) - 1))
                     values.append(text)
+                if refused:
+                    break
                 rows.extend([] for _ in range(idx - 1 - len(rows)))
                 rows.append(values)
     except Exception as e:
         raise InputError(f"cannot read the workbook: {type(e).__name__}") from e
-    return rows, None
+    if refused:
+        return [], refused, parsed
+    return rows, None, max(parsed, len(rows))
 
 
 def _check_size(path: Path) -> None:
@@ -115,15 +135,32 @@ def _check_size(path: Path) -> None:
             infos = z.infolist()
     except Exception as e:
         raise InputError(f"cannot open the workbook: {type(e).__name__}") from e
-    total = sum(
-        i.file_size
-        for i in infos
-        if i.filename.startswith("xl/worksheets/") or i.filename == "xl/sharedStrings.xml"
-    )
+    # Every member counts, duplicates each time: openpyxl finds sheets and shared strings
+    # through the rels and content types, not by path, and parses styles and the rest.
+    total = sum(i.file_size for i in infos)
     if total > MAX_XLSX_BYTES:
         raise InputError(
-            f"the workbook holds more than {MAX_XLSX_BYTES // 2**20} MB of sheet data "
+            f"the workbook holds more than {MAX_XLSX_BYTES // 2**20} MB of data "
             "once unpacked, so it is not read"
+        )
+    # openpyxl sizes every sheet entry on load, so N entries naming one part cost N scans of
+    # it before any row budget applies. A real workbook names each sheet part once.
+    try:
+        with zipfile.ZipFile(path) as z:
+            rels = z.read("xl/_rels/workbook.xml.rels").decode("utf-8", "replace")
+    except KeyError:
+        return
+    except Exception as e:
+        raise InputError(f"cannot open the workbook: {type(e).__name__}") from e
+    targets = [
+        t.lstrip("/").removeprefix("xl/")
+        for tag in re.findall(r"<Relationship\b[^>]*>", rels)
+        if tag.count('/worksheet"')
+        for t in re.findall(r'Target="([^"]*)"', tag)
+    ]
+    if len(targets) != len(set(targets)):
+        raise InputError(
+            "the workbook lists one sheet part under more than one sheet, so it is not read"
         )
 
 
@@ -146,8 +183,8 @@ def _xlsx(path: Path, cfg: Config) -> Parsed:
                     f"the workbook has more than {MAX_TOTAL_ROWS} rows, so sheet {name} is not read",
                 )
             else:
-                rows, refused = _sheet_rows(ws, name)
-                budget -= len(rows)
+                rows, refused, charged = _sheet_rows(ws, name)
+                budget -= charged
             if refused:
                 src = Source(path.name, f"sheet={name}", Method.XLSX, Confidence.LOW)
                 out.unparsed.append(Unparsed("sheet", name, refused, src))
