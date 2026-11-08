@@ -518,7 +518,7 @@ def test_xlsx_refused_sheets_charge_row_budget(tmp_path, cfg, monkeypatch):
     path = workbook(tmp_path, sheets)
     calls = []
     real = mod._sheet_rows
-    monkeypatch.setattr(mod, "_sheet_rows", lambda ws, name: calls.append(name) or real(ws, name))
+    monkeypatch.setattr(mod, "_sheet_rows", lambda *a: calls.append(a[-1]) or real(*a))
     parsed = parse_file(path, cfg)
     # Each refused sheet parses 4 row indexes (3 allowed plus the one over), so the
     # 9-row budget is spent after three sheets and nothing later is parsed.
@@ -633,3 +633,147 @@ def test_xlsx_too_many_sheet_entries_refused(tmp_path, cfg):
     _stuff(path, "xl/workbook.xml", many)
     with pytest.raises(InputError, match="more than 255 sheets"):
         parse_file(path, cfg)
+
+
+_NS = (
+    'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+)
+_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+_PKG = 'xmlns="http://schemas.openxmlformats.org/package/2006/relationships"'
+_CT = (
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>'
+    '<Override PartName="/xl/workbook.xml" '
+    'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+    "</Types>"
+)
+_SHEET = (
+    f'<worksheet {_NS}><sheetData><row r="1">{_cell("A1", "Ckt")}{_cell("B1", "Load")}'
+    f"{_cell('C1', 'Breaker')}</row></sheetData></worksheet>"
+)
+
+
+def _raw_book(tmp_path, wb_xml, wb_rels, parts):
+    path = tmp_path / "raw.xlsx"
+    root = f'<Relationships {_PKG}><Relationship Id="rId1" Type="{_REL}officeDocument" Target="xl/workbook.xml"/></Relationships>'
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", _CT)
+        z.writestr("_rels/.rels", root)
+        z.writestr("xl/workbook.xml", wb_xml)
+        z.writestr("xl/_rels/workbook.xml.rels", f"<Relationships {_PKG}>{wb_rels}</Relationships>")
+        z.writestr("xl/worksheets/sheet1.xml", _SHEET)
+        for name, data in parts.items():
+            z.writestr(name, data)
+    return path
+
+
+def test_xlsx_repeated_external_reference_not_parsed_per_entry(tmp_path, cfg, monkeypatch):
+    import time
+
+    import openpyxl.reader.workbook as rw
+
+    def boom(*a, **k):
+        raise AssertionError("an external link part was parsed")
+
+    monkeypatch.setattr(rw, "read_external_link", boom)
+    n = 100
+    wb = (
+        f'<workbook {_NS}><sheets><sheet name="S0" sheetId="1" r:id="rId1"/></sheets>'
+        "<externalReferences>"
+        + '<externalReference r:id="rId2"/>' * n
+        + "</externalReferences></workbook>"
+    )
+    rels = (
+        f'<Relationship Id="rId1" Type="{_REL}worksheet" Target="worksheets/sheet1.xml"/>'
+        f'<Relationship Id="rId2" Type="{_REL}externalLink" Target="externalLinks/externalLink1.xml"/>'
+    )
+    cell = '<cell r="A1"><v>1</v></cell>'
+    ext = (
+        f'<externalLink {_NS}><externalBook r:id="rId1"><sheetDataSet><sheetData sheetId="0">'
+        f'<row r="1">{cell * (2**20 // len(cell))}</row></sheetData></sheetDataSet></externalBook></externalLink>'
+    )
+    path = _raw_book(tmp_path, wb, rels, {"xl/externalLinks/externalLink1.xml": ext})
+    start = time.monotonic()
+    parsed = parse_file(path, cfg)
+    assert time.monotonic() - start < 5
+    assert [p.name for p in parsed.panels] == ["S0"] and not _refused(parsed, "S0")
+
+
+def test_xlsx_chartsheet_drawing_rels_not_parsed(tmp_path, cfg, monkeypatch):
+    import time
+
+    import openpyxl.reader.drawings as rd
+
+    def boom(*a, **k):
+        raise AssertionError("a drawing part was parsed")
+
+    monkeypatch.setattr(rd, "find_images", boom)
+    n = 100
+    wb = (
+        f'<workbook {_NS}><sheets><sheet name="LP-1" sheetId="1" r:id="rId1"/>'
+        '<sheet name="C0" sheetId="2" r:id="rId2"/></sheets></workbook>'
+    )
+    rels = (
+        f'<Relationship Id="rId1" Type="{_REL}worksheet" Target="worksheets/sheet1.xml"/>'
+        f'<Relationship Id="rId2" Type="{_REL}chartsheet" Target="chartsheets/sheet1.xml"/>'
+    )
+    csrels = (
+        f"<Relationships {_PKG}>"
+        + "".join(
+            f'<Relationship Id="rId{i + 1}" Type="{_REL}drawing" Target="../drawings/drawing1.xml"/>'
+            for i in range(n)
+        )
+        + "</Relationships>"
+    )
+    anchor = '<xdr:absoluteAnchor><xdr:pos x="0" y="0"/><xdr:ext cx="1" cy="1"/><xdr:clientData/></xdr:absoluteAnchor>'
+    drawing = (
+        '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing">'
+        + anchor * (2**20 // len(anchor))
+        + "</xdr:wsDr>"
+    )
+    path = _raw_book(
+        tmp_path,
+        wb,
+        rels,
+        {
+            "xl/chartsheets/sheet1.xml": f'<chartsheet {_NS}><drawing r:id="rId1"/></chartsheet>',
+            "xl/chartsheets/_rels/sheet1.xml.rels": csrels,
+            "xl/drawings/drawing1.xml": drawing,
+        },
+    )
+    start = time.monotonic()
+    parsed = parse_file(path, cfg)
+    assert time.monotonic() - start < 5
+    (entry,) = _refused(parsed, "C0")
+    assert "chartsheet C0 is not read" in entry.reason
+    # LP-1 is a normal worksheet and was read (its header-only table yields no panel).
+    assert not _refused(parsed, "LP-1")
+
+
+def test_xlsx_reader_never_calls_load_workbook(tmp_path, cfg, monkeypatch):
+    import datetime
+
+    import openpyxl.reader.excel as rx
+
+    def boom(*a, **k):
+        raise AssertionError("load_workbook was called")
+
+    path = workbook(
+        tmp_path,
+        {
+            "LP-1": [
+                ["Ckt", "Description", "Breaker", "Load (VA)", "Notes"],
+                [1, "Lights", 20, "=A2*2", datetime.date(2026, 1, 2)],
+                [2, "Plugs", 15, 300, True],
+            ],
+            "LP-2": [["Ckt", "Description", "Breaker"], [1, "Pumps", 30]],
+        },
+    )
+    want = parse_file(path, cfg)
+    monkeypatch.setattr(openpyxl, "load_workbook", boom)
+    monkeypatch.setattr(rx, "load_workbook", boom)
+    got = parse_file(path, cfg)
+    assert [p.name for p in got.panels] == ["LP-1", "LP-2"]
+    assert got == want
