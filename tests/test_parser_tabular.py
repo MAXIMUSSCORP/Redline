@@ -810,10 +810,10 @@ LAYOUTS = [
     ),
     pytest.param(
         ["Panel,LP-1", _D, "Lights,1,20,1", "Recep,3,20,1", _D, "Fan,5,20,1"],
-        [("LP-1", ["1", "3"])],
+        [("LP-1", ["1", "3"]), ("LP-1", ["5"])],
         {},
-        [("Fan, 5, 20, 1", "no panel name")],
-        id="N_residual_repeated_header_page_break_without_panel_column",
+        [],
+        id="N_repeated_header_page_break_without_panel_column",
     ),
     pytest.param(
         [
@@ -1110,3 +1110,24 @@ def test_wide_circuit_header_with_blank_lines_is_linear(cfg):
     t0 = time.perf_counter()
     parse(rows, cfg)
     assert time.perf_counter() - t0 < 5
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Recep,3,20,1", _D, "Fan,5,20,1"],
+        [
+            "Panel,LP-1",
+            "Ckt,Description,Breaker,Poles",
+            "1,Lights,20,1",
+            "3,Recep,20,1",
+            "Ckt,Description,Breaker,Poles",
+            "5,Fan,20,1",
+        ],
+    ],
+)
+def test_page_break_header_keeps_block_panel_name(cfg, lines):
+    parsed = parse([line.split(",") for line in lines], cfg)
+    got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+    assert got == [("LP-1", ["1", "3"]), ("LP-1", ["5"])]
+    assert [u for u in parsed.unparsed if u.kind != "column"] == []
