@@ -1,3 +1,4 @@
+import csv
 import json
 import shutil
 from pathlib import Path
@@ -675,3 +676,67 @@ def test_out_cannot_overwrite_input_file_exits_2(tmp_path):
     before = f.read_bytes()
     assert main(["check", str(f), "--config", TEST_CFG, "--out", str(f)]) == 2
     assert f.read_bytes() == before
+
+
+BLOCK = (
+    "Panel,LP-1\nVoltage,208\nPhases,1\nBus,100\nMain,MLO\n"
+    "Ckt,Description,Load (VA),Load Type,Poles,Breaker\n"
+)
+MOTOR = "{n},Motor,12000,motor,2,60\n"
+
+
+def _rows(out, rule):
+    with (out.parent / "findings.csv").open(encoding="utf-8", newline="") as fh:
+        return [r for r in csv.DictReader(fh) if r["rule_id"] == rule]
+
+
+def _two_blocks(tmp_path):
+    f = tmp_path / "two.csv"
+    f.write_text(BLOCK + MOTOR.format(n=1) + "\n" + BLOCK + MOTOR.format(n=3), encoding="utf-8")
+    return f
+
+
+def test_repeated_panel_name_not_split_across_tables(tmp_path):
+    rc, out = _csv_run(tmp_path, _two_blocks(tmp_path))
+    assert rc == 0
+    rows = [r for r in _rows(out, "panel_demand") if "LP-1" in r["message"]]
+    assert rows and all(r["severity"] in ("NEEDS_REVIEW", "NOT_CHECKED") for r in rows)
+    assert not any("demand 12000 VA" in r["message"] for r in rows)
+    one = tmp_path / "one.csv"
+    one.write_text(BLOCK + MOTOR.format(n=1) + MOTOR.format(n=3), encoding="utf-8")
+    (tmp_path / "ctl").mkdir()
+    rc, out1 = _csv_run(tmp_path / "ctl", one)
+    sev = {r["severity"] for r in _rows(out1, "panel_demand")}
+    assert rc == 0 and "VIOLATION" in sev
+
+
+def test_repeated_panel_name_listed_in_unparsed(tmp_path):
+    rc, out = _csv_run(tmp_path, _two_blocks(tmp_path))
+    html = out.read_text(encoding="utf-8")
+    assert rc == 0 and "is read 2 times" in html and html.count("two.csv") >= 2
+
+
+def test_subfolder_listed_in_coverage(tmp_path):
+    d = _input_dir(tmp_path)
+    (d / "sub").mkdir()
+    (d / "sub" / "b.csv").write_text("x\n", encoding="utf-8")
+    rc, out = _csv_run(tmp_path, d)
+    html = out.read_text(encoding="utf-8")
+    assert rc == 0 and "sub" in html and "not read: subfolders are not read" in html
+
+
+def test_unlistable_input_folder_no_traceback(tmp_path, monkeypatch, capsys):
+    bad = tmp_path / "locked"
+    bad.mkdir()
+    real = Path.iterdir
+
+    def fake(self):
+        if self.name == "locked":
+            raise PermissionError(13, "Permission denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "iterdir", fake)
+    rc, out = _csv_run(tmp_path, bad, SAMPLES / "two_panels.csv")
+    html = out.read_text(encoding="utf-8")
+    assert rc == 0 and "Traceback" not in capsys.readouterr().err
+    assert "LP-2" in html and "locked" in html and "folder not read: Permission denied" in html
