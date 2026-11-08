@@ -1007,6 +1007,8 @@ def _with_doctype(path, member, utf16=False):
     with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item)
+            if item.filename == "[Content_Types].xml" and member not in zin.namelist():
+                continue
             if item.filename == member:
                 text = data.decode("utf-8")
                 head, _, rest = text.partition("?>")
@@ -1019,6 +1021,12 @@ def _with_doctype(path, member, utf16=False):
             zout.writestr(item, data)
         if member not in zin.namelist():  # openpyxl writes no sharedStrings for this book
             zout.writestr(member, ent + "<sst/>")
+            ct = zin.read("[Content_Types].xml").decode()
+            ov = (
+                '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.'
+                'openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>'
+            )
+            zout.writestr("[Content_Types].xml", ct.replace("</Types>", ov))
     shutil.move(tmp, path)
 
 
@@ -1077,3 +1085,94 @@ def test_xlsx_dxf_numfmt_does_not_override_date_style(tmp_path, cfg):
     got = parse_file(path, cfg)
     _, c2, _ = got.panels[0].circuits
     assert c2.breaker_a.value is None
+
+
+def _rewrite(path, compression=None, add=None, change=None):
+    """Copy a workbook member by member; `add` is extra members, `change` replaces data."""
+    import shutil
+
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = (change or {}).get(item.filename, zin.read(item))
+            zout.writestr(item.filename, data, compress_type=compression or item.compress_type)
+        for name, data in (add or {}).items():
+            zout.writestr(name, data)
+    shutil.move(tmp, path)
+
+
+def _peak(fn):
+    import tracemalloc
+
+    tracemalloc.start()
+    try:
+        return fn(), tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def test_xlsx_non_deflate_member_refused(tmp_path, cfg):
+    for method in (zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA):
+        path = workbook(tmp_path, {"LP-1": [["Ckt", "Breaker"], [1, 20]]}, name=f"m{method}.xlsx")
+        with zipfile.ZipFile(path, "a") as z:
+            z.writestr("xl/zeros.bin", b"\0" * 2**20, compress_type=method)
+
+        def run(path=path):
+            with pytest.raises(InputError, match="compression method"):
+                parse_file(path, cfg)
+
+        assert _peak(run)[1] < 20 * 2**20
+
+
+def _short_declared(path, member, pad):
+    """Rewrite `member` so its data runs `pad` bytes past the size the directory declares."""
+    import shutil
+
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item)
+            if item.filename == member:
+                declared = len(data)
+                data += b" " * pad
+            zout.writestr(item.filename, data)
+        for info in zout.filelist:
+            if info.filename == member:
+                info.file_size = declared
+    shutil.move(tmp, path)
+
+
+def test_xlsx_member_longer_than_declared_size_not_inflated(tmp_path, cfg):
+    for i, member in enumerate(["[Content_Types].xml", "xl/workbook.xml"]):
+        path = workbook(tmp_path, {"LP-1": [["Ckt", "Breaker"], [1, 20]]}, name=f"d{i}.xlsx")
+        _short_declared(path, member, 100 * 2**20)
+
+        def run(path=path):
+            try:
+                return parse_file(path, cfg)
+            except InputError:
+                return None  # refused is as good as read; inflating the padding is the failure
+
+        assert _peak(run)[1] < 30 * 2**20
+
+
+def _svg_book(tmp_path, member_ok):
+    dtd = "<!DOCTYPE svg PUBLIC '-//W3C//DTD SVG 1.1//EN' 'x.dtd'>"
+    if member_ok:
+        path = workbook(tmp_path, {"LP-1": [["Ckt", "Description", "Breaker"], [1, "A", 20]]})
+        _rewrite(path, add={"xl/media/logo.svg": f"{dtd}<svg/>".encode()})
+        return path
+    sheet = _SHEET.replace("<worksheet", f"{dtd}<worksheet", 1)
+    rels = f'<Relationship Id="rId1" Type="{_REL}worksheet" Target="media/x.svg"/>'
+    wb = f'<workbook {_NS}><sheets><sheet name="S0" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    return _raw_book(tmp_path, wb, rels, {"xl/media/x.svg": sheet})
+
+
+def test_xlsx_doctype_in_unparsed_media_ignored(tmp_path, cfg):
+    parsed = parse_file(_svg_book(tmp_path, True), cfg)
+    assert [p.name for p in parsed.panels] == ["LP-1"]
+
+
+def test_xlsx_doctype_in_worksheet_named_svg_refused(tmp_path, cfg):
+    with pytest.raises(InputError, match="DOCTYPE"):
+        parse_file(_svg_book(tmp_path, False), cfg)

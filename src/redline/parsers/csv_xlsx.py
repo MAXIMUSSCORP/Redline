@@ -109,7 +109,7 @@ def _format_kind(code: str) -> str:
     return kind
 
 
-def _date_styles(reader: ExcelReader) -> tuple[set[int], set[int]]:
+def _date_styles(reader: ExcelReader, dtd: set[str]) -> tuple[set[int], set[int]]:
     """Cell style indexes whose number format is a date or time, and an elapsed time.
 
     A linear pass over styles.xml that reads numFmts and cellXfs only. openpyxl's
@@ -118,6 +118,7 @@ def _date_styles(reader: ExcelReader) -> tuple[set[int], set[int]]:
     from openpyxl.xml.constants import ARC_STYLE
     from openpyxl.xml.functions import iterparse
 
+    _refuse_dtd(dtd, ARC_STYLE)
     try:
         src = reader.archive.open(ARC_STYLE)
     except KeyError:
@@ -235,53 +236,79 @@ def _sheet_rows(
 
 
 # A DOCTYPE lets a few bytes of entity declarations expand to gigabytes in the stdlib XML
-# parser. Real Excel files never hold one. expat also accepts UTF-16 by BOM.
+# parser. Real Excel files never hold one in a part the reader parses. expat also accepts
+# UTF-16 by BOM. A DOCTYPE in a part never parsed (an SVG image) is harmless and ignored.
 _DOCTYPES = tuple("<!DOCTYPE".encode(enc) for enc in ("ascii", "utf-16-le", "utf-16-be"))
 _CHUNK = 1 << 16
+_DOCTYPE_MSG = "the workbook holds a DOCTYPE declaration, so it is not read"
 
 
-def _refuse_doctype(z: zipfile.ZipFile, infos: list[zipfile.ZipInfo]) -> None:
-    keep = max(map(len, _DOCTYPES)) - 1
-    left = MAX_XLSX_BYTES  # bounds the scan even if a header understates a member
-    for info in infos:
-        tail = b""
-        with z.open(info) as f:
-            while chunk := f.read(_CHUNK):
-                left -= len(chunk)
-                if left < 0:
-                    raise InputError(
-                        "the workbook holds too much data once unpacked, so it is not read"
-                    )
-                buf = tail + chunk
-                if any(d in buf for d in _DOCTYPES):
-                    raise InputError("the workbook holds a DOCTYPE declaration, so it is not read")
-                tail = buf[-keep:]
+def _refuse_dtd(dtd: set[str], member: str) -> None:
+    if member.lstrip("/") in dtd:
+        raise InputError(_DOCTYPE_MSG)
 
 
-def _check_size(path: Path) -> None:
-    """Refuse a workbook whose sheets would inflate past the cap, before anything is parsed."""
+def _unpack(path: Path) -> tuple[io.BytesIO, set[str]]:
+    """Read every member once, in bounded chunks, into an in-memory stored archive.
+
+    Excel writes only stored and deflate members. zipfile unpacks other methods without a
+    per-read limit, so they are refused before any member is opened. Each member is read
+    up to its declared size and the running total is held to MAX_XLSX_BYTES; openpyxl then
+    parses this copy, never the file. Returns the copy and the names of members that hold
+    a DTD declaration.
+    """
     try:
         with zipfile.ZipFile(path) as z:
             infos = z.infolist()
+            if any(
+                i.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) for i in infos
+            ):
+                raise InputError(
+                    "the workbook uses a compression method Excel does not write, so it is not read"
+                )
             # Every member counts, duplicates each time: openpyxl finds sheets and shared
             # strings through the rels and content types, not by path, and parses the rest.
-            total = sum(i.file_size for i in infos)
-            if total > MAX_XLSX_BYTES:
-                raise InputError(
-                    f"the workbook holds more than {MAX_XLSX_BYTES // 2**20} MB of data "
-                    "once unpacked, so it is not read"
-                )
-            _refuse_doctype(z, infos)
+            if sum(i.file_size for i in infos) > MAX_XLSX_BYTES:
+                raise _too_big()
+            keep = max(map(len, _DOCTYPES)) - 1
+            left = MAX_XLSX_BYTES
+            dtd: set[str] = set()
+            out = io.BytesIO()
+            with warnings.catch_warnings(), zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as w:
+                warnings.simplefilter("ignore", UserWarning)  # duplicate member names are kept
+                for info in infos:
+                    data = bytearray()
+                    tail = b""
+                    with z.open(info) as f:
+                        while chunk := f.read(_CHUNK):
+                            left -= len(chunk)
+                            if left < 0:
+                                raise _too_big()
+                            buf = tail + chunk
+                            if any(d in buf for d in _DOCTYPES):
+                                dtd.add(info.filename)
+                            tail = buf[-keep:]
+                            data += chunk
+                    w.writestr(info.filename, bytes(data))
+            out.seek(0)
+            return out, dtd
     except InputError:
         raise
     except Exception as e:
         raise InputError(f"cannot open the workbook: {type(e).__name__}") from e
 
 
+def _too_big() -> InputError:
+    return InputError(
+        f"the workbook holds more than {MAX_XLSX_BYTES // 2**20} MB of data "
+        "once unpacked, so it is not read"
+    )
+
+
 def _open_reader(
     path: Path,
 ) -> tuple[ExcelReader, list[tuple[str, str | None]], tuple[set[int], set[int]]]:
-    """Open the package once; return the reader, (title, part) per sheet entry and date styles.
+    """Unpack the package once; return the reader, (title, part) per sheet entry and date styles.
 
     The part is None for a chartsheet.
 
@@ -291,13 +318,23 @@ def _open_reader(
     are resolved by openpyxl's own reader (content types, workbook rels, joined paths), so
     no respelling of a target gets past the duplicate check.
     """
-    from openpyxl.reader.excel import ExcelReader
+    from openpyxl.reader.excel import ExcelReader, _find_workbook_part
+    from openpyxl.xml.constants import ARC_CONTENT_TYPES, SHARED_STRINGS
 
+    archive, dtd = _unpack(path)
     reader = None
     try:
-        reader = ExcelReader(path, read_only=True, data_only=True, keep_links=False)
+        # The manifest and every rels part are parsed first, so they are checked first.
+        for name in dtd:
+            if name == ARC_CONTENT_TYPES or name.endswith(".rels"):
+                raise InputError(_DOCTYPE_MSG)
+        reader = ExcelReader(archive, read_only=True, data_only=True, keep_links=False)
         reader.read_manifest()
+        ct = reader.package.find(SHARED_STRINGS)
+        if ct is not None:
+            _refuse_dtd(dtd, ct.PartName)
         reader.read_strings()
+        _refuse_dtd(dtd, _find_workbook_part(reader.package).PartName)
         reader.read_workbook()
         if len(reader.parser.sheets) > MAX_SHEETS:
             raise InputError(f"the workbook lists more than {MAX_SHEETS} sheets, so it is not read")
@@ -311,8 +348,10 @@ def _open_reader(
         for sheet, rel in found:
             if rel.target not in reader.valid_files:
                 continue
+            if "chartsheet" not in rel.Type:
+                _refuse_dtd(dtd, rel.target)
             entries.append((sheet.name, None if "chartsheet" in rel.Type else rel.target))
-        return reader, entries, _date_styles(reader)
+        return reader, entries, _date_styles(reader, dtd)
     except InputError:
         if reader is not None:
             reader.archive.close()
@@ -325,7 +364,6 @@ def _open_reader(
 
 def _xlsx(path: Path, cfg: Config) -> Parsed:
     out = Parsed()
-    _check_size(path)
     reader, entries, styles = _open_reader(path)
     try:
         budget = MAX_TOTAL_ROWS
