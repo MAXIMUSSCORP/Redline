@@ -484,3 +484,67 @@ def test_tabular_wide_row_stays_linear(cfg):
     parsed = parse(rows, cfg)
     assert time.perf_counter() - t0 < 5
     assert len(parsed.panels[0].circuits) == 4001
+
+
+def test_later_table_without_circuit_column_stays_separate(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["LP-1", "1", "Lights", "1000", "20"],
+        [],
+        ["Panel", "Description", "Load VA", "Breaker"],
+        ["LP-2", "Heater", "3000", "30"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [p.name for p in parsed.panels] == ["LP-1"]
+    circuits = parsed.panels[0].circuits
+    assert [c.number for c in circuits] == ["1"]
+    assert circuits[0].load_va.value == 1000.0 and circuits[0].breaker_a.value == 20.0
+    assert any("Heater" in u.raw for u in parsed.unparsed)
+
+
+def test_header_unit_amps_not_read_as_va(cfg):
+    sched = {**M0_SCHEDULE, "voltage_v": ["voltage"]}
+    for header, fld in (
+        ("Load (A)", "load_va"),
+        ("Load (MVA)", "load_va"),
+        ("Breaker (kA)", "breaker_a"),
+        ("Voltage (kV)", "voltage_v"),
+    ):
+        rows = [["Panel", "Ckt", "Description", header], ["LP-1", "1", "d", "22"]]
+        v = getattr(parse(rows, cfg_with(cfg, sched)).panels[0].circuits[0], fld)
+        assert v.value is None and v.confidence == Confidence.LOW, header
+        assert "header unit" in v.source.note, header
+
+
+def test_header_unit_own_unit_still_read(cfg):
+    sched = {
+        **M0_SCHEDULE,
+        "voltage_v": ["voltage"],
+        "ambient_c": ["ambient"],
+    }
+    for header, fld, text, want in (
+        ("Breaker (A)", "breaker_a", "20", 20.0),
+        ("Voltage (V)", "voltage_v", "208", 208.0),
+        ("Length (m)", "length_m", "30", 30.0),
+        ("Ambient (C)", "ambient_c", "30", 30),
+        ("Load (VA)", "load_va", "1000", 1000.0),
+        ("Load (kVA)", "load_va", "1.5", 1500.0),
+    ):
+        rows = [["Panel", "Ckt", "Description", header], ["LP-1", "1", "d", text]]
+        v = getattr(parse(rows, cfg_with(cfg, sched)).panels[0].circuits[0], fld)
+        assert v.value == pytest.approx(want), header
+        assert v.confidence != Confidence.LOW, header
+
+
+def test_word_matched_block_line_not_a_circuit(cfg):
+    head = ["Panel", "Ckt", "Description", "Load VA", "Breaker"]
+    rows = [
+        head,
+        ["LP-1", "1", "a", "100", "20"],
+        ["Bus Rating (A)", "225"],
+        head,
+        ["LP-2", "1", "b", "100", "20"],
+    ]
+    parsed = parse(rows, cfg)
+    assert sorted(p.name for p in parsed.panels) == ["LP-1", "LP-2"]
+    assert all(c.number == "1" for p in parsed.panels for c in p.circuits)
