@@ -292,6 +292,7 @@ class _Ctx:
     spare: set[str]
     detect_two_column: bool
     out: Parsed
+    last_name: tuple[str, Source] | None = None  # nearest header block panel name above
 
     def unp(self, kind: str, raw: str, reason: str, locator: str) -> None:
         src = Source(self.file, locator, self.method, Confidence.LOW)
@@ -438,7 +439,12 @@ def _table(
         ctx.unp("row", name, reason, src.locator)
     if not has_panel_col:
         if block.name:
-            table_name = block.name
+            table_name = ctx.last_name = block.name
+        elif ctx.last_name:
+            # A repeated header with no block of its own continues the panel above it.
+            name, src = ctx.last_name
+            note = "panel name from the header block above"
+            table_name = (name, replace(src, confidence=Confidence.MEDIUM, note=note))
         elif ctx.fallback:
             note = "panel name from sheet name"
             src = Source(ctx.file, ctx.locate(h), ctx.method, Confidence.MEDIUM, note)
