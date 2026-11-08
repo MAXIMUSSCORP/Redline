@@ -185,10 +185,16 @@ def test_kw_needs_power_factor(cfg, cfg_set):
 
 def test_slash_voltage(test_cfg):
     cfg = cfg_with(test_cfg, schedule={**M0_SCHEDULE, "voltage_v": ["voltage"]})
-    _, c = cell(cfg, "Voltage", "120/208")
-    assert c.voltage_v.value == 208.0
-    assert c.voltage_v.confidence is Confidence.MEDIUM
-    assert c.voltage_v.source.note == "line-to-line from a/b"
+    rows = [
+        ["Panel", "LP-3"],
+        ["Voltage", "120/208"],
+        ["Ckt", "Description", "Breaker"],
+        ["1", "a", "20"],
+    ]
+    (panel,) = parse(rows, cfg).panels
+    assert panel.voltage_v.value == 208.0
+    assert panel.voltage_v.confidence is Confidence.MEDIUM
+    assert panel.voltage_v.source.note == "line-to-line from a/b"
     assert cell(cfg, "Voltage", "120 V")[1].voltage_v.value == 120.0
 
 
@@ -391,3 +397,90 @@ def test_ragged_and_none_cells_do_not_raise(cfg):
     circuits = parse(rows, cfg).panels[0].circuits
     assert circuits[0].breaker_a.confidence is Confidence.MISSING
     assert circuits[1].breaker_a.value == 20.0
+
+
+def _hdr_cell(cfg, header, text):
+    return cell(cfg, header, text)[1]
+
+
+def test_header_unit_kw_not_read_as_va(cfg):
+    c = _hdr_cell(cfg, "Load (kW)", "2.3")
+    assert c.load_va.value is None
+    assert c.load_va.confidence == Confidence.LOW
+    assert "header unit KW not read" in c.load_va.source.note
+    ok = _hdr_cell(cfg, "Load (kVA)", "2.3")
+    assert ok.load_va.value == pytest.approx(2300.0)
+
+
+def test_header_unit_ft_not_read_as_m(cfg):
+    for header, fld in (("Length (ft)", "length_m"), ("Ambient (F)", "ambient_c")):
+        sched = {**M0_SCHEDULE, "ambient_c": ["ambient"]}
+        rows = [["Panel", "Ckt", "Description", header], ["LP-1", "1", "d", "30"]]
+        v = getattr(parse(rows, cfg_with(cfg, sched)).panels[0].circuits[0], fld)
+        assert v.value is None and v.confidence == Confidence.LOW
+        assert "not read" in v.source.note
+
+
+def test_data_row_with_alias_words_is_not_a_header(cfg):
+    rows = [
+        HEAD,
+        ["LP-1", "1", "Lights", "1000", "20", "12", "1"],
+        ["LP-1", "2", "Load bank", "1000", "continuous", "20", "breaker locked"],
+        ["LP-1", "3", "Pump", "1000", "20", "12", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    nums = [c.number for p in parsed.panels for c in p.circuits]
+    assert nums == ["1", "2", "3"]
+
+
+def test_panel_name_like_block_key_keeps_table_rows(cfg):
+    head = ["Panel", "Ckt", "Description", "Load VA", "Breaker"]
+    rows = [
+        head,
+        ["Panel A", "1", "a", "100", "20"],
+        ["Panel A", "3", "c", "100", "20"],
+        head,
+        ["Panel A", "2", "b", "100", "20"],
+    ]
+    parsed = parse(rows, cfg)
+    nums = sorted(c.number for p in parsed.panels for c in p.circuits)
+    assert nums == ["1", "2", "3"]
+
+
+def test_slash_voltage_one_pole_circuit_not_line_to_line(cfg):
+    sched = {**M0_SCHEDULE, "voltage_v": ["voltage", "volts"]}
+    rows = [["Panel", "Ckt", "Description", "Voltage"], ["LP-1", "1", "d", "120/208"]]
+    v = parse(rows, cfg_with(cfg, sched)).panels[0].circuits[0].voltage_v
+    assert v.value is None and v.confidence == Confidence.LOW
+    assert "a/b voltage" in v.source.note
+
+
+def test_block_panel_name_with_panel_column_listed(cfg):
+    rows = [
+        ["Panel", "LP-9"],
+        ["Voltage", "208"],
+        ["Panel", "Ckt", "Description", "Load VA"],
+        ["LP-1", "1", "d", "100"],
+    ]
+    parsed = parse(rows, cfg)
+    assert any("panel name in header block not used" in u.reason for u in parsed.unparsed)
+    assert [p.name for p in parsed.panels] == ["LP-1"]
+
+
+def test_unicode_digits_are_low(cfg):
+    assert _hdr_cell(cfg, "Load VA", "١٢").load_va.value is None
+    assert _hdr_cell(cfg, "Load VA", "١٢").load_va.confidence == Confidence.LOW
+    c = _hdr_cell(cfg, "Poles", "１")
+    assert c.poles.value is None and c.poles.confidence == Confidence.LOW
+
+
+def test_tabular_wide_row_stays_linear(cfg):
+    import time
+
+    rows = [["panel", "ckt", "breaker", "load va", "description"]]
+    rows.append(["LP-1", "0", "20", "100", "x"] + [""] * 99995 + ["wide"])
+    rows += [["LP-1", str(i), "20", "100", "d"] for i in range(1, 4001)]
+    t0 = time.perf_counter()
+    parsed = parse(rows, cfg)
+    assert time.perf_counter() - t0 < 5
+    assert len(parsed.panels[0].circuits) == 4001
