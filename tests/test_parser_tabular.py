@@ -1113,6 +1113,75 @@ LAYOUTS = [
         [("Bus Rating, 225", "no panel name"), ("5, misc, 20, 1", "no panel name")],
         id="RV41_own_block_without_panel_line_does_not_inherit",
     ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "MAIN,1,feeder,400",
+            "",
+            "Panel,LP-2",
+            "Ckt,Description,Breaker,Poles",
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1"]), ("MAIN", ["1"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="RV45_single_row_block_key_panel_at_end_then_block_table",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "MAIN,1,feeder,400",
+            "Panel,LP-2",
+            "Ckt,Description,Breaker,Poles",
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1"]), ("MAIN", ["1"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="RV45_single_row_block_key_panel_no_blank_line",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", "MAIN,1,feeder,400", "", _P, "LP-2,1,z,20"],
+        [("LP-1", ["1"]), ("MAIN", ["1"]), ("LP-2", ["1"])],
+        {},
+        [],
+        id="RV45_single_row_block_key_panel_then_panel_column_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            "Ckt,Description,Breaker,Poles",
+            "1,a,20,1",
+            "3,b,20,1",
+            "Panel LP-1 (continued)",
+            "Ckt,Description,Breaker,Poles",
+            "5,c,20,1",
+        ],
+        [("LP-1", ["1", "3"]), ("LP-1", ["5"])],
+        {},
+        [("Panel LP-1 (continued)", "header block key panel_name has no value")],
+        id="RV46_continued_title_line_keeps_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            "Ckt,Description,Breaker,Poles",
+            "1,a,20,1",
+            "",
+            "LP-1 continued",
+            "",
+            "Ckt,Description,Breaker,Poles",
+            "5,c,20,1",
+        ],
+        [("LP-1", ["1"]), ("LP-1", ["5"])],
+        {},
+        [("LP-1 continued", "not a header block key: no alias matches")],
+        id="RV46_continued_line_after_blank_keeps_inheritance",
+    ),
 ]
 
 
@@ -1254,3 +1323,43 @@ def test_block_without_panel_line_does_not_inherit_name(cfg):
     parsed = parse(rows, cfg)
     assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [("LP-1", ["1"])]
     assert parsed.panels[0].bus_rating_a.value == 100
+
+
+def test_single_row_panel_named_like_block_key_kept_at_table_end(cfg):
+    head = ["Panel", "Ckt", "Description", "Load (VA)", "Load Type", "Poles", "Breaker"]
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    rows = [
+        head,
+        ["LP-1", "1", "Lights", "1000", "noncontinuous", "1", "20"],
+        ["MAIN", "1", "Feeder", "1000", "noncontinuous", "1", "20"],
+        [],
+        ["Panel", "LP-2"],
+        ["Voltage", "120"],
+        ["Phases", "1"],
+        ["Bus", "100"],
+        sub,
+        ["1", "Lights", "20", "1"],
+    ]
+    by = {p.name: p for p in parse(rows, cfg).panels}
+    assert [c.number for c in by["MAIN"].circuits] == ["1"]
+    assert by["LP-2"].main_breaker_a.confidence is Confidence.MISSING
+
+
+def test_page_break_with_continued_line_keeps_block_panel_name(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus Rating", "100"],
+        sub,
+        ["1", "a", "20", "1"],
+        ["3", "b", "20", "1"],
+        ["Panel LP-1 (continued)"],
+        sub,
+        ["5", "c", "20", "1"],
+        ["7", "d", "20", "1"],
+        ["9", "e", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+    assert got == [("LP-1", ["1", "3"]), ("LP-1", ["5", "7", "9"])]
+    assert not [u for u in parsed.unparsed if u.reason == "no panel name"]
