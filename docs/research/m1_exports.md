@@ -31,6 +31,22 @@ AutoCAD MEP panel schedule table-style circuit fields: Circuit Name, Circuit Des
   - Phase: no circuit field named Phase. **Phase Label** labels circuits together with the Way parameter. In a panel schedule view, phase shows as per-phase load columns (A, B, C).
 - Panel schedule templates can be "Two Columns" or "Circuits Across", and firms edit the column labels. VERIFIED: https://help.autodesk.com/cloudhelp/2023/ENU/Revit-DocumentPresent/files/GUID-9522EA21-AC96-409A-86E8-4B99826E191B.htm
 
+### Second search, M1 stage 4 (2026-11-07)
+
+Three Sonnet agents searched again: two on the web, one on the dev PC (read-only). Nothing was downloaded or opened.
+
+- No public file holds a real Revit-written circuit schedule export. GitHub code search, the Autodesk, Dynamo and Reddit forums and add-in docs gave only parameter lists, API code and screenshots. VERIFIED as searched. A schedule's columns are whatever fields its author picks, so no standard header row exists to find.
+  - Two old threads may carry an attached export, but both returned 403: https://forums.augi.com/showthread.php?128633-Extracting-circuits-data-from-model and https://www.revitforum.org/forum/revit-mechanical-electrical-plumbing-forum-mep/mep-general/31517-electrical-panel-schedule-export-to-excel-revit-2016. UNVERIFIED.
+- Sample models are already on the dev PC under `D:\Autodesk\Revit 2026\Samples\`. VERIFIED by listing:
+  - `Snowdon Towers Sample Electrical.rvt`, 41.6 MB. Best candidate.
+  - `BIM_Projekt_Golden_Nugget-Gebaeudetechnik.rvt`, 96.5 MB (German MEP). Second project.
+  - `サンプル設備.rvt`, 92.8 MB (Japanese MEP).
+  - Whether they hold panels and circuits is UNVERIFIED. The Autodesk sample page says only "Electrical fixtures, equipment and conduits are all featured": https://help.autodesk.com/cloudhelp/2026/ENU/Revit-GetStarted/files/GUID-61EF2F22-3A1F-4317-B925-1E85F138BE88.htm
+- The rme_basic and rme_advanced MEP samples are listed for 2026 on that page but are not installed here. VERIFIED as listed.
+- Electrical and Systems project templates (.rte) are under `D:\Autodesk\RVT 2026\Templates\`. They hold schedule definitions but no circuits.
+- No Autodesk page states terms of use for the samples or for exports made from them. Until the owner decides, treat such exports as client files (row 34 D2): `gold/revit/`, not committed.
+- An export from an Autodesk sample meets L1.6 G6.1 only if the owner adopts it as theirs.
+
 ### Steps for the owner
 
 1. Open a panel schedule view, then File > Export > Reports > Schedule. If that works, keep the file. It shows the real panel layout.

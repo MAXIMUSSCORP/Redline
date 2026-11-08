@@ -17,7 +17,7 @@ Use `--config config/` for the real skeleton config. Every VIOLATION is then sho
 
     redline check samples/csv --config tests/test_config/ --out report.html
 
-Give one or more files or folders. A folder is read without going into sub-folders, files in name order. Redline reads `.csv`, `.txt` and `.xlsx`. A Revit schedule export saved as `.txt` is read as it is.
+Give one or more files or folders. A folder is read without going into sub-folders, files in name order. Redline reads `.csv`, `.txt` and `.xlsx` panel schedules. Revit exports are not supported yet; Revit is coming soon.
 Any other file is listed in the coverage table as "not read: unsupported file type". A file that cannot be read is listed with the reason, and the other files are still read.
 Do not combine inputs with `--demo-project`. Do not write `--out` inside an input folder, because the next run would read `findings.csv` as input.
 
