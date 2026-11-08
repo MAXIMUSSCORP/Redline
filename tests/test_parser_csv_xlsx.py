@@ -868,3 +868,131 @@ def test_xlsx_many_named_styles_bounded(tmp_path, cfg, monkeypatch):
         + "</cellStyles></styleSheet>"
     )
     _bounded(_styled_book(tmp_path, styles), cfg, monkeypatch)
+
+
+def _date_book(tmp_path):
+    ws_rows = [["Ckt", "Description", "Breaker"], [1, "A", 46024], [2, "B", 46024], [3, "C", 20]]
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "LP-1"
+    for row in ws_rows:
+        ws.append(row)
+    ws["C2"].number_format = "mm-dd-yy"  # built-in id 14
+    ws["C3"].number_format = "dd/mm/yyyy"  # custom
+    path = tmp_path / "dates.xlsx"
+    wb.save(path)
+    return path
+
+
+def test_xlsx_date_styled_number_not_read_as_number(tmp_path, cfg):
+    got = parse_file(_date_book(tmp_path), cfg)
+    c1, c2, c3 = got.panels[0].circuits
+    for c in (c1, c2):
+        assert c.breaker_a.value is None
+        assert c.breaker_a.confidence in (Confidence.LOW, Confidence.MISSING)
+    assert c3.breaker_a.value == 20.0
+
+
+def test_xlsx_styles_scan_linear(tmp_path, cfg, monkeypatch):
+    long_fmt = (
+        f'<styleSheet {_SS}><numFmts count="1"><numFmt numFmtId="164" formatCode="'
+        + "[" * 400_000
+        + '"/></numFmts><cellXfs count="1"><xf numFmtId="164"/></cellXfs></styleSheet>'
+    )
+    n = 30_000
+    many = (
+        f'<styleSheet {_SS}><numFmts count="{n}">'
+        + "".join(f'<numFmt numFmtId="{200 + i}" formatCode="0.{i}"/>' for i in range(n))
+        + f'</numFmts><cellXfs count="{n}">'
+        + "".join(f'<xf numFmtId="{200 + i}"/>' for i in range(n))
+        + "</cellXfs></styleSheet>"
+    )
+    _bounded(_styled_book(tmp_path, long_fmt), cfg, monkeypatch)
+    _bounded(_styled_book(tmp_path, many), cfg, monkeypatch)
+
+
+def test_xlsx_long_sheet_title_bounded(tmp_path, cfg):
+    import tracemalloc
+
+    rows = [["Ckt", "Description", "Breaker"]] + [[i, "L", 20] for i in range(1, 300)]
+    path = workbook(tmp_path, {"LP-1": rows, "LP-2": rows})
+    long = "A" * 1_000_000
+    _stuff(path, "xl/workbook.xml", lambda x: x.replace('name="LP-1"', f'name="{long}"'))
+    tracemalloc.start()
+    got = parse_file(path, cfg)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 50 * 2**20
+    assert [p.name for p in got.panels] == ["LP-2"]
+    (entry,) = [u for u in got.unparsed if u.kind == "sheet"]
+    assert "A" * 31 + "..." in entry.raw and len(entry.raw) < 40
+    assert "31 characters" in entry.reason
+
+
+def _shared_string_book(tmp_path, big, sheets):
+    """sheets: name -> number of circuit rows whose Description is shared string 0."""
+    ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    pkg = "http://schemas.openxmlformats.org/package/2006/relationships"
+    ct = (
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-'
+        'officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-'
+        'officedocument.spreadsheetml.sharedStrings+xml"/></Types>'
+    )
+    names = list(sheets)
+    wb = f'<workbook xmlns="{ns}" xmlns:r="{rel}"><sheets>' + "".join(
+        f'<sheet name="{n}" sheetId="{i + 1}" r:id="rId{i + 1}"/>' for i, n in enumerate(names)
+    )
+    rels = "".join(
+        f'<Relationship Id="rId{i + 1}" Type="{rel}/worksheet" Target="worksheets/s{i + 1}.xml"/>'
+        for i in range(len(names))
+    )
+    path = tmp_path / "ss.xlsx"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", ct)
+        z.writestr(
+            "_rels/.rels",
+            f'<Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{rel}/officeDocument" '
+            'Target="xl/workbook.xml"/></Relationships>',
+        )
+        z.writestr("xl/workbook.xml", wb + "</sheets></workbook>")
+        z.writestr(
+            "xl/_rels/workbook.xml.rels", f'<Relationships xmlns="{pkg}">{rels}</Relationships>'
+        )
+        z.writestr("xl/sharedStrings.xml", f'<sst xmlns="{ns}"><si><t>{big}</t></si></sst>')
+        for i, n in enumerate(names):
+            head = "".join(
+                _cell(f"{c}1", t) for c, t in zip("ABC", ("Ckt", "Description", "Breaker"))
+            )
+            rows = "".join(
+                f'<row r="{r}"><c r="A{r}"><v>{r - 1}</v></c><c r="B{r}" t="s"><v>0</v></c>'
+                f'<c r="C{r}"><v>20</v></c></row>'
+                for r in range(2, sheets[n] + 2)
+            )
+            z.writestr(
+                f"xl/worksheets/s{i + 1}.xml",
+                f'<worksheet xmlns="{ns}"><sheetData><row r="1">{head}</row>{rows}</sheetData></worksheet>',
+            )
+    return path
+
+
+def test_xlsx_shared_string_reuse_bounded(tmp_path, cfg):
+    import tracemalloc
+
+    path = _shared_string_book(tmp_path, "x" * 1_000_000, {"LP-0": 1, "Big": 400, "LP-9": 1})
+    tracemalloc.start()
+    got = parse_file(path, cfg)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 100 * 2**20
+    assert [p.name for p in got.panels] == ["LP-0"]
+    assert _refused(got, "Big") and _refused(got, "LP-9")
+
+
+def test_xlsx_shared_string_reuse_normal_workbook_unaffected(tmp_path, cfg):
+    path = _shared_string_book(tmp_path, "Lights", {"LP-0": 3, "LP-1": 2})
+    got = parse_file(path, cfg)
+    assert [p.name for p in got.panels] == ["LP-0", "LP-1"] and not got.unparsed
