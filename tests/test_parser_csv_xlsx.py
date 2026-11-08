@@ -810,7 +810,8 @@ def test_xlsx_duplicate_sheet_titles_kept_and_flagged_repeated(tmp_path, cfg):
         rows = [r for r in csv.DictReader(fh) if r["rule_id"] == "panel_demand"]
     lp1 = [r for r in rows if "LP-1" in r["message"]]
     assert lp1 and all(r["severity"] == "NEEDS_REVIEW" for r in lp1)
-    assert any("panel name LP-1 repeats" in r["message"] for r in lp1)
+    assert all(r["message"].startswith("LP-1") for r in lp1)
+    assert any("panel name repeats" in r["message"] for r in lp1)
 
 
 def _styled_book(tmp_path, styles):
