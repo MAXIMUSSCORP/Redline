@@ -5,6 +5,7 @@ from __future__ import annotations
 import codecs
 import csv
 import io
+import warnings
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -123,13 +124,15 @@ def _date_styles(reader: ExcelReader) -> tuple[set[int], set[int]]:
         return set(), set()
     custom: dict[int, str] = {}
     xfs: list[int] = []
-    in_xfs = False
+    in_xfs = in_fmts = False
     with src:
         for event, el in iterparse(src, events=("start", "end")):
             tag = el.tag.rpartition("}")[2]
             if tag == "cellXfs":
                 in_xfs = event == "start"
-            elif event == "end" and tag == "numFmt":
+            elif tag == "numFmts":
+                in_fmts = event == "start"
+            elif event == "end" and tag == "numFmt" and in_fmts:
                 custom[int(el.get("numFmtId", -1))] = el.get("formatCode", "")
                 el.clear()
             elif event == "end" and tag == "xf" and in_xfs:
@@ -137,9 +140,11 @@ def _date_styles(reader: ExcelReader) -> tuple[set[int], set[int]]:
                 el.clear()
     dates: set[int] = set()
     deltas: set[int] = set()
+    # One classification per format id, not per xf: many xfs may share one long code.
+    custom_kind = {fmt: _format_kind(code) for fmt, code in custom.items()}
     for idx, fmt in enumerate(xfs):
-        if fmt in custom:
-            kind = _format_kind(custom[fmt])
+        if fmt in custom_kind:
+            kind = custom_kind[fmt]
         else:
             kind = "delta" if fmt == 46 else "date" if fmt in _BUILTIN_DATE_IDS else ""
         if kind:
@@ -169,7 +174,12 @@ def _sheet_rows(
     chars = 0
     refused: str | None = None
     try:
-        with reader.archive.open(target) as src:
+        # openpyxl warns once per out-of-range date cell; a hostile sheet makes MBs of it.
+        with (
+            warnings.catch_warnings(),
+            reader.archive.open(target) as src,
+        ):
+            warnings.simplefilter("ignore", UserWarning)
             parser = WorkSheetParser(
                 src,
                 reader.shared_strings,
@@ -224,21 +234,48 @@ def _sheet_rows(
     return rows, None, max(parsed, len(rows)), chars
 
 
+# A DOCTYPE lets a few bytes of entity declarations expand to gigabytes in the stdlib XML
+# parser. Real Excel files never hold one. expat also accepts UTF-16 by BOM.
+_DOCTYPES = tuple("<!DOCTYPE".encode(enc) for enc in ("ascii", "utf-16-le", "utf-16-be"))
+_CHUNK = 1 << 16
+
+
+def _refuse_doctype(z: zipfile.ZipFile, infos: list[zipfile.ZipInfo]) -> None:
+    keep = max(map(len, _DOCTYPES)) - 1
+    left = MAX_XLSX_BYTES  # bounds the scan even if a header understates a member
+    for info in infos:
+        tail = b""
+        with z.open(info) as f:
+            while chunk := f.read(_CHUNK):
+                left -= len(chunk)
+                if left < 0:
+                    raise InputError(
+                        "the workbook holds too much data once unpacked, so it is not read"
+                    )
+                buf = tail + chunk
+                if any(d in buf for d in _DOCTYPES):
+                    raise InputError("the workbook holds a DOCTYPE declaration, so it is not read")
+                tail = buf[-keep:]
+
+
 def _check_size(path: Path) -> None:
     """Refuse a workbook whose sheets would inflate past the cap, before anything is parsed."""
     try:
         with zipfile.ZipFile(path) as z:
             infos = z.infolist()
+            # Every member counts, duplicates each time: openpyxl finds sheets and shared
+            # strings through the rels and content types, not by path, and parses the rest.
+            total = sum(i.file_size for i in infos)
+            if total > MAX_XLSX_BYTES:
+                raise InputError(
+                    f"the workbook holds more than {MAX_XLSX_BYTES // 2**20} MB of data "
+                    "once unpacked, so it is not read"
+                )
+            _refuse_doctype(z, infos)
+    except InputError:
+        raise
     except Exception as e:
         raise InputError(f"cannot open the workbook: {type(e).__name__}") from e
-    # Every member counts, duplicates each time: openpyxl finds sheets and shared strings
-    # through the rels and content types, not by path, and parses styles and the rest.
-    total = sum(i.file_size for i in infos)
-    if total > MAX_XLSX_BYTES:
-        raise InputError(
-            f"the workbook holds more than {MAX_XLSX_BYTES // 2**20} MB of data "
-            "once unpacked, so it is not read"
-        )
 
 
 def _open_reader(
