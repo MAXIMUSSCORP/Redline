@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import os
@@ -8,13 +9,14 @@ import sys
 from pathlib import Path
 
 from redline import __version__
-from redline.config import CONFIG_FILES, ConfigError, load_config
+from redline.config import CONFIG_FILES, Config, ConfigError, load_config
 from redline.engine import run
 from redline.model import (
     MAX_INT,
     Confidence,
     CoverageEntry,
     Method,
+    Panel,
     Project,
     RunInfo,
     Source,
@@ -62,8 +64,8 @@ def _int(text: str) -> int:
     return n
 
 
-def _no_repeat(pairs: list[tuple[str, object]]) -> dict:
-    out: dict = {}
+def _no_repeat(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    out: dict[str, object] = {}
     for k, v in pairs:
         if k in out:
             raise ValueError(f"repeated key {k}")
@@ -75,7 +77,32 @@ def _same(a: Path, b: Path) -> bool:
     return a.resolve() == b.resolve() or (a.exists() and b.exists() and os.path.samefile(a, b))
 
 
-def _load_inputs(paths: list[str], cfg) -> tuple[Project, int, list[Path], list[Path]]:
+def _flag_repeated_panels(project: Project) -> None:
+    """A repeated panel name stays as separate panels (never merged). Demand and phase balance
+    need the whole panel, so their panel-level inputs are made LOW and the repeat is listed."""
+    seen: dict[str, list[Panel]] = {}
+    for p in project.panels:
+        seen.setdefault(p.name.strip().casefold(), []).append(p)
+    for group in seen.values():
+        if len(group) < 2:
+            continue
+        where = "; ".join(f"{p.source.file} {p.source.locator}" for p in group)
+        why = (
+            f"panel name {group[0].name} is read {len(group)} times, so the panel-level "
+            f"demand and phase balance checks need the whole panel and were not run on a part. "
+            f"Read from: {where}"
+        )
+        for p in group:
+            note = f"panel name {p.name} repeats; the panel-level check needs the whole panel"
+            for attr in ("bus_rating_a", "phases"):
+                v = getattr(p, attr)
+                base = v.source or p.source
+                low = dataclasses.replace(base, confidence=Confidence.LOW, note=note)
+                setattr(p, attr, dataclasses.replace(v, source=low))
+        project.unparsed.append(Unparsed("panel", group[0].name, why, group[0].source))
+
+
+def _load_inputs(paths: list[str], cfg: Config) -> tuple[Project, int, list[Path], list[Path]]:
     """Read files and folders. Returns the project, the count of files read, the files
     tried and the input folders. A failing file is listed and the rest are still read."""
     project = Project(name=Path(paths[0]).resolve().name)
@@ -84,7 +111,18 @@ def _load_inputs(paths: list[str], cfg) -> tuple[Project, int, list[Path], list[
         p = Path(raw)
         if p.is_dir():
             folders.append(p)
-            files = sorted((f for f in p.iterdir() if f.is_file()), key=lambda f: f.name)
+            try:
+                entries = list(p.iterdir())
+            except OSError as e:
+                why = f"folder not read: {e.strerror or type(e).__name__}"
+                src = Source(p.name, "folder", Method.CSV, Confidence.LOW)
+                project.unparsed.append(Unparsed("table", p.name, why, src))
+                continue
+            for d in sorted((f for f in entries if f.is_dir()), key=lambda f: f.name):
+                project.coverage.append(
+                    CoverageEntry(d.name, "folder", "not read: subfolders are not read", "none", "")
+                )
+            files = sorted((f for f in entries if f.is_file()), key=lambda f: f.name)
         else:
             files = [p]
         for f in files:
@@ -107,6 +145,7 @@ def _load_inputs(paths: list[str], cfg) -> tuple[Project, int, list[Path], list[
             project.panels += parsed.panels
             project.unparsed += parsed.unparsed
             project.coverage += parsed.coverage
+    _flag_repeated_panels(project)
     return project, read, tried, folders
 
 
