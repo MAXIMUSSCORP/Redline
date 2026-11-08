@@ -568,3 +568,42 @@ def test_word_matched_description_last_row_stays_circuit(cfg):
         assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], desc
         assert [c.number for c in by["LP-2"].circuits] == ["1"], desc
         assert by["LP-2"].main_breaker_a.value is None, desc
+
+
+_DESC_FIRST = ["Description", "Ckt", "Breaker", "Poles"]
+
+
+@pytest.mark.parametrize("line", [["Main Bkr (A)", "100"], ["Bus Rating (A)", "225"]])
+def test_word_matched_block_line_after_exact_panel_line_desc_first(cfg, line):
+    h = _DESC_FIRST
+    rows = [
+        ["Panel", "LP-1"],
+        h,
+        ["Lights", "1", "20", "1"],
+        [],
+        ["Panel", "LP-2"],
+        line,
+        h,
+        ["Recep", "1", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    by = {p.name: p for p in parsed.panels}
+    assert [c.number for c in by["LP-1"].circuits] == ["1"]
+    assert [c.number for c in by["LP-2"].circuits] == ["1"]
+    p2 = by["LP-2"]
+    assert 100 in (p2.main_breaker_a.value, p2.bus_rating_a.value) or 225 in (
+        p2.main_breaker_a.value,
+        p2.bus_rating_a.value,
+    )
+    assert not [u for u in parsed.unparsed if "no panel name" in u.reason]
+
+
+def test_csv_wide_header_with_many_rows_parses_in_linear_time(cfg):
+    import time
+
+    wide = ["Ckt", "Description", "Breaker"] + [""] * 99997 + ["wide"]
+    for body in (["x", "y", "z"], ["1", "d", "20"]):
+        rows = [wide] + [list(body) for _ in range(5000)] + [wide]
+        t0 = time.perf_counter()
+        parse(rows, cfg)
+        assert time.perf_counter() - t0 < 5
