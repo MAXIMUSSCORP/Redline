@@ -92,8 +92,9 @@ def _flag_repeated_panels(project: Project) -> None:
             f"demand and phase balance checks need the whole panel and were not run on a part. "
             f"Read from: {where}"
         )
+        # one note per name, shared by every part, so the name is not copied per panel
+        note = "panel name repeats; the panel-level check needs the whole panel"
         for p in group:
-            note = f"panel name {p.name} repeats; the panel-level check needs the whole panel"
             for attr in ("bus_rating_a", "phases"):
                 v = getattr(p, attr)
                 base = v.source or p.source

@@ -740,3 +740,22 @@ def test_unlistable_input_folder_no_traceback(tmp_path, monkeypatch, capsys):
     html = out.read_text(encoding="utf-8")
     assert rc == 0 and "Traceback" not in capsys.readouterr().err
     assert "LP-2" in html and "locked" in html and "folder not read: Permission denied" in html
+
+
+def test_repeated_inherited_panel_name_memory_linear():
+    import tracemalloc
+
+    from redline.cli import _flag_repeated_panels
+    from redline.model import Confidence, Method, Panel, Project, Source
+
+    name = "A" * 100_000
+    project = Project(name="p")
+    for i in range(2000):
+        src = Source("f.csv", f"row {i}", Method.CSV, Confidence.MEDIUM)
+        project.panels.append(Panel(name=name, source=src))
+    tracemalloc.start()
+    _flag_repeated_panels(project)
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert peak < 20_000_000
+    assert len(project.unparsed) == 1 and "row 1999" in project.unparsed[0].reason
