@@ -319,3 +319,39 @@ def test_xlsx_parser_bug_is_not_reported_as_unreadable_workbook(tmp_path, cfg, m
     path = workbook(tmp_path, {"LP-1": [["Ckt", "Breaker"], [1, 20]]})
     with pytest.raises(RuntimeError, match="boom"):
         parse_file(path, cfg)
+
+
+def _refused(parsed, name):
+    return [u for u in parsed.unparsed if u.kind == "sheet" and u.raw == name]
+
+
+def test_xlsx_wide_sheet_listed_not_cut(tmp_path, cfg):
+    from redline.parsers.csv_xlsx import MAX_COLS
+
+    wide = ["Ckt", "Description", "Breaker"] + [""] * (MAX_COLS - 3) + ["SECRET"]
+    path = workbook(
+        tmp_path,
+        {
+            "Wide": [wide, [1, "Lights", 20]],
+            "LP-2": [["Ckt", "Description", "Breaker"], [1, "A", 15]],
+        },
+    )
+    parsed = parse_file(path, cfg)
+    (entry,) = _refused(parsed, "Wide")
+    assert f"more than {MAX_COLS} columns" in entry.reason
+    assert [p.name for p in parsed.panels] == ["LP-2"]
+
+
+def test_xlsx_long_sheet_listed_other_sheets_read(tmp_path, cfg, monkeypatch):
+    import redline.parsers.csv_xlsx as mod
+
+    monkeypatch.setattr(mod, "MAX_ROWS", 3)
+    rows = [["Ckt", "Description", "Breaker"]] + [[i, "L", 20] for i in range(1, 6)]
+    path = workbook(
+        tmp_path,
+        {"Long": rows, "LP-2": [["Ckt", "Description", "Breaker"], [1, "A", 15]]},
+    )
+    parsed = parse_file(path, cfg)
+    (entry,) = _refused(parsed, "Long")
+    assert "more than 3 rows" in entry.reason
+    assert [p.name for p in parsed.panels] == ["LP-2"]
