@@ -437,7 +437,12 @@ def _table(
         name, src = block.name
         reason = "panel name in header block not used; table has a panel column"
         ctx.unp("row", name, reason, src.locator)
-    if not has_panel_col:
+    if has_panel_col:
+        ctx.last_name = None
+    else:
+        # Only a header repeated directly under the table above continues its panel.
+        if block.read_rows or any(c.strip() for r in rows[start:h] for c in r):
+            ctx.last_name = None
         if block.name:
             table_name = ctx.last_name = block.name
         elif ctx.last_name:
@@ -539,11 +544,18 @@ def _ckt_cols(keys: list[str | None]) -> list[int]:
     return [j for j, k in enumerate(keys) if k == "circuit_number"]
 
 
-def _is_circuit_row(ctx: _Ctx, row: list[str], keys: list[str | None], ckt: list[int]) -> bool:
+def _is_circuit_row(
+    ctx: _Ctx,
+    row: list[str],
+    keys: list[str | None],
+    ckt: list[int],
+    near: tuple[list[str], list[str]] = ([], []),
+) -> bool:
     """A number-like circuit cell, on a line that is not an exact header block key.
 
     keys is the field key of each column of the table above, ckt its circuit column indexes
-    (computed once per header so a wide header costs nothing per row).
+    (computed once per header so a wide header costs nothing per row), near the rows just
+    above and below this one.
     """
     texts = (row[i].strip() for i in takewhile(lambda i: i < len(row), ckt))  # ckt is sorted
     if not any(len(t) <= _CKT_TEXT_MAX and any(ch in "0123456789" for ch in t) for t in texts):
@@ -555,9 +567,11 @@ def _is_circuit_row(ctx: _Ctx, row: list[str], keys: list[str | None], ckt: list
         return True
     if hit.conf == Confidence.HIGH:
         # A panel named like an exact key ("MAIN") is data when it sits in the panel column
-        # of a row with more than a key and a value.
+        # of a row with more than a key and a value, and a neighbouring row repeats it
+        # (a panel's rows are grouped); a lone "Bus Rating,225,A" is a block line.
         wide = sum(1 for c in row if c.strip()) > 2
-        return wide and at < len(keys) and keys[at] == "panel_name"
+        grouped = ":" not in first and any(_cell(n, at) == first for n in near)
+        return wide and grouped and at < len(keys) and keys[at] == "panel_name"
     # A word match excludes only a key/value shaped line: a panel named "Panel A" is a circuit.
     if ":" in first:
         return False
@@ -567,6 +581,10 @@ def _is_circuit_row(ctx: _Ctx, row: list[str], keys: list[str | None], ckt: list
     # description or another mapped field it is a circuit whose text holds a block word.
     at = next(j for j, c in enumerate(row) if c.strip())
     return at < len(keys) and keys[at] not in (None, "panel_name")
+
+
+def _near(grid: list[list[str]], i: int) -> tuple[list[str], list[str]]:
+    return (grid[i - 1] if i else [], grid[i + 1] if i + 1 < len(grid) else [])
 
 
 def _is_short_block_line(ctx: _Ctx, row: list[str]) -> bool:
@@ -614,7 +632,7 @@ def rows_to_panels(
         keys = {m.key for c in r if (m := ctx.match(c)).key}
         if len(keys) < need:
             continue
-        if prev and _is_circuit_row(ctx, r, prev, prev_ckt):
+        if prev and _is_circuit_row(ctx, r, prev, prev_ckt, _near(grid, i)):
             continue  # under the table above, this line has a circuit number: it is data
         heads.append(i)
         prev = [ctx.match(c).key for c in r]
@@ -644,7 +662,7 @@ def rows_to_panels(
             if _is_short_block_line(ctx, grid[j]):
                 k = j - 1
                 break
-        while k > heads[n - 1] and not _is_circuit_row(ctx, grid[k], keys, ckt):
+        while k > heads[n - 1] and not _is_circuit_row(ctx, grid[k], keys, ckt, _near(grid, k)):
             k -= 1
         starts.append(k + 1)
         ends.append(k + 1)

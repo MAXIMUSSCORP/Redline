@@ -447,7 +447,7 @@ def test_panel_name_like_block_key_keeps_table_rows(cfg):
     assert nums == ["1", "2", "3"]
 
 
-def test_slash_voltage_one_pole_circuit_not_line_to_line(cfg):
+def test_ab_voltage_one_pole_circuit_not_line_to_line(cfg):
     sched = {**M0_SCHEDULE, "voltage_v": ["voltage", "volts"]}
     rows = [["Panel", "Ckt", "Description", "Voltage"], ["LP-1", "1", "d", "120/208"]]
     v = parse(rows, cfg_with(cfg, sched)).panels[0].circuits[0].voltage_v
@@ -614,6 +614,7 @@ def test_csv_wide_header_with_many_rows_parses_in_linear_time(cfg):
 # heuristic that breaks an earlier shape fails here. "residual" ids pin an accepted limit.
 _D = "Description,Ckt,Breaker,Poles"
 _P = "Panel,Ckt,Description,Breaker"
+_H = "Ckt,Description,Breaker,Poles"
 LAYOUTS = [
     pytest.param(
         [
@@ -1047,6 +1048,71 @@ LAYOUTS = [
         [],
         id="RV35_panel_named_MAIN_not_block_key",
     ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "",
+            "Bus Rating,225,A",
+            "Panel,LP-2",
+            "Ckt,Description,Breaker,Poles",
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
+        {"LP-2": {"bus": 225.0}},
+        [("A", "extra cells on a header block line")],
+        id="RV40_bus_rating_three_cells_after_panel_column_table",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "Panel,LP-2,120/208V",
+            "Ckt,Description,Breaker,Poles",
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"]), ("LP-2", ["1"])],
+        {},
+        [("120/208V", "extra cells on a header block line")],
+        id="RV40_panel_line_with_voltage_after_panel_column_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            "Voltage,208",
+            "Ckt,Description,Breaker,Poles",
+            "1,Heat,20,1",
+            "",
+            _P,
+            "LP-2,1,x,20",
+            "",
+            "Ckt,Description,Breaker,Poles",
+            "9,misc,20,1",
+        ],
+        [("LP-1", ["1"]), ("LP-2", ["1"])],
+        {"LP-1": {"bus": 100.0, "voltage": 208.0}},
+        [("9, misc, 20, 1", "no panel name")],
+        id="RV41_no_inherit_past_panel_column_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            "Ckt,Description,Breaker,Poles",
+            "1,Heat,20,1",
+            "",
+            "Bus Rating,225",
+            "Ckt,Description,Breaker,Poles",
+            "5,misc,20,1",
+        ],
+        [("LP-1", ["1"])],
+        {"LP-1": {"bus": 100.0}},
+        [("Bus Rating, 225", "no panel name"), ("5, misc, 20, 1", "no panel name")],
+        id="RV41_own_block_without_panel_line_does_not_inherit",
+    ),
 ]
 
 
@@ -1131,3 +1197,60 @@ def test_page_break_header_keeps_block_panel_name(cfg, lines):
     got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
     assert got == [("LP-1", ["1", "3"]), ("LP-1", ["5"])]
     assert [u for u in parsed.unparsed if u.kind != "column"] == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [["Bus Rating", "225", "A"], ["Panel", "LP-2", "120/208V"], ["Panel: LP-2", "208V", "rev 3"]],
+)
+def test_exact_key_three_cell_block_line_after_panel_column_table_stays_block(cfg, line):
+    head = ["Panel", "Ckt", "Description", "Breaker"]
+    rows = [
+        head,
+        ["LP-1", "1", "x", "20"],
+        ["LP-1", "3", "y", "20"],
+        [],
+        line,
+        *([["Panel", "LP-2"]] if line[0] == "Bus Rating" else []),
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "z", "20", "1"],
+    ]
+    got = {p.name: [c.number for c in p.circuits] for p in parse(rows, cfg).panels}
+    assert got == {"LP-1": ["1", "3"], "LP-2": ["1"]}
+
+
+def _case_b_tail(extra):
+    return [
+        ["Panel", "LP-1"],
+        ["Bus Rating", "100"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "Heat", "20", "1"],
+        [],
+        *extra,
+    ]
+
+
+def test_block_name_not_inherited_past_panel_column_table(cfg):
+    rows = _case_b_tail(
+        [
+            ["Panel", "Ckt", "Description", "Breaker"],
+            ["LP-2", "1", "x", "20"],
+            [],
+            ["Ckt", "Description", "Breaker", "Poles"],
+            ["9", "misc", "20", "1"],
+        ]
+    )
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-1", ["1"]),
+        ("LP-2", ["1"]),
+    ]
+
+
+def test_block_without_panel_line_does_not_inherit_name(cfg):
+    rows = _case_b_tail(
+        [["Bus Rating", "225"], ["Ckt", "Description", "Breaker", "Poles"], ["5", "m", "20", "1"]]
+    )
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [("LP-1", ["1"])]
+    assert parsed.panels[0].bus_rating_a.value == 100
