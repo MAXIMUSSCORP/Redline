@@ -26,6 +26,15 @@ MAX_XLSX_BYTES = 8 * 2**20
 MAX_TOTAL_ROWS = 50_000
 # A real workbook has a handful of sheets; Excel itself rarely goes past a few dozen.
 MAX_SHEETS = 255
+# Excel's own limit on a sheet title. A longer title is copied into every locator, so such
+# a sheet is not read.
+MAX_TITLE = 31
+# Characters of cell text kept per workbook. One shared string used by many cells is
+# copied once per cell downstream, so the text is charged here, not just the bytes.
+MAX_TEXT_CHARS = MAX_XLSX_BYTES
+# Excel's limit on a number format code; a longer one is treated as a date format.
+_MAX_FORMAT = 255
+_BUILTIN_DATE_IDS = frozenset([*range(14, 23), 45, 46, 47])
 _ORDER = "sheet {} has cells or rows out of order, so it is not read"
 
 
@@ -69,10 +78,85 @@ def _text_rows(path: Path) -> tuple[list[list[str]], str]:
     return rows, encoding
 
 
+def _format_kind(code: str) -> str:
+    """'' for a plain number format, 'date', or 'delta' for [h], [m], [s] elapsed time.
+
+    One linear scan: quoted text and escaped characters are skipped, and a bracketed
+    section is dropped (a locale or colour tag), except an elapsed-time tag.
+    """
+    if len(code) > _MAX_FORMAT:
+        return "date"
+    kind = ""
+    i, n = 0, len(code)
+    while i < n:
+        c = code[i]
+        if c == '"':
+            i = code.find('"', i + 1)
+            i = n if i < 0 else i + 1
+        elif c == "[":
+            j = code.find("]", i + 1)
+            j = n if j < 0 else j
+            if code[i + 1 : j].lower() in ("h", "hh", "m", "mm", "s", "ss"):
+                return "delta"
+            i = j + 1
+        elif c in "\\_*":
+            i += 2
+        else:
+            if c in "dDmMyYhHsS":
+                kind = "date"
+            i += 1
+    return kind
+
+
+def _date_styles(reader: ExcelReader) -> tuple[set[int], set[int]]:
+    """Cell style indexes whose number format is a date or time, and an elapsed time.
+
+    A linear pass over styles.xml that reads numFmts and cellXfs only. openpyxl's
+    stylesheet is never built: it costs time out of proportion to its bytes.
+    """
+    from openpyxl.xml.constants import ARC_STYLE
+    from openpyxl.xml.functions import iterparse
+
+    try:
+        src = reader.archive.open(ARC_STYLE)
+    except KeyError:
+        return set(), set()
+    custom: dict[int, str] = {}
+    xfs: list[int] = []
+    in_xfs = False
+    with src:
+        for event, el in iterparse(src, events=("start", "end")):
+            tag = el.tag.rpartition("}")[2]
+            if tag == "cellXfs":
+                in_xfs = event == "start"
+            elif event == "end" and tag == "numFmt":
+                custom[int(el.get("numFmtId", -1))] = el.get("formatCode", "")
+                el.clear()
+            elif event == "end" and tag == "xf" and in_xfs:
+                xfs.append(int(el.get("numFmtId", 0)))
+                el.clear()
+    dates: set[int] = set()
+    deltas: set[int] = set()
+    for idx, fmt in enumerate(xfs):
+        if fmt in custom:
+            kind = _format_kind(custom[fmt])
+        else:
+            kind = "delta" if fmt == 46 else "date" if fmt in _BUILTIN_DATE_IDS else ""
+        if kind:
+            dates.add(idx)
+        if kind == "delta":
+            deltas.add(idx)
+    return dates, deltas
+
+
 def _sheet_rows(
-    reader: ExcelReader, target: str, name: str
-) -> tuple[list[list[str]], str | None, int]:
-    """Rows of one sheet, a reason it is refused instead of being cut, and the rows charged."""
+    reader: ExcelReader,
+    target: str,
+    styles: tuple[set[int], set[int]],
+    text_left: int,
+    name: str,
+) -> tuple[list[list[str]], str | None, int, int]:
+    """Rows of one sheet, a reason it is refused instead of being cut, rows and text charged."""
     # The sheet XML is parsed cell by cell, so a cell at any column is seen with its
     # real column number and no padded row is built for it. The declared dimension is
     # never used. The part is opened straight from the archive: nothing but worksheet
@@ -82,6 +166,7 @@ def _sheet_rows(
     rows: list[list[str]] = []
     parsed = 0  # every row index parsed, charged even when the sheet is then refused
     last_idx = 0
+    chars = 0
     refused: str | None = None
     try:
         with reader.archive.open(target) as src:
@@ -90,8 +175,8 @@ def _sheet_rows(
                 reader.shared_strings,
                 data_only=True,
                 epoch=reader.wb.epoch,
-                date_formats=set(),  # styles.xml is never parsed: a date reads as its serial
-                timedelta_formats=set(),
+                date_formats=styles[0],
+                timedelta_formats=styles[1],
             )
             for idx, cells in parser.parse():
                 parsed += 1
@@ -108,6 +193,13 @@ def _sheet_rows(
                 for cell in cells:
                     v = cell["value"]
                     text = "" if v is None else str(v)
+                    chars += len(text)
+                    if chars > text_left:
+                        refused = (
+                            f"sheet {name} holds more than {MAX_TEXT_CHARS} characters "
+                            "of cell text, so it is not read"
+                        )
+                        break
                     if not text.strip():
                         continue
                     col = cell["column"]
@@ -128,8 +220,8 @@ def _sheet_rows(
     except Exception as e:
         raise InputError(f"cannot read the workbook: {type(e).__name__}") from e
     if refused:
-        return [], refused, parsed
-    return rows, None, max(parsed, len(rows))
+        return [], refused, parsed, chars
+    return rows, None, max(parsed, len(rows)), chars
 
 
 def _check_size(path: Path) -> None:
@@ -149,8 +241,10 @@ def _check_size(path: Path) -> None:
         )
 
 
-def _open_reader(path: Path) -> tuple[ExcelReader, list[tuple[str, str | None]]]:
-    """Open the package once; return the reader and (title, part) per sheet entry.
+def _open_reader(
+    path: Path,
+) -> tuple[ExcelReader, list[tuple[str, str | None]], tuple[set[int], set[int]]]:
+    """Open the package once; return the reader, (title, part) per sheet entry and date styles.
 
     The part is None for a chartsheet.
 
@@ -181,7 +275,7 @@ def _open_reader(path: Path) -> tuple[ExcelReader, list[tuple[str, str | None]]]
             if rel.target not in reader.valid_files:
                 continue
             entries.append((sheet.name, None if "chartsheet" in rel.Type else rel.target))
-        return reader, entries
+        return reader, entries, _date_styles(reader)
     except InputError:
         if reader is not None:
             reader.archive.close()
@@ -195,22 +289,33 @@ def _open_reader(path: Path) -> tuple[ExcelReader, list[tuple[str, str | None]]]
 def _xlsx(path: Path, cfg: Config) -> Parsed:
     out = Parsed()
     _check_size(path)
-    reader, entries = _open_reader(path)
+    reader, entries, styles = _open_reader(path)
     try:
         budget = MAX_TOTAL_ROWS
+        text_left = MAX_TEXT_CHARS
         for name, target in entries:
+            if len(name) > MAX_TITLE:
+                short = f"{name[:MAX_TITLE]}..."
+                src = Source(path.name, f"sheet={short}", Method.XLSX, Confidence.LOW)
+                why = (
+                    f"sheet title {short} is longer than {MAX_TITLE} characters, so it is not read"
+                )
+                out.unparsed.append(Unparsed("sheet", short, why, src))
+                continue
             if target is None:
                 src = Source(path.name, f"sheet={name}", Method.XLSX, Confidence.LOW)
                 out.unparsed.append(Unparsed("sheet", name, f"chartsheet {name} is not read", src))
                 continue
-            if budget <= 0:
-                rows, refused = (
-                    [],
-                    f"the workbook has more than {MAX_TOTAL_ROWS} rows, so sheet {name} is not read",
+            if budget <= 0 or text_left <= 0:
+                rows = []
+                refused = (
+                    f"the workbook has more than {MAX_TOTAL_ROWS} rows or {MAX_TEXT_CHARS} "
+                    f"characters of cell text, so sheet {name} is not read"
                 )
             else:
-                rows, refused, charged = _sheet_rows(reader, target, name)
+                rows, refused, charged, used = _sheet_rows(reader, target, styles, text_left, name)
                 budget -= charged
+                text_left -= used
             if refused:
                 src = Source(path.name, f"sheet={name}", Method.XLSX, Confidence.LOW)
                 out.unparsed.append(Unparsed("sheet", name, refused, src))
