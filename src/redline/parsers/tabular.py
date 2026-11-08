@@ -67,9 +67,11 @@ _TEXTS = (
     "fed_from",
     "location",
 )
-_NUM_TOKEN = re.compile(r"-?[\d,]*(?:\.\d+)?")
-_THOUSANDS = re.compile(r"-?\d{1,3}(?:,\d{3})+(?:\.\d+)?")
-_SLASH_V = re.compile(r"(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*v?", re.IGNORECASE)
+_NUM_TOKEN = re.compile(r"-?[0-9,]*(?:\.[0-9]+)?")
+_THOUSANDS = re.compile(r"-?[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?")
+_SLASH_V = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*/\s*([0-9]+(?:\.[0-9]+)?)\s*v?", re.IGNORECASE)
+# Unit words a header may carry after its alias; any not read by the field is refused.
+_UNIT_WORDS = {"va", "kva", "kw", "w", "mw", "hp", "ft", "feet", "in", "mm", "cm", "f", "k"}
 _PHASES = re.compile(r"[ABC]([\s,/&+-]*[ABC])*", re.IGNORECASE)
 
 
@@ -82,6 +84,8 @@ class _At:
     method: Method
     conf: Confidence
     note: str = ""
+    unit: str = ""  # unit word left in the header after the alias match
+    in_block: bool = False
 
     def source(self, conf: Confidence | None = None, note: str | None = None) -> Source:
         return Source(
@@ -99,7 +103,7 @@ def _low(at: _At, text: str, why: str) -> Value:
 
 def _split_number(t: str) -> tuple[float, str] | str:
     tok = _NUM_TOKEN.match(t).group()  # the pattern matches the empty string, so never None
-    if not any(c.isdigit() for c in tok):
+    if not any(c in "0123456789" for c in tok):
         return "not a number"
     if "," in tok and not _THOUSANDS.fullmatch(tok):
         return "comma is not a thousands separator"
@@ -111,6 +115,8 @@ def _split_number(t: str) -> tuple[float, str] | str:
 
 def _numeric(fld: str, key: str, t: str, cfg: Config, at: _At) -> Value:
     if fld == "voltage_v" and (m := _SLASH_V.fullmatch(t)):
+        if not at.in_block:
+            return _low(at, t, "a/b voltage on a circuit")
         # a/b voltage: b is taken as line to line. That is a pick, so MEDIUM at most.
         conf = min(at.conf, Confidence.MEDIUM)
         return Value(float(m[2]), at.source(conf, "line-to-line from a/b"), t)
@@ -120,8 +126,11 @@ def _numeric(fld: str, key: str, t: str, cfg: Config, at: _At) -> Value:
     num, rest = parsed
     unit = rest.replace(" ", "").upper()
     cell = Value(num, at.source(), t)
+    read_units = ("VA", "KVA") if fld in _LOADS else _UNITS.get(fld, {})
+    if not unit and at.unit and at.unit not in read_units:
+        return _low(at, t, f"header unit {at.unit} not read")
     if fld in _LOADS:
-        unit = unit or ("KVA" if key == "load_kva" else "VA")
+        unit = unit or at.unit or ("KVA" if key == "load_kva" else "VA")
         if unit == "VA":
             return cell
         if unit == "KVA":
@@ -184,9 +193,10 @@ class _Hit:
     conf: Confidence = Confidence.MISSING
     note: str = ""
     reason: str = ""
+    unit: str = ""
 
 
-def _matcher(mapping: dict | None, known: set[str]) -> Callable[[str], _Hit]:
+def _matcher(mapping: dict[str, object] | None, known: set[str]) -> Callable[[str], _Hit]:
     aliases = {
         k: [a for a in (normalize_header(x) for x in v if isinstance(x, str)) if a]
         for k, v in (mapping or {}).items()
@@ -216,6 +226,9 @@ def _matcher(mapping: dict | None, known: set[str]) -> Callable[[str], _Hit]:
             part = {k: a for k, al in aliases.items() for a in al if set(a.split()) <= words}
             if part:
                 hit = settle(part, Confidence.MEDIUM, "by words")
+                if hit.key:
+                    left = words - set(part[hit.key].split())
+                    hit = replace(hit, unit="".join(sorted(left & _UNIT_WORDS)).upper())
             else:
                 hit = _Hit(None, reason="no alias matches")
         cache[text] = hit
@@ -290,7 +303,9 @@ def _resolve(cols: list[_Col], ctx: _Ctx, h: int, lo: int, hi: int, side: str) -
     return _Half(kept, lo, hi, side)
 
 
-def _plan(cols: list[_Col], data: list[list[str]], ctx: _Ctx, h: int, width: int):
+def _plan(
+    cols: list[_Col], data: list[list[str]], ctx: _Ctx, h: int, width: int
+) -> tuple[list[_Half], _Col | None, int, int]:
     before = len(ctx.out.unparsed)
     used = {i for r in data for i, c in enumerate(r) if c.strip()}
     for c in cols:
@@ -304,7 +319,12 @@ def _plan(cols: list[_Col], data: list[list[str]], ctx: _Ctx, h: int, width: int
         if _field(c) in seen and ctx.detect_two_column:
             left = [k for k in keyed if k.i < c.i]
             right = [k for k in keyed if k.i >= c.i]
-            if all(sum(_field(k) == "circuit_number" for k in half) == 1 for half in (left, right)):
+            ckts = [k for k in keyed if _field(k) == "circuit_number"]
+            exact = all(k.hit.conf == Confidence.HIGH for k in ckts)
+            if exact and all(
+                len(half) > 1 and sum(_field(k) == "circuit_number" for k in half) == 1
+                for half in (left, right)
+            ):
                 halves = [
                     _resolve(left, ctx, h, 0, c.i, " (left)"),
                     _resolve(right, ctx, h, c.i, width, " (right)"),
@@ -347,7 +367,7 @@ def _header_block(ctx: _Ctx, rows: list[list[str]], start: int, h: int) -> _Bloc
         if not val:
             ctx.unp("row", raw, f"header block key {hit.key} has no value", loc)
             continue
-        at = _At(ctx.file, loc, ctx.method, hit.conf, hit.note)
+        at = _At(ctx.file, loc, ctx.method, hit.conf, hit.note, hit.unit, True)
         if hit.key == "panel_name":
             if block.name is not None:
                 ctx.unp("row", raw, "a second panel name in the header block", loc)
@@ -364,6 +384,10 @@ def _header_block(ctx: _Ctx, rows: list[list[str]], start: int, h: int) -> _Bloc
     return block
 
 
+def _cell(row: list[str], i: int) -> str:
+    return row[i].strip() if i < len(row) else ""
+
+
 def _summary(counts: Counter) -> str:
     return ", ".join(f"{c.name} {counts[c]}" for c in sorted(Confidence, reverse=True))
 
@@ -374,7 +398,9 @@ def _count(counts: Counter, values: Iterable[Value]) -> None:
             counts[v.confidence] += 1
 
 
-def _table(ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: int, end: int):
+def _table(
+    ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: int, end: int
+) -> None:
     data = rows[h + 1 : end]
     used = max((i + 1 for r in data for i, c in enumerate(r) if c.strip()), default=0)
     width = max(len(cols), used)
@@ -383,6 +409,10 @@ def _table(ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: in
     block = _header_block(ctx, rows, start, h)
     has_panel_col = shared is not None or any("panel_name" in x.cols for x in halves)
     table_name: tuple[str, Source] | None = None
+    if has_panel_col and block.name:
+        name, src = block.name
+        reason = "panel name in header block not used; table has a panel column"
+        ctx.unp("row", name, reason, src.locator)
     if not has_panel_col:
         if block.name:
             table_name = block.name
@@ -407,7 +437,7 @@ def _table(ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: in
         get(*table_name)
     circuit_missing = not any("circuit_number" in x.cols for x in halves)
     for r in range(h + 1, end):
-        cells = rows[r] + [""] * (width - len(rows[r]))
+        cells = rows[r]
         if not any(c.strip() for c in cells):
             continue
         loc = ctx.locate(r)
@@ -421,9 +451,11 @@ def _table(ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: in
             if ccol is None:
                 continue
             pcol = half.cols.get("panel_name") or shared
-            number = cells[ccol.i].strip()
+            number = _cell(cells, ccol.i)
             span = [
-                cells[i].strip() for i in range(half.lo, half.hi) if not (shared and i == shared.i)
+                cells[i].strip()
+                for i in range(half.lo, min(half.hi, len(cells)))
+                if not (shared and i == shared.i)
             ]
             text = ", ".join(c for c in span if c)
             if not number:
@@ -433,7 +465,7 @@ def _table(ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: in
                 made = True
                 continue
             if pcol:
-                pname = cells[pcol.i].strip()
+                pname = _cell(cells, pcol.i)
                 psrc = Source(ctx.file, ctx.locate(h), ctx.method, pcol.hit.conf, pcol.hit.note)
                 panel = get(pname, psrc) if pname else None
             else:
@@ -452,10 +484,11 @@ def _table(ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: in
                     ctx.method,
                     col.hit.conf,
                     col.hit.note,
+                    col.hit.unit,
                 )
-                vals[fld] = _read(fld, col.hit.key or fld, cells[col.i], ctx.cfg, at, ctx.ph)
+                vals[fld] = _read(fld, col.hit.key or fld, _cell(cells, col.i), ctx.cfg, at, ctx.ph)
             desc = half.cols.get("description")
-            spare = desc is not None and cells[desc.i].strip().upper() in ctx.spare
+            spare = desc is not None and _cell(cells, desc.i).upper() in ctx.spare
             spare = spare or vals.get("load_type", Value.missing()).value == "spare"
             src = Source(ctx.file, loc, ctx.method, ccol.hit.conf, ccol.hit.note)
             panel.circuits.append(Circuit(panel.name, number, src, is_spare=spare, **vals))
@@ -474,12 +507,14 @@ _CKT_TEXT_MAX = 12
 
 
 def _is_circuit_row(ctx: _Ctx, row: list[str], ckt: list[int]) -> bool:
-    """A number-like circuit cell, on a line that is not a header block key."""
+    """A number-like circuit cell, on a line that is not an exact header block key."""
     texts = [row[i].strip() for i in ckt if i < len(row)]
-    if not any(len(t) <= _CKT_TEXT_MAX and any(ch.isdigit() for ch in t) for t in texts):
+    if not any(len(t) <= _CKT_TEXT_MAX and any(ch in "0123456789" for ch in t) for t in texts):
         return False
     first = next((c.strip() for c in row if c.strip()), "")
-    return ctx.block_match(first.partition(":")[0]).key is None
+    # Only an exact key excludes the line: a panel named "Panel A" matches by words alone.
+    hit = ctx.block_match(first.partition(":")[0])
+    return hit.key is None or hit.conf != Confidence.HIGH
 
 
 def rows_to_panels(
@@ -511,9 +546,17 @@ def rows_to_panels(
         out=out,
     )
     need = (maps.get("parsing") or {}).get("min_header_alias_matches", 3)
-    heads = [
-        i for i, r in enumerate(grid) if len({m.key for c in r if (m := ctx.match(c)).key}) >= need
-    ]
+    heads: list[int] = []
+    for i, r in enumerate(grid):
+        keys = {m.key for c in r if (m := ctx.match(c)).key}
+        if len(keys) < need:
+            continue
+        if heads:
+            # A later header repeats the circuit column, and that cell is not a circuit number.
+            ckt = [j for j, c in enumerate(r) if ctx.match(c).key == "circuit_number"]
+            if not ckt or _is_circuit_row(ctx, r, ckt):
+                continue
+        heads.append(i)
     if not heads:
         first = next((i for i, r in enumerate(grid) if any(c.strip() for c in r)), None)
         if first is None:

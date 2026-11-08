@@ -105,3 +105,15 @@ def test_two_column_detect_off_take_neither(test_cfg):
     assert len(rows) == 6
     assert all(u.reason == "no circuit number column" for u in rows)
     assert panel.voltage_v.confidence is Confidence.MEDIUM
+
+
+def test_word_matched_circuit_column_no_two_column_split(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Circuit Notes", "Load (VA)", "Breaker"],
+        ["LP-1", "2", "Pump", "see E-101", "1500", "20"],
+    ]
+    parsed = rows_to_panels(
+        rows, cfg, file="t.csv", method=Method.CSV, locate=lambda i: f"row={i + 1}"
+    )
+    nums = [c.number for p in parsed.panels for c in p.circuits]
+    assert "see E-101" not in nums
