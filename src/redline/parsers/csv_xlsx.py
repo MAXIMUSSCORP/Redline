@@ -13,6 +13,8 @@ from redline.model import CoverageEntry, Method
 from redline.parsers.tabular import Parsed, rows_to_panels
 
 SUFFIXES = (".csv", ".txt", ".xlsx")
+MAX_ROWS = 20_000
+MAX_COLS = 200
 
 
 class InputError(Exception):
@@ -55,6 +57,25 @@ def _text_rows(path: Path) -> tuple[list[list[str]], str]:
     return rows, encoding
 
 
+def _sheet_rows(ws, name: str) -> list[list[str]]:
+    # The declared dimension is untrusted, so drop it and bound what is read.
+    ws.reset_dimensions()
+    rows = []
+    try:
+        for n, values in enumerate(ws.iter_rows(values_only=True, max_col=MAX_COLS), 1):
+            if n > MAX_ROWS:
+                raise InputError(f"sheet {name} has more than {MAX_ROWS} rows, so it is not read")
+            end = len(values)
+            while end and (values[end - 1] is None or not str(values[end - 1]).strip()):
+                end -= 1
+            rows.append(["" if v is None else str(v) for v in values[:end]])
+    except InputError:
+        raise
+    except Exception as e:
+        raise InputError(f"cannot read the workbook: {type(e).__name__}") from e
+    return rows
+
+
 def _xlsx(path: Path, cfg: Config) -> Parsed:
     import openpyxl
 
@@ -65,13 +86,8 @@ def _xlsx(path: Path, cfg: Config) -> Parsed:
         raise InputError(f"cannot open the workbook: {type(e).__name__}") from e
     try:
         for ws in wb.worksheets:
-            rows = []
-            for values in ws.iter_rows(values_only=True):
-                row = ["" if v is None else str(v) for v in values]
-                while row and not row[-1].strip():
-                    row.pop()
-                rows.append(row)
             name = ws.title
+            rows = _sheet_rows(ws, name)
             part = rows_to_panels(
                 rows,
                 cfg,
@@ -86,8 +102,6 @@ def _xlsx(path: Path, cfg: Config) -> Parsed:
                 out.unparsed.append(u)
             out.panels += part.panels
             out.coverage += part.coverage
-    except Exception as e:
-        raise InputError(f"cannot read the workbook: {type(e).__name__}") from e
     finally:
         wb.close()
     return out
