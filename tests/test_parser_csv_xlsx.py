@@ -425,3 +425,113 @@ def test_xlsx_far_cells_every_row_quick(tmp_path, cfg):
     assert time.monotonic() - start < 5
     (entry,) = _refused(parsed, "Far")
     assert "more than" in entry.reason and "columns" in entry.reason
+
+
+def test_xlsx_size_cap_counts_parts_at_any_path(tmp_path, cfg, monkeypatch):
+    import zipfile
+
+    import redline.parsers.csv_xlsx as mod
+
+    monkeypatch.setattr(mod, "MAX_XLSX_BYTES", 100_000)
+    base = workbook(tmp_path, {"LP-1": [["Ckt", "Description", "Breaker"], [1, "A", 20]]})
+    # A normal small workbook is under the cap and still reads.
+    assert [p.name for p in parse_file(base, cfg).panels] == ["LP-1"]
+    # A sheet or shared strings at another path, and a big styles part, each count.
+    for i, member in enumerate(("xl/data/sheet1.xml", "xl/strings/ss.xml", "xl/styles.xml")):
+        path = tmp_path / f"big{i}.xlsx"
+        with zipfile.ZipFile(base) as zin, zipfile.ZipFile(path, "w") as zout:
+            for item in zin.infolist():
+                data = zin.read(item)
+                if item.filename == member:
+                    data += b" " * 200_000
+                zout.writestr(item, data)
+            if member not in zin.namelist():
+                zout.writestr(member, b" " * 200_000)
+        with pytest.raises(InputError, match="once unpacked"):
+            parse_file(path, cfg)
+
+
+def _swap_sheet_data(path, xml_rows, sheet="xl/worksheets/sheet1.xml"):
+    def swap(x):
+        start = x.index("<sheetData>") + len("<sheetData>")
+        return x[:start] + xml_rows + x[x.index("</sheetData>") :]
+
+    _stuff(path, sheet, swap)
+
+
+def _cell(ref, v):
+    return f'<c r="{ref}" t="inlineStr"><is><t>{v}</t></is></c>'
+
+
+def test_xlsx_out_of_order_cells_refused_not_moved(tmp_path, cfg):
+    head = (
+        f'<row r="1">{_cell("A1", "Ckt")}{_cell("B1", "Breaker")}{_cell("C1", "Description")}</row>'
+    )
+    cases = {
+        # duplicate A2: the later value must not win
+        "dup": f'<row r="2">{_cell("A2", 2)}{_cell("A2", 5)}{_cell("B2", 20)}{_cell("C2", 1)}</row>',
+        # B2 before A2
+        "order": f'<row r="2">{_cell("B2", 20)}{_cell("A2", 3)}{_cell("C2", 1)}</row>',
+        # row 3 then row 2
+        "rows": f'<row r="3">{_cell("A3", 1)}</row><row r="2">{_cell("A2", 2)}</row>',
+        # repeated row index
+        "repeat": f'<row r="2">{_cell("A2", 1)}</row><row r="2">{_cell("A2", 2)}</row>',
+        # many cells all claiming A2
+        "many": '<row r="2">' + "".join(_cell("A2", i) for i in range(300)) + "</row>",
+    }
+    for key, body in cases.items():
+        path = workbook(
+            tmp_path,
+            {
+                "Bad": [["Ckt"]],
+                "LP-2": [["Ckt", "Description", "Breaker"], [1, "A", 15]],
+            },
+            name=f"{key}.xlsx",
+        )
+        _swap_sheet_data(path, head + body)
+        parsed = parse_file(path, cfg)
+        (entry,) = _refused(parsed, "Bad")
+        assert "out of order" in entry.reason, key
+        assert [p.name for p in parsed.panels] == ["LP-2"], key
+    # Cells with no r attribute keep their sequential positions and still read.
+    path = workbook(tmp_path, {"LP-3": [["Ckt", "Breaker"]]}, name="norefs.xlsx")
+    bare = "".join(
+        f"<row>{''.join(f'<c t="inlineStr"><is><t>{v}</t></is></c>' for v in r)}</row>"
+        for r in (["Ckt", "Description", "Breaker"], [1, "A", 15])
+    )
+    _swap_sheet_data(path, bare)
+    parsed = parse_file(path, cfg)
+    assert not _refused(parsed, "LP-3")
+    assert [p.name for p in parsed.panels] == ["LP-3"]
+
+
+def test_xlsx_refused_sheets_charge_row_budget(tmp_path, cfg, monkeypatch):
+    import redline.parsers.csv_xlsx as mod
+
+    monkeypatch.setattr(mod, "MAX_ROWS", 3)
+    monkeypatch.setattr(mod, "MAX_TOTAL_ROWS", 9)
+    long = [["Ckt", "Description", "Breaker"]] + [[i, "L", 20] for i in range(1, 8)]
+    sheets = {f"Long{i}": long for i in range(1, 6)}
+    sheets["LP-2"] = [["Ckt", "Description", "Breaker"], [1, "A", 15]]
+    path = workbook(tmp_path, sheets)
+    calls = []
+    real = mod._sheet_rows
+    monkeypatch.setattr(mod, "_sheet_rows", lambda ws, name: calls.append(name) or real(ws, name))
+    parsed = parse_file(path, cfg)
+    # Each refused sheet parses 4 row indexes (3 allowed plus the one over), so the
+    # 9-row budget is spent after three sheets and nothing later is parsed.
+    assert calls == ["Long1", "Long2", "Long3"]
+    for name in ("Long4", "Long5", "LP-2"):
+        (entry,) = _refused(parsed, name)
+        assert "more than 9 rows" in entry.reason
+    assert parsed.panels == []
+
+
+def test_xlsx_one_sheet_part_under_two_sheets_refused(tmp_path, cfg):
+    path = workbook(
+        tmp_path,
+        {"A": [["Ckt", "Breaker"], [1, 20]], "B": [["Ckt", "Breaker"], [1, 20]]},
+    )
+    _stuff(path, "xl/_rels/workbook.xml.rels", lambda x: x.replace("sheet2.xml", "sheet1.xml"))
+    with pytest.raises(InputError, match="more than one sheet"):
+        parse_file(path, cfg)
