@@ -503,6 +503,7 @@ def _table(
         get(*table_name)
     circuit_missing = not any("circuit_number" in x.cols for x in halves)
     blank_panel = lead_blank = placed = False
+    last_placed: Panel | None = None
     for r in range(h + 1, end):
         cells = rows[r]
         if not any(c.strip() for c in cells):
@@ -544,6 +545,7 @@ def _table(
                 lead_blank = lead_blank or (bool(pcol) and not placed)
                 continue
             placed = True
+            last_placed = panel
             vals: dict[str, Value] = {}
             for fld, col in half.cols.items():
                 if fld in ("panel_name", "circuit_number"):
@@ -573,7 +575,7 @@ def _table(
     if lead_blank and ctx.pcol_panel:
         # Page 2 starts with rows that continue the last panel of page 1.
         _mark_incomplete(ctx.pcol_panel, _BLANK_NOTE)
-    ctx.pcol_panel = list(panels.values())[-1] if has_panel_col and panels else None
+    ctx.pcol_panel = last_placed if has_panel_col else None
     ctx.last_panel = panels.get(ctx.last_name[0]) if ctx.last_name else None
     for name, panel in panels.items():
         ctx.out.panels.append(panel)
@@ -607,8 +609,9 @@ def _is_circuit_row(
         return False
     at = next(j for j, c in enumerate(row) if c.strip())
     first = row[at].strip()
-    if first[0].isalpha() and sum(1 for c in row if c.strip()) == 1:
-        return False  # a lone cell starting with a letter ("LP-2", "Panel LP-2") is a title
+    lone = sum(1 for c in row if c.strip()) == 1
+    if lone and any(ch.isalpha() for ch in first) and not re.fullmatch(r"\d+[A-Za-z]", first):
+        return False  # a lone cell with letters ("LP-2", "100A MLO", "2 of 2") is a title
     hit = ctx.block_match(first.partition(":")[0])
     if hit.key is None:
         return True
@@ -659,7 +662,7 @@ def _prefix(tok: str) -> str:
     return tok[: next((i for i, ch in enumerate(tok) if ch.isdigit()), len(tok))]
 
 
-_REF_WORDS = frozenset({"sheet", "sht", "dwg", "drawing", "page", "pg", "rev", "revision", "of"})
+_REF_WORDS = frozenset({"sheet", "sht", "dwg", "drawing", "page", "pg", "rev", "revision"})
 
 
 @lru_cache(maxsize=4)

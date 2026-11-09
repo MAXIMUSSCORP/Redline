@@ -1515,6 +1515,38 @@ LAYOUTS = [
         [],
         id="RV70_lone_letter_suffixed_circuit_stays_circuit",
     ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "Schedule of LP-2 (fed from LP-1)",
+            _H,
+            "3,b,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Schedule of LP-2 (fed from LP-1)", "header block key fed_from has no value"),
+            ("3, b, 20, 1", "no panel name"),
+        ],
+        id="RV71_of_before_designation_ends_inheritance",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "100A MLO", _H, "3,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("100A MLO", "not a header block key: no alias matches"),
+            ("3, b, 20, 1", "no panel name"),
+        ],
+        id="RV72_lone_digit_led_title_not_a_circuit",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,a,20", "LP-2,1,b,20", "LP-1,3,c,20", _P, ",5,d,20"],
+        [("LP-1", ["1", "3"], {"incomplete": True}), ("LP-2", ["1"], {})],
+        [("5, d, 20", "no panel name")],
+        id="RV73_pcol_blank_rows_mark_panel_of_last_row",
+    ),
 ]
 
 
@@ -2020,3 +2052,38 @@ def test_lone_letter_suffixed_circuit_number_stays_circuit(cfg):
         parsed = parse(rows, cfg)
         nums = [c.number for c in parsed.panels[0].circuits]
         assert (lone in nums) is circuit, lone
+
+
+def test_rule_title_designation_after_of_ends_inheritance(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    for title, kept in (
+        ("Schedule of LP-2 (fed from LP-1)", False),
+        ("Part of LP-2 (fed from LP-1)", False),
+        ("Panel LP-1 (continued) - Page 2 of 2", True),
+    ):
+        rows = [["Panel", "LP-1"], ["Bus Rating", "100"], sub, ["1", "a", "20", "1"], [title], sub]
+        parsed = parse(rows + [["5", "c", "20", "1"]], cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        if kept:
+            assert got == [("LP-1", ["1"]), ("LP-1", ["5"])], title
+        else:
+            assert got == [("LP-1", ["1"])], title
+            assert _marked(parsed.panels[0]), title
+            assert any(u.reason == "no panel name" for u in parsed.unparsed), title
+
+
+def test_lone_digit_led_title_not_a_circuit(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    for lone in ("100A MLO", "120/208V", "2 of 2", "3PH 4W"):
+        rows = [["Panel", "LP-1"], ["Bus Rating", "100"], sub, ["1", "a", "20", "1"], [lone], sub]
+        parsed = parse(rows + [["9", "z", "20", "1"]], cfg)
+        assert all(lone not in [c.number for c in p.circuits] for p in parsed.panels), lone
+        assert [c.number for c in parsed.panels[0].circuits] == ["1"], lone
+
+
+def test_pcol_blank_rows_mark_panel_of_last_row(cfg):
+    hdr = ["Panel", "Ckt", "Description", "Breaker"]
+    rows = [hdr, ["LP-1", "1", "a", "20"], ["LP-2", "1", "b", "20"], ["LP-1", "3", "c", "20"]]
+    parsed = parse(rows + [hdr, ["", "5", "d", "20"]], cfg)
+    marked = {p.name: _marked(p) for p in parsed.panels}
+    assert marked == {"LP-1": True, "LP-2": False}
