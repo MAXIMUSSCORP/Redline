@@ -129,6 +129,296 @@ Other Demo drawings were not tried, since the first one has the block.
 
 The questions on staff AutoCAD versions and how schedules are made go to the owner (C10). No answers yet.
 
-## 8. xcheck corpus run
+## 8. xcheck corpus run and real-file checks
 
-Placeholder. Leaf L2.7 fills this section.
+Leaf L2.7, run 2026-11-09 on the dev PC, main checkout, branch m2. Every figure was measured here. The `acad_plugin` extractor cannot load yet (AutoCAD 2027 SECURELOAD is 1 and TRUSTEDPATHS is empty, D10), so every `acad_plugin` column below reads `not run` and `oda_ezdxf` is the extractor that read each drawing. Gates G7.1 and G7.3 are BLOCKED on D10 and were not worked around. No AutoCAD setting was changed.
+
+### panel_sheet.dwg, fallback against its fixture (G7.4)
+
+Run 2026-11-09: `oda_ezdxf` on a temp copy of `samples/dwg/panel_sheet.dwg` (1.18 s), compared with `samples/dwg/panel_sheet.oda_ezdxf.rawdrawing.json`. Tables are matched by size, since the fixture handles are invented.
+
+| Item | Live dump | Fixture |
+|---|---|---|
+| Tables | 2: LP-11 (22 x 14, 308 cells, handle 2EB) and LP-12 (8 x 6, 48 cells, handle 429) | 3: the same two (handles 2F01, 2F02) and a legend table (5 cells, no row or column count) |
+| Cells compared | 356 (308 + 48), same (r, c) keys | 356 of 361 |
+| `evaluated` | false in all 356 | true in 350, false in the 6 LP-12 cells |
+| Cell text | identical in 344 of 356 | see below |
+
+Differences:
+
+1. Six cells in column 2, rows 2 to 7, of both LP-11 and LP-12 (12 cells) read as empty text. The fixture holds a number in each (and `TBD` in one LP-11 cell). The numbers in the fixture also differ from the field expressions in the real drawing (LP-11 fixture 1350, 1500, 1650, 1800, TBD, 2100; the real field expressions are 1350, 1500, 1800, 2100, 2400, 2700).
+2. `evaluated` is false for every live cell. The fixture marks the plain cells true. The live value follows `oda_ezdxf.py` (every fallback cell is false until the FIELD check is shown right, D4), so the fixture and the extractor disagree on 350 cells.
+3. The legend table with no row or column count (fixture handle 2F2E) is absent. AutoCAD cannot draw a table without a count. Known difference, not a defect.
+4. The live dump also holds the anonymous table blocks `*T2` and `*T3` as extra layouts: 317 MTEXT and 56 LINE entities that repeat the table text. The fixture has 1 LINE and no MTEXT. The ACAD_TABLE entities are also present in E-101, so each table is seen twice, and `redline check` reports "panel name LP-11 is read 2 times" and the same for LP-12. Live entity types: TEXT 43, MTEXT 317, LINE 57, INSERT 3 (WD_M, RECEPT, A-BASE), ACAD_TABLE 2, POLYLINE 1.
+
+What ezdxf gives for the FIELD cells: the cell value is empty. The cell tag holds only a handle (code 344) to a FIELD object whose own text is the placeholder `%<\_FldIdx 0>%`. The evaluated result is cached on a child FIELD object, and `read_acad_table_content` never follows the handle. Cached results in this drawing: LP-11 uses AcExpr fields and the cache holds 1350, 1500, 1800, 2100, 2400, 2700. LP-12 uses AcDiesel fields and the cache holds `####` in all six (the field did not evaluate in the file). So a reader that follows 344 to the child's cache gets numbers for LP-11 and `####` for LP-12. The six cells in each table stay `evaluated: false` and LOW, which is correct, but the text is lost.
+
+Fix or fixture requests: (a) L2.2, read the cached FIELD result through the cell's 344 handle, keep `evaluated` false, and record `####` as a failed field, instead of returning empty text; (b) L2.5, the fixture should show empty text for the FIELD cells and `evaluated: false` for every fallback cell, to match the extractor; (c) L2.3, skip the `*T` block text of a table whose ACAD_TABLE entity has a row and column count, so a panel is not read twice.
+
+### Loss table over 14 real drawings (G7.7)
+
+`redline xcheck` works on a temp copy: both extractors copy the drawing into their own temp folder, and the SHA-256 of each original was equal before and after every run. The call was `xcheck.run` (the code path behind `redline xcheck`) with a timer around each extractor. Time is wall seconds. The `acad_plugin` time is the failed attempt (the console starts, then the plugin does not load).
+
+| Drawing | DWG version | Bytes | Extractor used | oda_ezdxf time | acad_plugin attempt | Original unchanged |
+|---|---|---|---|---|---|---|
+| Tiny Electrical Plan.dwg | AC1032 | 555671 | oda_ezdxf (acad_plugin not run) | 1.39 s | 2.52 s | yes |
+| Electric Symbols.dwg | AC1032 | 550639 | oda_ezdxf (acad_plugin not run) | 0.67 s | 2.02 s | yes |
+| final_drawing_P003-B.dwg | AC1032 | 92498 | oda_ezdxf (acad_plugin not run) | 0.48 s | 2.03 s | yes |
+| 2340-000-EA-007.dwg | AC1015 | 59349 | oda_ezdxf (acad_plugin not run) | 0.4 s | 2.0 s | yes |
+| S244_HQ037_1.dwg | AC1021 | 289248 | oda_ezdxf (acad_plugin not run) | 0.95 s | 2.03 s | yes |
+| DEMO01.DWG | AC1024 | 155048 | oda_ezdxf (acad_plugin not run) | 0.65 s | 2.03 s | yes |
+| DEMO08.DWG | AC1024 | 115108 | oda_ezdxf (acad_plugin not run) | 0.53 s | 2.0 s | yes |
+| 019.dwg | AC1024 | 139826 | oda_ezdxf (acad_plugin not run) | 0.57 s | 1.99 s | yes |
+| 025.dwg | AC1024 | 246712 | oda_ezdxf (acad_plugin not run) | 0.95 s | 2.03 s | yes |
+| T04.dwg | AC1024 | 109002 | oda_ezdxf (acad_plugin not run) | 0.51 s | 1.99 s | yes |
+| Project_Basics_NFPA_05.dwg | AC1027 | 93052 | oda_ezdxf (acad_plugin not run) | 0.61 s | 2.01 s | yes |
+| PLC_Module_NFPA_05.dwg | AC1027 | 85425 | oda_ezdxf (acad_plugin not run) | 0.57 s | 1.99 s | yes |
+| AU_2019_NFPA_05.dwg | AC1032 | 84615 | oda_ezdxf (acad_plugin not run) | 0.54 s | 2.0 s | yes |
+| HDV1_IconMenu.dwg | AC1021 | 56096 | oda_ezdxf (acad_plugin not run) | 0.36 s | 1.87 s | yes |
+
+Versions covered: AC1015, AC1021, AC1024, AC1027, AC1032. Projects: ETSU, P003-B, perf_2340, H-S244test, Demo, NfpaDemo, IeeeDemo, JisDemo, GbDemo, and three Autodesk Learn courses. No table or cell was read by `oda_ezdxf` in any of the 14 drawings (tables 0, cells 0), as expected for AutoCAD Electrical schematics and plans.
+
+Loss tables, one block per drawing:
+
+```
+file                      item             acad_plugin  oda_ezdxf
+Tiny Electrical Plan.dwg  INSERT               not run         34
+Tiny Electrical Plan.dwg  LINE                 not run        875
+Tiny Electrical Plan.dwg  MTEXT                not run         30
+Tiny Electrical Plan.dwg  POLYLINE             not run          5
+Tiny Electrical Plan.dwg  tables               not run          0
+Tiny Electrical Plan.dwg  cells                not run          0
+Tiny Electrical Plan.dwg  cells evaluated      not run          0
+Tiny Electrical Plan.dwg  attributes           not run          0
+
+Tiny Electrical Plan.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file                  item             acad_plugin  oda_ezdxf
+Electric Symbols.dwg  LINE                 not run        197
+Electric Symbols.dwg  MTEXT                not run         45
+Electric Symbols.dwg  POLYLINE             not run         42
+Electric Symbols.dwg  tables               not run          0
+Electric Symbols.dwg  cells                not run          0
+Electric Symbols.dwg  cells evaluated      not run          0
+Electric Symbols.dwg  attributes           not run          0
+
+Electric Symbols.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file                      item             acad_plugin  oda_ezdxf
+final_drawing_P003-B.dwg  INSERT               not run         81
+final_drawing_P003-B.dwg  LINE                 not run        292
+final_drawing_P003-B.dwg  MTEXT                not run         12
+final_drawing_P003-B.dwg  POLYLINE             not run        191
+final_drawing_P003-B.dwg  TEXT                 not run        819
+final_drawing_P003-B.dwg  tables               not run          0
+final_drawing_P003-B.dwg  cells                not run          0
+final_drawing_P003-B.dwg  cells evaluated      not run          0
+final_drawing_P003-B.dwg  attributes           not run        162
+
+final_drawing_P003-B.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file                 item             acad_plugin  oda_ezdxf
+2340-000-EA-007.dwg  INSERT               not run          3
+2340-000-EA-007.dwg  LINE                 not run         13
+2340-000-EA-007.dwg  MTEXT                not run          2
+2340-000-EA-007.dwg  POLYLINE             not run          1
+2340-000-EA-007.dwg  TEXT                 not run         18
+2340-000-EA-007.dwg  tables               not run          0
+2340-000-EA-007.dwg  cells                not run          0
+2340-000-EA-007.dwg  cells evaluated      not run          0
+2340-000-EA-007.dwg  attributes           not run        162
+
+2340-000-EA-007.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file              item             acad_plugin  oda_ezdxf
+S244_HQ037_1.dwg  ACAD_TABLE           not run          3
+S244_HQ037_1.dwg  INSERT               not run        100
+S244_HQ037_1.dwg  LINE                 not run       1973
+S244_HQ037_1.dwg  MTEXT                not run         75
+S244_HQ037_1.dwg  POLYLINE             not run         33
+S244_HQ037_1.dwg  TEXT                 not run         52
+S244_HQ037_1.dwg  tables               not run          3
+S244_HQ037_1.dwg  cells                not run         92
+S244_HQ037_1.dwg  cells evaluated      not run          0
+S244_HQ037_1.dwg  attributes           not run       1063
+
+S244_HQ037_1.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file        item             acad_plugin  oda_ezdxf
+DEMO01.DWG  ACAD_TABLE           not run          2
+DEMO01.DWG  INSERT               not run         27
+DEMO01.DWG  LINE                 not run        414
+DEMO01.DWG  MTEXT                not run        245
+DEMO01.DWG  POLYLINE             not run         87
+DEMO01.DWG  TEXT                 not run         26
+DEMO01.DWG  tables               not run          2
+DEMO01.DWG  cells                not run        294
+DEMO01.DWG  cells evaluated      not run          0
+DEMO01.DWG  attributes           not run        347
+
+DEMO01.DWG: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file        item             acad_plugin  oda_ezdxf
+DEMO08.DWG  ACAD_TABLE           not run          1
+DEMO08.DWG  INSERT               not run         46
+DEMO08.DWG  LINE                 not run        136
+DEMO08.DWG  MTEXT                not run         40
+DEMO08.DWG  POLYLINE             not run         40
+DEMO08.DWG  TEXT                 not run         18
+DEMO08.DWG  tables               not run          1
+DEMO08.DWG  cells                not run         40
+DEMO08.DWG  cells evaluated      not run          0
+DEMO08.DWG  attributes           not run        251
+
+DEMO08.DWG: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file     item             acad_plugin  oda_ezdxf
+019.dwg  INSERT               not run         51
+019.dwg  LINE                 not run        189
+019.dwg  POLYLINE             not run         39
+019.dwg  TEXT                 not run         28
+019.dwg  tables               not run          0
+019.dwg  cells                not run          0
+019.dwg  cells evaluated      not run          0
+019.dwg  attributes           not run        834
+
+019.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file     item             acad_plugin  oda_ezdxf
+025.dwg  INSERT               not run        153
+025.dwg  LINE                 not run        597
+025.dwg  POLYLINE             not run        137
+025.dwg  TEXT                 not run         74
+025.dwg  tables               not run          0
+025.dwg  cells                not run          0
+025.dwg  cells evaluated      not run          0
+025.dwg  attributes           not run       2690
+
+025.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file     item             acad_plugin  oda_ezdxf
+T04.dwg  INSERT               not run         17
+T04.dwg  LINE                 not run        161
+T04.dwg  MTEXT                not run          1
+T04.dwg  POLYLINE             not run          1
+T04.dwg  TEXT                 not run         84
+T04.dwg  tables               not run          0
+T04.dwg  cells                not run          0
+T04.dwg  cells evaluated      not run          0
+T04.dwg  attributes           not run        344
+
+T04.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file                        item             acad_plugin  oda_ezdxf
+Project_Basics_NFPA_05.dwg  INSERT               not run         49
+Project_Basics_NFPA_05.dwg  LINE                 not run        204
+Project_Basics_NFPA_05.dwg  POLYLINE             not run         30
+Project_Basics_NFPA_05.dwg  TEXT                 not run         31
+Project_Basics_NFPA_05.dwg  tables               not run          0
+Project_Basics_NFPA_05.dwg  cells                not run          0
+Project_Basics_NFPA_05.dwg  cells evaluated      not run          0
+Project_Basics_NFPA_05.dwg  attributes           not run        774
+
+Project_Basics_NFPA_05.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file                    item             acad_plugin  oda_ezdxf
+PLC_Module_NFPA_05.dwg  INSERT               not run         58
+PLC_Module_NFPA_05.dwg  LINE                 not run        137
+PLC_Module_NFPA_05.dwg  POLYLINE             not run         30
+PLC_Module_NFPA_05.dwg  TEXT                 not run         31
+PLC_Module_NFPA_05.dwg  tables               not run          0
+PLC_Module_NFPA_05.dwg  cells                not run          0
+PLC_Module_NFPA_05.dwg  cells evaluated      not run          0
+PLC_Module_NFPA_05.dwg  attributes           not run        690
+
+PLC_Module_NFPA_05.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file                 item             acad_plugin  oda_ezdxf
+AU_2019_NFPA_05.dwg  INSERT               not run         58
+AU_2019_NFPA_05.dwg  LINE                 not run        137
+AU_2019_NFPA_05.dwg  POLYLINE             not run         30
+AU_2019_NFPA_05.dwg  TEXT                 not run         31
+AU_2019_NFPA_05.dwg  tables               not run          0
+AU_2019_NFPA_05.dwg  cells                not run          0
+AU_2019_NFPA_05.dwg  cells evaluated      not run          0
+AU_2019_NFPA_05.dwg  attributes           not run        690
+
+AU_2019_NFPA_05.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+```
+file               item             acad_plugin  oda_ezdxf
+HDV1_IconMenu.dwg  POLYLINE             not run          1
+HDV1_IconMenu.dwg  tables               not run          0
+HDV1_IconMenu.dwg  cells                not run          0
+HDV1_IconMenu.dwg  cells evaluated      not run          0
+HDV1_IconMenu.dwg  attributes           not run          0
+
+HDV1_IconMenu.dwg: acad_plugin read nothing: ExtractError: AutoCAD Core Console wrote no output file
+```
+
+### final_drawing_P003-B.dwg, panel P1 (G7.8)
+
+Run 2026-11-09: `redline check` on a temp copy of `gold/dwg/arjunb3hl_p003b/final_drawing_P003-B.dwg` with the real config (exit 0, extractor `oda_ezdxf` 0.1.0).
+
+1. Was panel P1 read: no. The report holds 0 panels. The extractor read 0 tables and 3 loose-text clusters (layouts E-201, E-301, E-401, plus text in Model), and listed them as not read.
+2. Confidence: none. The coverage line reads HIGH 0, MEDIUM 0, LOW 0, MISSING 0. No value was read, so there is nothing to grade.
+3. Circuit count: 0 read against 19 in `model_P003-B.json` (1 panel, 19 circuits). The E-201 schedule has 30 slots; each row was listed with the reason "no circuit number".
+
+Why: in the E-201 header, `SLOT`, `I A`, `L M`, `VD %` and `CHECK` have no alias in `csv_panel_schedule`, one header has no text, and two pairs map to one field (`PH` and `PER-PHASE TOTALS`; `DEV LOAD W` and `LOAD VA`). Proposal for `config/column_maps.yaml` (not edited here): an alias `slot` for `circuit_number` once the owner confirms SLOT is the circuit position, and aliases for current, length and voltage drop only if those fields exist in the model. The side-by-side totals block on the same row also needs a rule for the duplicate-column case. Owner decision.
+
+### WD_M tags (G7.9, answer open)
+
+Tags only, no values. 10 AutoCAD Electrical drawings were read: DEMO01.DWG, DEMO08.DWG, 019.dwg, 025.dwg, T04.dwg, 2340-000-EA-007.dwg, S244_HQ037_1.dwg, Project_Basics_NFPA_05.dwg, AU_2019_NFPA_05.dwg, PLC_Module_NFPA_05.dwg. Each has one `WD_M` insert, except 2340-000-EA-007.dwg and S244_HQ037_1.dwg (two). Nine drawings carry the same 77 tags as the list in section 7. The AC1015 drawing (2340-000-EA-007.dwg) carries 58: it lacks the 19 tags LOCBOX_LAY, SORTMODE, WNUM_FLAGS, WNUM_GAP, WNUM_OFFSET, XREF_CONTACTMAP, XREF_FILLWITH, XREF_FLAGS, XREF_GRAPHIC, XREF_GRAPHICSTYLE, XREF_SORT, XREF_STYLE, XREF_TBLCOLJUST, XREF_TBLFLDNAMS, XREF_TBLINDEX, XREF_TBLSTYLE, XREF_TBLTITLE, XREF_TXTBTWN, XREF_UNUSEDSTYLE.
+
+Proposed `wd_m_attribute_map`: every tag is a drawing format setting (layers, numbering formats, cross-reference styles). None names a panel, circuit, breaker or load. Proposal: leave all 77 listed.
+
+| Group | Tags | Proposal |
+|---|---|---|
+| Layer names (*_LAY, WIRELAYS, FAN_INOUT_LAYS) | 19 | leave listed |
+| Cross-reference settings (XREF*, ALT_XREFFMT, REFNUMS) | 18 | leave listed |
+| Wire and tag numbering (TAG*, WIRE*, WNUM_*, WINC, WLEADERS, SORTMODE) | 21 | leave listed |
+| Other drawing format settings | 25 | leave listed |
+| SHEET, SHEETDWGNAME | 2 | leave listed (a `sheet` locator key only if the owner wants the sheet in locators) |
+
+### .wdp check on the 20 gold files (G7.10)
+
+Run 2026-11-09: `redline check` on a temp copy of each of the 20 `.wdp` files under `gold/dwg`, and `aecad_side.parse_file` on each for the unknown-line count.
+
+- Files run: 20.
+- Exit 0: 19. Exit 2: 1.
+- InputError: 1. `Jisdemo.wdp` (JisDemo): "cannot decode the file: character maps to <undefined>". The bytes are not accepted by cp1252, as the `aecad_side.py` docstring says for an East Asian code page. `redline check` on it alone exits 2 ("no input file could be read"), which fits CLAUDE.md section 6.
+- Lines listed as unknown shape ("line shape not known"): 0 in all 19 readable files.
+- `Project_Drawing_List_NFPA.wdp` lists 0 drawings (settings only, 115 lines not read), as the docstring says for one sample.
+- Drawings listed per file, in this order: wddemo 9, Extra Library Demo 3, Gbdemo 29, H-S244test 156, Iec60617Demo 29, iecdemo 29, Ieeedemo 29, Jisdemo unread, Nfpademo 9, perf_2340 147, Project_Basics_NFPA 13, Project_Drawing_List_NFPA 0, then 10 each for Schematic_Wiring, Schematic_Components, Schematic_Editing, Schematic_Reports, Panel_Layouts, Custom_Components, Custom_Data, PLC_Modules.
+- `Gbdemo.wdp` (GB) decodes under cp1252 with wrong characters; no line read was affected, because only unread lines carry them.
+
+### Extraction times and timeout (G7.11, answer open)
+
+Measured 2026-11-09 on the 14 drawings above (56 KB to 556 KB, the largest in `gold/dwg`): `oda_ezdxf` 0.36 s to 1.39 s (mean 0.66 s; the 1.39 s run was the first, cold one). The failed `acad_plugin` attempt takes 1.87 s to 2.52 s. The plugin dump itself is unmeasured (D10).
+
+Proposal for `parsing.dxf_extractor_timeout_s`: keep 120. It is about 85 times the slowest measured run, and client drawings may be larger than any file in the gold set (all under 560 KB). Owner decision; nothing in the config was edited.
