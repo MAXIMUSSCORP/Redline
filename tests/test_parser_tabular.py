@@ -1236,7 +1236,7 @@ LAYOUTS = [
             _H,
             "1,Lights,500,1",
         ],
-        [("LP-1", ["1"], {"bus": 100.0, "main": 100.0, "voltage": 120.0})],
+        [("LP-1", ["1"], {"bus": 100.0, "main": 100.0, "voltage": 120.0, "incomplete": True})],
         [
             ("LP-2 Lighting Panel", "header block key panel_name has no value"),
             ("1, Lights, 500, 1", "no panel name"),
@@ -1254,7 +1254,7 @@ LAYOUTS = [
             _H,
             "1,Lights,20,1",
         ],
-        [("LP-1", ["1"], {"bus": 100.0})],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
         [
             ("LP-10 Lighting", "not a header block key: no alias matches"),
             ("1, Lights, 20, 1", "no panel name"),
@@ -1286,7 +1286,7 @@ LAYOUTS = [
             _H,
             "5,Fan,20,1",
         ],
-        [("LP-1", ["1"], {"bus": 100.0})],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
         [
             ("Continued - Page 2 of 3", "not a header block key: no alias matches"),
             ("5, Fan, 20, 1", "no panel name"),
@@ -1312,6 +1312,181 @@ LAYOUTS = [
         ],
         id="RV63_block_lines_after_panel_line_read",
     ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "LP-2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("LP-2", "not a header block key: no alias matches"), ("5, Fan, 20, 1", "no panel name")],
+        id="RV66_short_title_LP_2",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "Panel LP-2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Panel LP-2", "header block key panel_name has no value"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_short_title_Panel_LP_2",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "LP-2 A wing",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-2 A wing", "not a header block key: no alias matches"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_short_title_LP_2_A_wing",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "SUB LP-1 FEEDER TO LP-2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("SUB LP-1 FEEDER TO LP-2", "not a header block key: no alias matches"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_sub_feeder_title",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "LP-1A",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("LP-1A", "not a header block key: no alias matches"), ("5, Fan, 20, 1", "no panel name")],
+        id="RV66_LP_1A_title_ends_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "Panel LP-1A (continued)",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Panel LP-1A (continued)", "header block key panel_name has no value"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_Panel_LP_1A_continued_ends_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "Panel LP-2 fed from LP-1",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            (
+                "Panel LP-2 fed from LP-1",
+                "not a header block key: matches more than one field: fed_from, panel_name",
+            ),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_title_naming_two_panels",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "Page 2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Page 2", "not a header block key: no alias matches"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_bare_page_title_is_listed_not_a_circuit",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "",
+            "Panel Schedules",
+            "Main,100,A",
+            "Panel,LP-2",
+            "Bus,100",
+            _H,
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {"bus": 100.0})],
+        [
+            ("Panel Schedules", "header block key panel_name has no value"),
+            ("Main, 100, A", "panel row or header block line; not read"),
+        ],
+        id="RV64_ambiguous_line_below_panel_word_title_listed",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", ",3,y,20", ",5,z,20"],
+        [("LP-1", ["1"], {"incomplete": True})],
+        [("3, y, 20", "no panel name"), ("5, z, 20", "no panel name")],
+        id="RV67_blank_panel_cells_mark_table_panels",
+    ),
 ]
 
 
@@ -1327,13 +1502,10 @@ def test_layout_corpus(cfg, lines, panels, unparsed):
             "main": p.main_breaker_a.value,
             "voltage": p.voltage_v.value,
         }
-        got.append(
-            (
-                p.name,
-                [c.number for c in p.circuits],
-                {k: v for k, v in vals.items() if v is not None},
-            )
-        )
+        got_vals = {k: v for k, v in vals.items() if v is not None}
+        if "page break" in (p.bus_rating_a.source.note or "" if p.bus_rating_a.source else ""):
+            got_vals["incomplete"] = True  # bus LOW: the panel-level checks are NEEDS_REVIEW
+        got.append((p.name, [c.number for c in p.circuits], got_vals))
     assert got == panels
     assert [(u.raw, u.reason) for u in parsed.unparsed if u.kind != "column"] == unparsed
 
@@ -1655,3 +1827,107 @@ def test_block_lines_after_panel_line_read(cfg):
     assert not [
         u for u in parsed.unparsed if u.reason == "panel row or header block line; not read"
     ]
+
+
+def _marked(panel):
+    return panel.bus_rating_a.confidence == Confidence.LOW
+
+
+def test_ambiguous_key_line_below_panel_word_title_listed(cfg):
+    for line in (["MAIN", "1", "Feeder", "1000"], ["Main", "100", "A"]):
+        rows = [
+            ["Panel", "Ckt", "Description", "Breaker"],
+            ["LP-1", "1", "x", "20"],
+            ["LP-1", "3", "y", "20"],
+            [],
+            ["Panel Schedules"],
+            line,
+            ["Panel", "LP-2"],
+            ["Voltage", "120"],
+            ["Ckt", "Description", "Breaker", "Poles"],
+            ["1", "z", "20", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        lp2 = parsed.panels[1]
+        assert lp2.name == "LP-2", line
+        assert lp2.main_breaker_a.value is None, line
+        assert lp2.voltage_v.value == 120, line
+        reason = "panel row or header block line; not read"
+        assert any(u.reason == reason for u in parsed.unparsed), line
+
+
+def test_xlsx_unplaced_page_break_rows_mark_panel_incomplete(cfg):
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus Rating", "100"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "a", "20", "1"],
+        [],
+        ["Continued - Page 2 of 3"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["5", "b", "20", "1"],
+    ]
+    first, second = parse(rows, cfg, fallback_panel="E-601").panels
+    assert (first.name, second.name) == ("LP-1", "E-601")
+    assert _marked(first)
+    assert not _marked(second)
+
+
+def test_block_without_panel_line_keeps_panel_above_violation(cfg):
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus Rating", "100"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "a", "20", "1"],
+        [],
+        ["Bus", "225"],
+        ["Voltage", "120"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["5", "b", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1"]
+    assert not _marked(parsed.panels[0])
+    assert any(u.reason == "no panel name" for u in parsed.unparsed)
+
+
+def test_title_naming_two_panels_or_short_title_does_not_join_panel_above(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    titles = [
+        "Panel LP-2 fed from LP-1",
+        "SUB LP-1 FEEDER TO LP-2",
+        "LP-2",
+        "Panel LP-2",
+        "LP-2 A wing",
+        "LP-1A",
+        "Panel LP-1A (continued)",
+    ]
+    for title in titles:
+        rows = [
+            ["Panel", "LP-1"],
+            ["Bus Rating", "100"],
+            sub,
+            ["1", "a", "20", "1"],
+            ["3", "b", "20", "1"],
+            [title],
+            sub,
+            ["5", "c", "20", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        assert got == [("LP-1", ["1", "3"])], title
+        assert _marked(parsed.panels[0]), title
+        assert any(u.reason == "no panel name" for u in parsed.unparsed), title
+
+
+def test_blank_panel_cell_rows_mark_table_panels_incomplete(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["LP-1", "1", "a", "1000", "20"],
+        ["", "3", "b", "8000", "20"],
+        ["LP-2", "1", "c", "500", "20"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [p.name for p in parsed.panels] == ["LP-1", "LP-2"]
+    assert all(_marked(p) for p in parsed.panels)
+    assert [u.reason for u in parsed.unparsed if u.kind == "row"] == ["no panel name"]

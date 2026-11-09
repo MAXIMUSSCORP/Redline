@@ -470,14 +470,18 @@ def _table(
             name, src = ctx.last_name
             note = "panel name from the header block above"
             table_name = (name, replace(src, confidence=Confidence.MEDIUM, note=note))
-        elif ctx.fallback:
-            note = "panel name from sheet name"
-            src = Source(ctx.file, ctx.locate(h), ctx.method, Confidence.MEDIUM, note)
-            table_name = (ctx.fallback, src)
         else:
-            for r, raw in block.read_rows:
-                ctx.unp("row", raw, "no panel name", ctx.locate(r))
-            if above and any(c.strip() for r in rows[h + 1 : end] for c in r):
+            if ctx.fallback:
+                note = "panel name from sheet name"
+                src = Source(ctx.file, ctx.locate(h), ctx.method, Confidence.MEDIUM, note)
+                table_name = (ctx.fallback, src)
+            else:
+                for r, raw in block.read_rows:
+                    ctx.unp("row", raw, "no panel name", ctx.locate(r))
+            # A header-only table whose rows are not in the panel above may be its rest; a table
+            # with block lines of its own is another panel.
+            rest = not block.read_rows and any(c.strip() for r in rows[h + 1 : end] for c in r)
+            if above and rest:
                 _mark_incomplete(above)
     panels: dict[str, Panel] = {}
     stats: dict[str, Counter] = {}
@@ -492,6 +496,7 @@ def _table(
     if table_name:
         get(*table_name)
     circuit_missing = not any("circuit_number" in x.cols for x in halves)
+    blank_panel = False
     for r in range(h + 1, end):
         cells = rows[r]
         if not any(c.strip() for c in cells):
@@ -529,6 +534,7 @@ def _table(
             made = True
             if panel is None:
                 ctx.unp("row", text, "no panel name", loc)
+                blank_panel = blank_panel or bool(pcol)
                 continue
             vals: dict[str, Value] = {}
             for fld, col in half.cols.items():
@@ -552,6 +558,10 @@ def _table(
         if not made:
             text = ", ".join(c.strip() for c in cells if c.strip())
             ctx.unp("row", text, "no circuit number", loc)
+    if blank_panel:
+        # A row listed with no panel name may belong to any panel of this table.
+        for panel in panels.values():
+            _mark_incomplete(panel)
     ctx.last_panel = panels.get(ctx.last_name[0]) if ctx.last_name else None
     for name, panel in panels.items():
         ctx.out.panels.append(panel)
@@ -585,6 +595,8 @@ def _is_circuit_row(
         return False
     at = next(j for j, c in enumerate(row) if c.strip())
     first = row[at].strip()
+    if any(ch.isalpha() for ch in first) and sum(1 for c in row if c.strip()) == 1:
+        return False  # a lone cell with letters ("LP-2", "Panel LP-2") is a title, not a circuit
     hit = ctx.block_match(first.partition(":")[0])
     if hit.key is None:
         return True
@@ -631,27 +643,37 @@ def _ambiguous_key_line(
 _TOKEN_SPLIT = re.compile(r"[^\w-]+")
 
 
+def _prefix(tok: str) -> str:
+    return tok[: next((i for i, ch in enumerate(tok) if ch.isdigit()), len(tok))]
+
+
 @lru_cache(maxsize=4)
-def _name_tokens(name: str) -> tuple[frozenset[str], str]:
+def _name_tokens(name: str) -> tuple[frozenset[str], str, frozenset[str]]:
     toks = [t for t in _TOKEN_SPLIT.split(name.lower()) if t]
-    return frozenset(toks), f" {' '.join(toks)} " if toks else ""
+    prefixes = frozenset(_prefix(t) for t in toks if _prefix(t) != t)
+    return frozenset(toks), f" {' '.join(toks)} " if toks else "", prefixes
 
 
 def _names_only(lines: list[list[str]], name: str) -> bool:
     """Every line between two tables either holds the panel name or no other designation.
 
     A line holding the name as a run of tokens ("Panel LP-1 (continued) - Page 2 of 2") keeps
-    the panel whatever else it says. Any other line with a designation (a token with a digit)
-    but the name ("LP-2 Lighting Panel") ends it. Linear in the size of the lines and the name;
-    the name is tokenised once.
+    the panel unless it also holds another designation with the same letters ("Panel LP-2 fed
+    from LP-1"). Any other line with a designation (a token with a digit) but the name
+    ("LP-2 Lighting Panel") ends it. Linear in the size of the lines and the name; the name is
+    tokenised once.
     """
-    named, phrase = _name_tokens(name)
+    named, phrase, prefixes = _name_tokens(name)
     for r in lines:
         toks = [t for c in r for t in _TOKEN_SPLIT.split(c.lower()) if t]
-        if phrase and phrase in f" {' '.join(toks)} ":
+        other = [t for t in toks if t not in named and any(ch.isdigit() for ch in t)]
+        if not other:
             continue
-        if any(t not in named and any(ch.isdigit() for ch in t) for t in toks):
-            return False
+        # A bare digit or a unit ("2", "208y") is not a panel designation.
+        same = any(_prefix(t) and (not prefixes or _prefix(t) in prefixes) for t in other)
+        if phrase and phrase in f" {' '.join(toks)} " and not same:
+            continue
+        return False
     return True
 
 
@@ -660,8 +682,15 @@ def _near(grid: list[list[str]], i: int) -> tuple[list[str], list[str]]:
 
 
 def _is_panel_line(ctx: _Ctx, row: list[str]) -> bool:
-    first = next((c.strip() for c in row if c.strip()), "")
-    return ctx.block_match(first.partition(":")[0]).key == "panel_name"
+    """An explicit panel-name line: an exact panel key with a value, or a colon line with one."""
+    cells = [c.strip() for c in row if c.strip()]
+    if not cells:
+        return False
+    key, colon, after = cells[0].partition(":")
+    hit = ctx.block_match(key)
+    if hit.key != "panel_name":
+        return False
+    return bool(after.strip()) if colon else hit.conf == Confidence.HIGH and len(cells) > 1
 
 
 def _is_short_block_line(ctx: _Ctx, row: list[str]) -> bool:
