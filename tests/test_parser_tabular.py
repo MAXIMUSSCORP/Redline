@@ -1561,9 +1561,15 @@ LAYOUTS = [
     ),
     pytest.param(
         ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "", "Notes:", "1,Provide GFCI,,"],
-        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
         [("Notes:", "no circuit number"), ("1, Provide GFCI", "no circuit number")],
         id="RV74_notes_below_last_table_not_circuits",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "", "Receptacles", "5,c,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("Receptacles", "no circuit number"), ("5, c, 20, 1", "no circuit number")],
+        id="RV76_section_heading_in_last_table_marks_panel",
     ),
     pytest.param(
         ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "LP-2", "225A", _H, "1,b,20,1", "3,c,20,1"],
@@ -2093,6 +2099,29 @@ def test_rows_below_last_table_not_circuits(cfg):
         assert all(
             x not in [c.number for c in parsed.panels[0].circuits] for x in ("TOTAL", "Notes:")
         )
+
+
+def test_section_heading_in_last_table_marks_panel(cfg):
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus", "100"],
+        ["Main", "100"],
+        _H.split(","),
+        ["1", "a", "20", "1"],
+        ["3", "b", "20", "1"],
+        [],
+        ["Receptacles"],
+        ["5", "c", "20", "1"],
+        ["7", "d", "20", "1"],
+        ["9", "e", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    panel = parsed.panels[0]
+    assert [c.number for c in panel.circuits] == ["1", "3"]
+    assert panel.bus_rating_a.confidence == Confidence.LOW
+    assert "rows below the table could not be placed" in panel.bus_rating_a.source.note
+    listed = {u.raw for u in parsed.unparsed if u.reason == "no circuit number"}
+    assert {"Receptacles", "5, c, 20, 1", "7, d, 20, 1", "9, e, 20, 1"} <= listed
 
 
 def test_lone_rating_under_title_does_not_join_panel_above(cfg):

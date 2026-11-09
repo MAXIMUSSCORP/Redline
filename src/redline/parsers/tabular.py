@@ -421,6 +421,9 @@ _PAGE_NOTE = (
 _BLANK_NOTE = (
     "rows with a blank panel cell could not be placed; the panel-level check needs the whole panel"
 )
+_BELOW_NOTE = (
+    "rows below the table could not be placed; the panel-level check needs the whole panel"
+)
 
 
 def _mark_incomplete(panel: Panel, note: str = _PAGE_NOTE) -> None:
@@ -848,8 +851,17 @@ def rows_to_panels(
         last = _last_row(ctx, grid, heads[-1], last, keys, titled=True)
     ends.append(last + 1)
     for n, h in enumerate(heads):
+        if n == len(heads) - 1:
+            first_panel = len(out.panels)
         _table(ctx, grid, h, cols[n], starts[n], ends[n])
+    ckt = _ckt_cols(keys)
+    cut_circuit = False
     for j in range(last + 1, len(grid)):
         if text := ", ".join(c.strip() for c in grid[j] if c.strip()):
             ctx.unp("row", text, "no circuit number", locate(j))
+            cut_circuit |= _is_circuit_row(ctx, grid[j], keys, ckt, _near(grid, j))
+    if cut_circuit:
+        # A cut row that looks like a circuit may belong to the panel: it is not whole.
+        for panel in out.panels[first_panel:]:
+            _mark_incomplete(panel, _BELOW_NOTE)
     return out
