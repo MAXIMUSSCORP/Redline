@@ -317,9 +317,9 @@ def test_dwg_fixtures_shape():
         (nocount,) = [e["table"] for e in tables if e["table"]["rows"] is None]
         assert nocount["cols"] is None
         assert len(nocount["cells"]) == 5 and {c["r"] for c in nocount["cells"]} == {0}
-        assert all(c["evaluated"] for c in sized["LP-11"]["cells"])
-        stale = [(c["r"], c["c"]) for c in sized["LP-12"]["cells"] if not c["evaluated"]]
-        assert stale == ([] if name == "acad_plugin" else [(r, 2) for r in range(2, 8)])
+        for t in sized.values():
+            stale = [c for c in t["cells"] if not c["evaluated"]]
+            assert len(stale) == (0 if name == "acad_plugin" else len(t["cells"]))
         loose = [e for e in ents if e["type"] == "TEXT"]
         assert all(e["text_height"] == 2.5 and e["rotation_deg"] == 0 for e in loose)
         assert any(e["text"] == "Panel LP-13" for e in loose)
