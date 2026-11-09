@@ -1261,6 +1261,57 @@ LAYOUTS = [
         ],
         id="RV51_title_naming_LP_10_is_not_LP_1",
     ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "Panel LP-1 (continued) - Page 2 of 2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-1", ["5"], {})],
+        [("Panel LP-1 (continued) - Page 2 of 2", "header block key panel_name has no value")],
+        id="RV62_continued_title_with_page_number_keeps_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "",
+            "Continued - Page 2 of 3",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0})],
+        [
+            ("Continued - Page 2 of 3", "not a header block key: no alias matches"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV62_page_title_without_panel_name_rows_unplaced",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "",
+            "Panel,LP-2",
+            "Bus,225,A",
+            "Voltage,120/208,3PH",
+            _H,
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {"bus": 225.0, "voltage": 208.0})],
+        [
+            ("A", "extra cells on a header block line"),
+            ("3PH", "extra cells on a header block line"),
+        ],
+        id="RV63_block_lines_after_panel_line_read",
+    ),
 ]
 
 
@@ -1555,3 +1606,52 @@ def test_title_naming_other_panel_ends_inheritance(cfg):
         got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
         assert got == ([("LP-1", ["1"])] * (2 if kept else 1)), title
         assert any(u.reason == "no panel name" for u in parsed.unparsed) is not kept, title
+
+
+def test_continued_title_with_page_or_sheet_number_keeps_block_panel_name(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    titles = [
+        ["Panel LP-1 (continued) - Page 2 of 2"],
+        ["LP-1 continued from sheet E-401"],
+        ["Panel LP-1 208Y/120V (cont.)"],
+        ["LP-1 cont'd 3PH 4W"],
+        ["LP-1 (continued)", "Rev 2"],
+    ]
+    for title in titles:
+        rows = [
+            ["Panel", "LP-1"],
+            ["Bus", "100"],
+            sub,
+            ["1", "a", "20", "1"],
+            ["3", "b", "20", "1"],
+            title,
+            sub,
+            ["5", "c", "20", "1"],
+            ["7", "d", "20", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        assert got == [("LP-1", ["1", "3"]), ("LP-1", ["5", "7"])], title
+        assert not [u for u in parsed.unparsed if u.reason == "no panel name"], title
+
+
+def test_block_lines_after_panel_line_read(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Breaker"],
+        ["LP-1", "1", "x", "20"],
+        ["LP-1", "3", "y", "20"],
+        [],
+        ["Panel", "LP-2"],
+        ["Bus", "225", "A"],
+        ["Voltage", "120/208", "3PH"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "z", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    lp2 = parsed.panels[1]
+    assert lp2.name == "LP-2"
+    assert lp2.bus_rating_a.value == 225
+    assert lp2.voltage_v.value == 208
+    assert not [
+        u for u in parsed.unparsed if u.reason == "panel row or header block line; not read"
+    ]
