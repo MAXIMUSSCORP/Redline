@@ -47,1849 +47,1849 @@
             "r": 0,
             "c": 0,
             "text": "Panel",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 1,
             "text": "LP-11",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 2,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 3,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 4,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 5,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 6,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 7,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 8,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 9,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 10,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 11,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 12,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 0,
             "text": "Ckt",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 1,
             "text": "Description",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 2,
             "text": "Load (VA)",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 3,
             "text": "Load Type",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 4,
             "text": "Poles",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 5,
             "text": "Phase",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 6,
             "text": "Breaker",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 7,
             "text": "Wire Sz.",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 8,
             "text": "Material",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 9,
             "text": "Insulation",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 10,
             "text": "Conductors in Raceway",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 11,
             "text": "Length",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 12,
             "text": "Voltage",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 13,
             "text": "Notes",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 0,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 1,
             "text": "Corridor lighting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 2,
             "text": "1350",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 5,
             "text": "A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 0,
             "text": "2",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 1,
             "text": "Office lighting east",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 2,
             "text": "1500",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 5,
             "text": "A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 6,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 0,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 1,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 2,
             "text": "1650",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 3,
             "text": "receptacle",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 5,
             "text": "B",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 13,
             "text": "description missing on the drawing",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 0,
             "text": "4",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 1,
             "text": "Office receptacles",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 2,
             "text": "1800",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 5,
             "text": "B",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 6,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 0,
             "text": "5",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 1,
             "text": "Meeting room",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 2,
             "text": "TBD",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 5,
             "text": "C",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 13,
             "text": "load to be confirmed",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 0,
             "text": "6",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 1,
             "text": "Server rack",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 2,
             "text": "2100",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 3,
             "text": "receptacle",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 5,
             "text": "C",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 6,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 0,
             "text": "7",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 1,
             "text": "Washroom lighting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 2,
             "text": "2250",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 5,
             "text": "A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 7,
             "text": "12",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 8,
             "c": 13,
             "text": "size shown without a unit",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 0,
             "text": "8",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 1,
             "text": "Kitchen receptacles",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 2,
             "text": "2400",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 5,
             "text": "A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 6,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 9,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 0,
             "text": "9",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 1,
             "text": "Mechanical room unit",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 2,
             "text": "2550",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 3,
             "text": "receptacle",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 5,
             "text": "B",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 6,
             "text": "20",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 10,
             "text": "8",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 10,
             "c": 13,
             "text": "bundled with the mechanical feeds",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 0,
             "text": "10",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 1,
             "text": "Storage lighting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 2,
             "text": "2700",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 5,
             "text": "B",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 6,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 11,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 0,
             "text": "11",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 1,
             "text": "Reception",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 2,
             "text": "2850",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 5,
             "text": "C",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 12,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 0,
             "text": "12",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 1,
             "text": "Exit lighting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 2,
             "text": "3000",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 3,
             "text": "receptacle",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 5,
             "text": "C",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 6,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 13,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 0,
             "text": "13",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 1,
             "text": "Break room",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 2,
             "text": "3150",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 5,
             "text": "A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 14,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 0,
             "text": "14",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 1,
             "text": "Copier",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 2,
             "text": "3300",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 5,
             "text": "A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 6,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 15,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 0,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 1,
             "text": "Stair lighting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 2,
             "text": "3450",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 3,
             "text": "receptacle",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 5,
             "text": "B",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 16,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 0,
             "text": "16",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 1,
             "text": "Lobby lighting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 2,
             "text": "3600",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 5,
             "text": "B",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 6,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 17,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 0,
             "text": "17",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 1,
             "text": "Office lighting west",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 2,
             "text": "3750",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 3,
             "text": "noncontinuous",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 5,
             "text": "C",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 18,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 0,
             "text": "18",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 1,
             "text": "Exterior lighting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 2,
             "text": "3900",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 3,
             "text": "receptacle",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 5,
             "text": "C",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 6,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 19,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 0,
             "text": "19",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 1,
             "text": "SPARE",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 2,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 3,
             "text": "spare",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 5,
             "text": "A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 7,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 8,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 9,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 10,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 11,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 12,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 20,
             "c": 13,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 0,
             "text": "20",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 1,
             "text": "SPARE",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 2,
             "text": "1200",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 3,
             "text": "spare",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 5,
             "text": "A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 6,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 7,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 8,
             "text": "Cu",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 9,
             "text": "75",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 10,
             "text": "3",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 11,
             "text": "0.005",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 12,
             "text": "120",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 21,
             "c": 13,
             "text": "spare shows a load",
-            "evaluated": true
+            "evaluated": false
           }
         ]
       }
@@ -1919,85 +1919,85 @@
             "r": 0,
             "c": 0,
             "text": "Panel",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 1,
             "text": "LP-12",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 2,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 3,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 4,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 5,
             "text": "",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 0,
             "text": "Ckt",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 1,
             "text": "Description",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 2,
             "text": "Load (VA)",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 3,
             "text": "Breaker",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 4,
             "text": "Poles",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 1,
             "c": 5,
             "text": "Wire Sz.",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 0,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 1,
             "text": "Corridor lighting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
@@ -2009,31 +2009,31 @@
             "r": 2,
             "c": 3,
             "text": "20 A",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
             "c": 5,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 0,
             "text": "2",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 1,
             "text": "Office lighting east",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
@@ -2045,31 +2045,31 @@
             "r": 3,
             "c": 3,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
             "c": 5,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 0,
             "text": "4",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 1,
             "text": "Office receptacles",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
@@ -2081,31 +2081,31 @@
             "r": 4,
             "c": 3,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
             "c": 5,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 0,
             "text": "6",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 1,
             "text": "Server rack",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
@@ -2117,31 +2117,31 @@
             "r": 5,
             "c": 3,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
             "c": 5,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 0,
             "text": "8",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 1,
             "text": "Kitchen receptacles",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
@@ -2153,31 +2153,31 @@
             "r": 6,
             "c": 3,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
             "c": 5,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 0,
             "text": "10",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 1,
             "text": "Storage lighting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
@@ -2189,19 +2189,19 @@
             "r": 7,
             "c": 3,
             "text": "15",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 4,
             "text": "1",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
             "c": 5,
             "text": "12 AWG",
-            "evaluated": true
+            "evaluated": false
           }
         ]
       }
@@ -2832,31 +2832,31 @@
             "r": 0,
             "c": 0,
             "text": "Legend",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 1,
             "text": "Symbol",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 2,
             "text": "Mounting",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 3,
             "text": "Remarks",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 0,
             "c": 4,
             "text": "Sheet",
-            "evaluated": true
+            "evaluated": false
           }
         ]
       }
