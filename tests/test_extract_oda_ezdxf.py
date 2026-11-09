@@ -101,6 +101,37 @@ def test_oda_table_cells_not_evaluated():
     assert rawdrawing.validate(wrap([item])).ok
 
 
+def _field(code_values, children=()):
+    tags = [SimpleNamespace(code=c, value=v) for c, v in code_values]
+    tags += [SimpleNamespace(code=360, value=h) for h in children]
+    return SimpleNamespace(dxftype=lambda: "FIELD", xtags=SimpleNamespace(subclasses=[tags]))
+
+
+def test_oda_field_cell_reads_cached_child_text_and_keeps_failed_value():
+    db = {
+        "A": _field([(1, "_text"), (301, "")], ["B"]),
+        "B": _field([(1, "AcExpr"), (301, "1350")]),
+        "C": _field([(1, "_text"), (301, "")], ["D"]),
+        "D": _field([(1, "AcDiesel"), (301, "####")]),
+    }
+    ent = FakeEntity(2, 2)
+    ent.doc = SimpleNamespace(entitydb=SimpleNamespace(get=db.get))
+    tags = [SimpleNamespace(code=c, value=v) for c, v in [(171, 1), (171, 1), (171, 1), (344, "A")]]
+    tags += [SimpleNamespace(code=171, value=1), (SimpleNamespace(code=344, value="C"))]
+
+    class Sub(list):
+        get_first_value = staticmethod(lambda code, default=None: {91: 2, 92: 2}.get(code, default))
+
+    ent.xtags = SimpleNamespace(get_subclass=lambda name: Sub(tags))
+    values = [["", ""], ["", ""]]
+    item = oda_ezdxf.convert(ent, "E-101", None, [], fake_acad_table(values))
+    cells = {(c["r"], c["c"]): c for c in item["table"]["cells"]}
+    assert cells[(1, 0)]["text"] == "1350"
+    assert cells[(1, 1)]["text"] == "####"
+    assert cells[(0, 0)]["text"] == ""
+    assert {c["evaluated"] for c in cells.values()} == {False}
+
+
 def test_oda_table_without_counts_emits_null():
     values = [["a", "b", "c"]]
     item = oda_ezdxf.convert(FakeEntity(0, 0), "E-101", None, [], fake_acad_table(values))
