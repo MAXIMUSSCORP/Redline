@@ -1,0 +1,2942 @@
+{
+  "schema_version": "1.0",
+  "extractor": "oda_ezdxf",
+  "extractor_version": "0.1.0",
+  "host_version": "synthetic fixture, no host",
+  "source_file": "panel_sheet.dwg",
+  "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "extracted_at": "2026-11-09T00:00:00Z",
+  "document": {
+    "units": "mm",
+    "layouts": [
+      "Model",
+      "E-101"
+    ],
+    "xrefs": [
+      {
+        "name": "A-BASE",
+        "path": "A-BASE.dwg",
+        "resolved": false
+      }
+    ],
+    "warnings": []
+  },
+  "entities": [
+    {
+      "id": "e0001",
+      "type": "ACAD_TABLE",
+      "layout": "E-101",
+      "handle": "2F01",
+      "layer": "E-PANEL",
+      "bbox": [
+        100.0,
+        100.0,
+        400.0,
+        340.0
+      ],
+      "insertion_point": [
+        100.0,
+        340.0
+      ],
+      "text": "LP-11",
+      "table": {
+        "rows": 22,
+        "cols": 14,
+        "cells": [
+          {
+            "r": 0,
+            "c": 0,
+            "text": "Panel",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 1,
+            "text": "LP-11",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 2,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 3,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 4,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 5,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 6,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 7,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 8,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 9,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 10,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 11,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 12,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 0,
+            "text": "Ckt",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 1,
+            "text": "Description",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 2,
+            "text": "Load (VA)",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 3,
+            "text": "Load Type",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 4,
+            "text": "Poles",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 5,
+            "text": "Phase",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 6,
+            "text": "Breaker",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 7,
+            "text": "Wire Sz.",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 8,
+            "text": "Material",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 9,
+            "text": "Insulation",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 10,
+            "text": "Conductors in Raceway",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 11,
+            "text": "Length",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 12,
+            "text": "Voltage",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 13,
+            "text": "Notes",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 0,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 1,
+            "text": "Corridor lighting",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 2,
+            "text": "1350",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 5,
+            "text": "A",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 0,
+            "text": "2",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 1,
+            "text": "Office lighting east",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 2,
+            "text": "1500",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 5,
+            "text": "A",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 6,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 0,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 1,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 2,
+            "text": "1650",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 3,
+            "text": "receptacle",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 5,
+            "text": "B",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 13,
+            "text": "description missing on the drawing",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 0,
+            "text": "4",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 1,
+            "text": "Office receptacles",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 2,
+            "text": "1800",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 5,
+            "text": "B",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 6,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 0,
+            "text": "5",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 1,
+            "text": "Meeting room",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 2,
+            "text": "TBD",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 5,
+            "text": "C",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 13,
+            "text": "load to be confirmed",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 0,
+            "text": "6",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 1,
+            "text": "Server rack",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 2,
+            "text": "2100",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 3,
+            "text": "receptacle",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 5,
+            "text": "C",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 6,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 0,
+            "text": "7",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 1,
+            "text": "Washroom lighting",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 2,
+            "text": "2250",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 5,
+            "text": "A",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 7,
+            "text": "12",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 8,
+            "c": 13,
+            "text": "size shown without a unit",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 0,
+            "text": "8",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 1,
+            "text": "Kitchen receptacles",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 2,
+            "text": "2400",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 5,
+            "text": "A",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 6,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 9,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 0,
+            "text": "9",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 1,
+            "text": "Mechanical room unit",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 2,
+            "text": "2550",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 3,
+            "text": "receptacle",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 5,
+            "text": "B",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 6,
+            "text": "20",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 10,
+            "text": "8",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 10,
+            "c": 13,
+            "text": "bundled with the mechanical feeds",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 0,
+            "text": "10",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 1,
+            "text": "Storage lighting",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 2,
+            "text": "2700",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 5,
+            "text": "B",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 6,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 11,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 0,
+            "text": "11",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 1,
+            "text": "Reception",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 2,
+            "text": "2850",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 5,
+            "text": "C",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 12,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 0,
+            "text": "12",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 1,
+            "text": "Exit lighting",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 2,
+            "text": "3000",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 3,
+            "text": "receptacle",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 5,
+            "text": "C",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 6,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 13,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 0,
+            "text": "13",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 1,
+            "text": "Break room",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 2,
+            "text": "3150",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 5,
+            "text": "A",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 14,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 0,
+            "text": "14",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 1,
+            "text": "Copier",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 2,
+            "text": "3300",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 5,
+            "text": "A",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 6,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 15,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 0,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 1,
+            "text": "Stair lighting",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 2,
+            "text": "3450",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 3,
+            "text": "receptacle",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 5,
+            "text": "B",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 16,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 0,
+            "text": "16",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 1,
+            "text": "Lobby lighting",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 2,
+            "text": "3600",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 5,
+            "text": "B",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 6,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 17,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 0,
+            "text": "17",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 1,
+            "text": "Office lighting west",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 2,
+            "text": "3750",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 3,
+            "text": "noncontinuous",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 5,
+            "text": "C",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 18,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 0,
+            "text": "18",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 1,
+            "text": "Exterior lighting",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 2,
+            "text": "3900",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 3,
+            "text": "receptacle",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 5,
+            "text": "C",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 6,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 19,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 0,
+            "text": "19",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 1,
+            "text": "SPARE",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 2,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 3,
+            "text": "spare",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 5,
+            "text": "A",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 7,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 8,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 9,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 10,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 11,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 12,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 20,
+            "c": 13,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 0,
+            "text": "20",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 1,
+            "text": "SPARE",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 2,
+            "text": "1200",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 3,
+            "text": "spare",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 5,
+            "text": "A",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 6,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 7,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 8,
+            "text": "Cu",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 9,
+            "text": "75",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 10,
+            "text": "3",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 11,
+            "text": "0.005",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 12,
+            "text": "120",
+            "evaluated": true
+          },
+          {
+            "r": 21,
+            "c": 13,
+            "text": "spare shows a load",
+            "evaluated": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "e0002",
+      "type": "ACAD_TABLE",
+      "layout": "E-101",
+      "handle": "2F02",
+      "layer": "E-PANEL",
+      "bbox": [
+        500.0,
+        100.0,
+        700.0,
+        190.0
+      ],
+      "insertion_point": [
+        500.0,
+        190.0
+      ],
+      "text": "LP-12",
+      "table": {
+        "rows": 8,
+        "cols": 6,
+        "cells": [
+          {
+            "r": 0,
+            "c": 0,
+            "text": "Panel",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 1,
+            "text": "LP-12",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 2,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 3,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 4,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 5,
+            "text": "",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 0,
+            "text": "Ckt",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 1,
+            "text": "Description",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 2,
+            "text": "Load (VA)",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 3,
+            "text": "Breaker",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 4,
+            "text": "Poles",
+            "evaluated": true
+          },
+          {
+            "r": 1,
+            "c": 5,
+            "text": "Wire Sz.",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 0,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 1,
+            "text": "Corridor lighting",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 2,
+            "text": "1350",
+            "evaluated": false
+          },
+          {
+            "r": 2,
+            "c": 3,
+            "text": "20 A",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 2,
+            "c": 5,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 0,
+            "text": "2",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 1,
+            "text": "Office lighting east",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 2,
+            "text": "1500",
+            "evaluated": false
+          },
+          {
+            "r": 3,
+            "c": 3,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 3,
+            "c": 5,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 0,
+            "text": "4",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 1,
+            "text": "Office receptacles",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 2,
+            "text": "1800",
+            "evaluated": false
+          },
+          {
+            "r": 4,
+            "c": 3,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 4,
+            "c": 5,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 0,
+            "text": "6",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 1,
+            "text": "Server rack",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 2,
+            "text": "2100",
+            "evaluated": false
+          },
+          {
+            "r": 5,
+            "c": 3,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 5,
+            "c": 5,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 0,
+            "text": "8",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 1,
+            "text": "Kitchen receptacles",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 2,
+            "text": "2400",
+            "evaluated": false
+          },
+          {
+            "r": 6,
+            "c": 3,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 6,
+            "c": 5,
+            "text": "12 AWG",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 0,
+            "text": "10",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 1,
+            "text": "Storage lighting",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 2,
+            "text": "2700",
+            "evaluated": false
+          },
+          {
+            "r": 7,
+            "c": 3,
+            "text": "15",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 4,
+            "text": "1",
+            "evaluated": true
+          },
+          {
+            "r": 7,
+            "c": 5,
+            "text": "12 AWG",
+            "evaluated": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "e0003",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F03",
+      "layer": "E-PANEL-TXT",
+      "text": "Panel LP-13",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        750.0,
+        190.0
+      ]
+    },
+    {
+      "id": "e0004",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F04",
+      "layer": "E-PANEL-TXT",
+      "text": "Ckt",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        750.0,
+        182.0
+      ]
+    },
+    {
+      "id": "e0005",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F05",
+      "layer": "E-PANEL-TXT",
+      "text": "Description",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        770.0,
+        182.0
+      ]
+    },
+    {
+      "id": "e0006",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F06",
+      "layer": "E-PANEL-TXT",
+      "text": "Load (VA)",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        840.0,
+        182.0
+      ]
+    },
+    {
+      "id": "e0007",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F07",
+      "layer": "E-PANEL-TXT",
+      "text": "Breaker",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        880.0,
+        182.0
+      ]
+    },
+    {
+      "id": "e0008",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F08",
+      "layer": "E-PANEL-TXT",
+      "text": "Poles",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        920.0,
+        182.0
+      ]
+    },
+    {
+      "id": "e0009",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F09",
+      "layer": "E-PANEL-TXT",
+      "text": "Wire Sz.",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        950.0,
+        182.0
+      ]
+    },
+    {
+      "id": "e0010",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F0A",
+      "layer": "E-PANEL-TXT",
+      "text": "1",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        750.0,
+        174.0
+      ]
+    },
+    {
+      "id": "e0011",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F0B",
+      "layer": "E-PANEL-TXT",
+      "text": "Corridor lighting",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        770.0,
+        174.0
+      ]
+    },
+    {
+      "id": "e0012",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F0C",
+      "layer": "E-PANEL-TXT",
+      "text": "1350",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        840.0,
+        174.0
+      ]
+    },
+    {
+      "id": "e0013",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F0D",
+      "layer": "E-PANEL-TXT",
+      "text": "20 A",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        880.0,
+        174.0
+      ]
+    },
+    {
+      "id": "e0014",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F0E",
+      "layer": "E-PANEL-TXT",
+      "text": "1",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        920.0,
+        174.0
+      ]
+    },
+    {
+      "id": "e0015",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F0F",
+      "layer": "E-PANEL-TXT",
+      "text": "12 AWG",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        950.0,
+        174.0
+      ]
+    },
+    {
+      "id": "e0016",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F10",
+      "layer": "E-PANEL-TXT",
+      "text": "2",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        750.0,
+        166.0
+      ]
+    },
+    {
+      "id": "e0017",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F11",
+      "layer": "E-PANEL-TXT",
+      "text": "Office lighting east",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        770.0,
+        166.0
+      ]
+    },
+    {
+      "id": "e0018",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F12",
+      "layer": "E-PANEL-TXT",
+      "text": "1500",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        840.0,
+        166.0
+      ]
+    },
+    {
+      "id": "e0019",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F13",
+      "layer": "E-PANEL-TXT",
+      "text": "15",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        880.0,
+        166.0
+      ]
+    },
+    {
+      "id": "e0020",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F14",
+      "layer": "E-PANEL-TXT",
+      "text": "1",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        920.0,
+        166.0
+      ]
+    },
+    {
+      "id": "e0021",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F15",
+      "layer": "E-PANEL-TXT",
+      "text": "12 AWG",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        950.0,
+        166.0
+      ]
+    },
+    {
+      "id": "e0022",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F16",
+      "layer": "E-PANEL-TXT",
+      "text": "4",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        750.0,
+        158.0
+      ]
+    },
+    {
+      "id": "e0023",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F17",
+      "layer": "E-PANEL-TXT",
+      "text": "Office receptacles",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        770.0,
+        158.0
+      ]
+    },
+    {
+      "id": "e0024",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F18",
+      "layer": "E-PANEL-TXT",
+      "text": "1800",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        840.0,
+        158.0
+      ]
+    },
+    {
+      "id": "e0025",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F19",
+      "layer": "E-PANEL-TXT",
+      "text": "15",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        880.0,
+        158.0
+      ]
+    },
+    {
+      "id": "e0026",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F1A",
+      "layer": "E-PANEL-TXT",
+      "text": "1",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        920.0,
+        158.0
+      ]
+    },
+    {
+      "id": "e0027",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F1B",
+      "layer": "E-PANEL-TXT",
+      "text": "12 AWG",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        950.0,
+        158.0
+      ]
+    },
+    {
+      "id": "e0028",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F1C",
+      "layer": "E-PANEL-TXT",
+      "text": "6",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        750.0,
+        150.0
+      ]
+    },
+    {
+      "id": "e0029",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F1D",
+      "layer": "E-PANEL-TXT",
+      "text": "Server rack",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        770.0,
+        150.0
+      ]
+    },
+    {
+      "id": "e0030",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F1E",
+      "layer": "E-PANEL-TXT",
+      "text": "2100",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        840.0,
+        150.0
+      ]
+    },
+    {
+      "id": "e0031",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F1F",
+      "layer": "E-PANEL-TXT",
+      "text": "15",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        880.0,
+        150.0
+      ]
+    },
+    {
+      "id": "e0032",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F20",
+      "layer": "E-PANEL-TXT",
+      "text": "1",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        920.0,
+        150.0
+      ]
+    },
+    {
+      "id": "e0033",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F21",
+      "layer": "E-PANEL-TXT",
+      "text": "12 AWG",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        950.0,
+        150.0
+      ]
+    },
+    {
+      "id": "e0034",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F22",
+      "layer": "E-PANEL-TXT",
+      "text": "8",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        750.0,
+        142.0
+      ]
+    },
+    {
+      "id": "e0035",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F23",
+      "layer": "E-PANEL-TXT",
+      "text": "Kitchen receptacles",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        770.0,
+        142.0
+      ]
+    },
+    {
+      "id": "e0036",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F24",
+      "layer": "E-PANEL-TXT",
+      "text": "2400",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        840.0,
+        142.0
+      ]
+    },
+    {
+      "id": "e0037",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F25",
+      "layer": "E-PANEL-TXT",
+      "text": "15",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        880.0,
+        142.0
+      ]
+    },
+    {
+      "id": "e0038",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F26",
+      "layer": "E-PANEL-TXT",
+      "text": "1",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        920.0,
+        142.0
+      ]
+    },
+    {
+      "id": "e0039",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F27",
+      "layer": "E-PANEL-TXT",
+      "text": "12 AWG",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        950.0,
+        142.0
+      ]
+    },
+    {
+      "id": "e0040",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F28",
+      "layer": "E-PANEL-TXT",
+      "text": "10",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        750.0,
+        134.0
+      ]
+    },
+    {
+      "id": "e0041",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F29",
+      "layer": "E-PANEL-TXT",
+      "text": "Storage lighting",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        770.0,
+        134.0
+      ]
+    },
+    {
+      "id": "e0042",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F2A",
+      "layer": "E-PANEL-TXT",
+      "text": "2700",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        840.0,
+        134.0
+      ]
+    },
+    {
+      "id": "e0043",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F2B",
+      "layer": "E-PANEL-TXT",
+      "text": "15",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        880.0,
+        134.0
+      ]
+    },
+    {
+      "id": "e0044",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F2C",
+      "layer": "E-PANEL-TXT",
+      "text": "1",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        920.0,
+        134.0
+      ]
+    },
+    {
+      "id": "e0045",
+      "type": "TEXT",
+      "layout": "E-101",
+      "handle": "2F2D",
+      "layer": "E-PANEL-TXT",
+      "text": "12 AWG",
+      "text_height": 2.5,
+      "rotation_deg": 0,
+      "insertion_point": [
+        950.0,
+        134.0
+      ]
+    },
+    {
+      "id": "e0046",
+      "type": "ACAD_TABLE",
+      "layout": "E-101",
+      "handle": "2F2E",
+      "layer": "E-ANNO",
+      "bbox": [
+        100.0,
+        20.0,
+        300.0,
+        30.0
+      ],
+      "insertion_point": [
+        100.0,
+        30.0
+      ],
+      "table": {
+        "rows": null,
+        "cols": null,
+        "cells": [
+          {
+            "r": 0,
+            "c": 0,
+            "text": "Legend",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 1,
+            "text": "Symbol",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 2,
+            "text": "Mounting",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 3,
+            "text": "Remarks",
+            "evaluated": true
+          },
+          {
+            "r": 0,
+            "c": 4,
+            "text": "Sheet",
+            "evaluated": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "e0047",
+      "type": "INSERT",
+      "layout": "E-101",
+      "handle": "2F2F",
+      "layer": "E-TITLE",
+      "block_name": "WD_M",
+      "insertion_point": [
+        0.0,
+        0.0
+      ],
+      "rotation_deg": 0,
+      "attributes": [
+        {
+          "tag": "SHEET",
+          "value": "E-101"
+        },
+        {
+          "tag": "DWGDESC",
+          "value": "Lighting panel schedules"
+        },
+        {
+          "tag": "PROJ",
+          "value": "Synthetic Test Building"
+        }
+      ]
+    },
+    {
+      "id": "e0048",
+      "type": "INSERT",
+      "layout": "E-101",
+      "handle": "2F30",
+      "layer": "E-POWR",
+      "block_name": "RECEPT",
+      "insertion_point": [
+        450.0,
+        60.0,
+        0.0
+      ],
+      "rotation_deg": 90,
+      "attributes": [
+        {
+          "tag": "CKT",
+          "value": "LP-11-5"
+        },
+        {
+          "tag": "MOUNT",
+          "value": "450"
+        }
+      ]
+    },
+    {
+      "id": "e0049",
+      "type": "LINE",
+      "layout": "E-101",
+      "handle": "2F31",
+      "layer": "E-POWR",
+      "bbox": [
+        450.0,
+        60.0,
+        600.0,
+        60.0
+      ]
+    },
+    {
+      "id": "e0050",
+      "type": "POLYLINE",
+      "layout": "E-101",
+      "handle": "2F32",
+      "layer": "E-POWR",
+      "bbox": [
+        450.0,
+        60.0,
+        600.0,
+        90.0
+      ]
+    }
+  ]
+}
