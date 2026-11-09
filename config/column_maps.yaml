@@ -3,18 +3,23 @@ config_version: "0.2-skeleton"
 
 csv_panel_schedule:           # one circuit per row; owner adds aliases from real files
   panel_name:        ["panel", "panel name", "panel id", "pnl"]
-  circuit_number:    ["ckt", "cct", "circuit", "circuit no", "circuit #"]
-  poles:             ["poles", "pole", "p"]
-  breaker_a:         ["breaker", "bkr", "trip", "amps", "ocpd"]
+  circuit_number:    ["ckt", "cct", "circuit", "circuit no", "circuit #", "circuit number"]
+  poles:             ["poles", "pole", "p", "number of poles"]
+  breaker_a:         ["breaker", "bkr", "trip", "amps", "ocpd", "rating"]
   conductor_size:    ["wire", "wire size", "conductor", "cable"]
   conductor_material: ["material", "cu/al"]
   insulation_temp_c: ["insulation", "temp rating", "wire temp"]
   length_m:          ["length", "run length", "distance"]
-  load_va:           ["load", "load va", "connected load", "va"]
+  load_va:           ["load", "load va", "connected load", "va", "apparent power"]
   load_kva:          ["kva", "load kva"]
-  load_type:         ["load type", "type", "continuous"]
-  description:       ["description", "load description", "served", "desc"]
+  load_type:         ["load type", "type", "continuous", "load classification"]
+  description:       ["description", "load description", "served", "desc", "load name"]
   phase:             ["phase", "ph"]
+  voltage_v:         ["voltage", "volts"]
+  conductors_in_raceway: ["conductors in raceway", "ccc"]
+  ambient_c:         ["ambient", "ambient temp"]
+  bonding_size:      ["bonding", "bonding size", "bond"]
+  not_mapped:        ["phase label"]   # C7: a label, not a phase; lands in unparsed
 
 panel_header_block:           # key/value lines above the table
   panel_name:     ["panel", "panel name", "designation"]

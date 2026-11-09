@@ -56,3 +56,30 @@ def test_no_model_import_guard_detects_import(tmp_path):
     code, seen = _seen(tmp_path, ("yaml",))
     assert code == 0
     assert "yaml" in seen
+
+
+_CSV_CODE = """
+import json, sys
+from redline.cli import main
+code = main(["check", sys.argv[1], "--config", sys.argv[2], "--out", sys.argv[3]])
+print(json.dumps({"code": code, "seen": [m for m in json.loads(sys.argv[4]) if m in sys.modules]}))
+"""
+
+
+def test_csv_run_imports_no_model(tmp_path):
+    args = [
+        str(ROOT / "samples/csv"),
+        str(ROOT / "tests/test_config"),
+        str(tmp_path / "r.html"),
+        json.dumps(list(BLOCKED)),
+    ]
+    env = {**__import__("os").environ, "PYTHONPATH": str(ROOT / "src")}
+    p = subprocess.run(
+        [sys.executable, "-c", _CSV_CODE, *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    out = json.loads(p.stdout.strip().splitlines()[-1])
+    assert out == {"code": 0, "seen": []}
