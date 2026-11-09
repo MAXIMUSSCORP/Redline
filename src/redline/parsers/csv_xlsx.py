@@ -278,6 +278,7 @@ def _unpack(path: Path) -> tuple[io.BytesIO, set[str]]:
                 warnings.simplefilter("ignore", UserWarning)  # duplicate member names are kept
                 for info in infos:
                     data = bytearray()
+                    has_dtd = False
                     tail = b""
                     with z.open(info) as f:
                         while chunk := f.read(_CHUNK):
@@ -286,10 +287,14 @@ def _unpack(path: Path) -> tuple[io.BytesIO, set[str]]:
                                 raise _too_big()
                             buf = tail + chunk
                             if any(d in buf for d in _DOCTYPES):
-                                dtd.add(info.filename)
+                                has_dtd = True
                             tail = buf[-keep:]
                             data += chunk
-                    w.writestr(info.filename, bytes(data))
+                    if has_dtd:
+                        dtd.add(info.filename)
+                    # A member with a DTD is stored empty, so no spelling of its name (a
+                    # doubled slash, a dropped first letter) can bring the DTD to a parser.
+                    w.writestr(info.filename, b"" if has_dtd else bytes(data))
             out.seek(0)
             return out, dtd
     except InputError:

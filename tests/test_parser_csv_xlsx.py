@@ -1176,3 +1176,74 @@ def test_xlsx_doctype_in_unparsed_media_ignored(tmp_path, cfg):
 def test_xlsx_doctype_in_worksheet_named_svg_refused(tmp_path, cfg):
     with pytest.raises(InputError, match="DOCTYPE"):
         parse_file(_svg_book(tmp_path, False), cfg)
+
+
+_ENT = '<!DOCTYPE x [<!ENTITY x "DTDREACHED">]>'
+_SST_CT = (
+    '<Override PartName="{}" ContentType="application/vnd.openxmlformats-officedocument.'
+    'spreadsheetml.sharedStrings+xml"/></Types>'
+)
+
+
+def _slashed_dtd_book(tmp_path, shape):
+    head = f"{_cell('A1', 'Ckt')}{_cell('B1', 'Description')}{_cell('C1', 'Breaker')}"
+    body = f"{_cell('A2', 1)}{_cell('B2', '&x;')}{_cell('C2', 20)}"
+    sheet = f"<worksheet {_NS}><sheetData><row r='1'>{head}</row><row r='2'>{body}</row></sheetData></worksheet>"
+    sheet_member, target, wb_member, ct = (
+        "xl/worksheets/sheet1.xml",
+        "worksheets/sheet1.xml",
+        "xl/workbook.xml",
+        _CT,
+    )
+    name, extra = "LP-1", {}
+    if shape in ("sheet2", "sheet3"):
+        n = 2 if shape == "sheet2" else 3
+        sheet_member, target = (
+            "/" * (n - 1) + "xl/worksheets/sheet1.xml",
+            "/" * n + "xl/worksheets/sheet1.xml",
+        )
+        sheet = _ENT + sheet
+    elif shape == "wb2":
+        wb_member, name = "/xl/workbook.xml", "&x;"
+        ct = ct.replace('PartName="/xl/workbook.xml"', 'PartName="//xl/workbook.xml"')
+    else:
+        sheet = sheet.replace(_cell("B2", "&x;"), '<c r="B2" t="s"><v>0</v></c>')
+        sst = f'<sst {_NS} count="1" uniqueCount="1"><si><t>&x;</t></si></sst>'
+        member, part = {
+            "ss2": ("/xl/sharedStrings.xml", "//xl/sharedStrings.xml"),
+            "ss_unslashed": ("/xl/sharedStrings.xml", "xl/sharedStrings.xml"),
+        }[shape]
+        extra[member] = _ENT + sst
+        ct = ct.replace("</Types>", _SST_CT.format(part))
+    wb = f'<workbook {_NS}><sheets><sheet name="{name}" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    if shape == "wb2":
+        wb = _ENT + wb
+    rels = f'<Relationship Id="rId1" Type="{_REL}worksheet" Target="{target}"/>'
+    root = f'<Relationships {_PKG}><Relationship Id="rId1" Type="{_REL}officeDocument" Target="xl/workbook.xml"/></Relationships>'
+    path = tmp_path / "slash.xlsx"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", ct)
+        z.writestr("_rels/.rels", root)
+        z.writestr(wb_member, wb)
+        z.writestr("xl/_rels/workbook.xml.rels", f"<Relationships {_PKG}>{rels}</Relationships>")
+        z.writestr(sheet_member, sheet)
+        for member, data in extra.items():
+            z.writestr(member, data)
+    return path
+
+
+def test_xlsx_doctype_behind_double_slash_or_unslashed_part_name_refused(tmp_path, cfg):
+    import tracemalloc
+
+    for shape in ("sheet2", "sheet3", "ss2", "wb2", "ss_unslashed"):
+        (tmp_path / shape).mkdir()
+        path = _slashed_dtd_book(tmp_path / shape, shape)
+        tracemalloc.start()
+        try:
+            got = parse_file(path, cfg)
+            text = repr([p.__dict__ for p in got.panels]) + repr(got.unparsed)
+        except InputError as e:
+            text = str(e)
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert "DTDREACHED" not in text and peak < 30 * 2**20, shape
