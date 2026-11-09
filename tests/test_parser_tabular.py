@@ -1547,6 +1547,35 @@ LAYOUTS = [
         [("5, d, 20", "no panel name")],
         id="RV73_pcol_blank_rows_mark_panel_of_last_row",
     ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "TOTAL,,40,"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [("TOTAL, 40", "no circuit number")],
+        id="RV74_total_row_below_last_table_not_a_circuit",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "", "Page 2 of 2"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [("Page 2 of 2", "no circuit number")],
+        id="RV74_page_footer_below_last_table_not_a_circuit",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "", "Notes:", "1,Provide GFCI,,"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [("Notes:", "no circuit number"), ("1, Provide GFCI", "no circuit number")],
+        id="RV74_notes_below_last_table_not_circuits",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "LP-2", "225A", _H, "1,b,20,1", "3,c,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-2", "not a header block key: no alias matches"),
+            ("225A", "not a header block key: no alias matches"),
+            ("1, b, 20, 1", "no panel name"),
+            ("3, c, 20, 1", "no panel name"),
+        ],
+        id="RV75_lone_rating_under_title_not_a_circuit",
+    ),
 ]
 
 
@@ -2052,6 +2081,36 @@ def test_lone_letter_suffixed_circuit_number_stays_circuit(cfg):
         parsed = parse(rows, cfg)
         nums = [c.number for c in parsed.panels[0].circuits]
         assert (lone in nums) is circuit, lone
+
+
+def test_rows_below_last_table_not_circuits(cfg):
+    head = ["Panel,LP-1", "Voltage,120", "Bus,100", _H, "1,a,20,1", "3,b,20,1"]
+    for tail in (["TOTAL,,40,"], ["", "Page 2 of 2"], ["", "Notes:", "1,Provide GFCI,,"]):
+        parsed = parse([line.split(",") for line in head + tail], cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], tail
+        listed = [u.raw for u in parsed.unparsed if u.reason == "no circuit number"]
+        assert listed, tail
+        assert all(
+            x not in [c.number for c in parsed.panels[0].circuits] for x in ("TOTAL", "Notes:")
+        )
+
+
+def test_lone_rating_under_title_does_not_join_panel_above(cfg):
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus", "100"],
+        _H.split(","),
+        ["1", "a", "20", "1"],
+        [],
+        ["LP-2"],
+        ["225A"],
+        _H.split(","),
+        ["1", "b", "20", "1"],
+        ["3", "c", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [("LP-1", ["1"])]
+    assert {"LP-2", "225A"} <= {u.raw for u in parsed.unparsed}
 
 
 def test_rule_title_designation_after_of_ends_inheritance(cfg):

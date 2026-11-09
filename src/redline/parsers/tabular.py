@@ -720,6 +720,57 @@ def _is_short_block_line(ctx: _Ctx, row: list[str]) -> bool:
     return hit.key == "panel_name" and (hit.conf == Confidence.HIGH or ":" in cells[0])
 
 
+def _last_row(
+    ctx: _Ctx,
+    grid: list[list[str]],
+    head: int,
+    k: int,
+    keys: list[str | None],
+    titled: bool = False,
+) -> int:
+    """Index of the last row of the table whose header is at head, searching up from k.
+
+    A table ends at its last row that looks like a circuit, and no lower than its first short
+    block line (an exact key or a "key: value" line). A lone cell counts as a circuit only
+    directly under the header or a circuit line, so a lone rating under a title ("225A") is
+    not one.
+    """
+    ckt = _ckt_cols(keys)
+    for j in range(head + 1, k + 1):
+        if _is_short_block_line(ctx, grid[j]) or (titled and _is_title_after_blank(grid, j)):
+            return _walk_up(ctx, grid, head, j - 1, keys, ckt)
+    return _walk_up(ctx, grid, head, k, keys, ckt)
+
+
+def _is_title_after_blank(grid: list[list[str]], j: int) -> bool:
+    """A lone text cell ("Notes:", "Page 2 of 2") under a blank line, below the last table."""
+    cells = [c.strip() for c in grid[j] if c.strip()]
+    return (
+        len(cells) == 1
+        and any(ch.isalpha() for ch in cells[0])
+        and not re.fullmatch(r"\d+[A-Za-z]", cells[0])
+        and not any(c.strip() for c in grid[j - 1])
+    )
+
+
+def _walk_up(
+    ctx: _Ctx, grid: list[list[str]], head: int, k: int, keys: list[str | None], ckt: list[int]
+) -> int:
+    while k > head:
+        row = grid[k]
+        if _is_circuit_row(ctx, row, keys, ckt, _near(grid, k)):
+            lone = sum(1 for c in row if c.strip()) == 1
+            above = grid[k - 1]
+            if (
+                not lone
+                or k - 1 == head
+                or _is_circuit_row(ctx, above, keys, ckt, _near(grid, k - 1))
+            ):
+                return k
+        k -= 1
+    return k
+
+
 def rows_to_panels(
     rows: Sequence[Sequence[str]],
     cfg: Config,
@@ -778,16 +829,7 @@ def rows_to_panels(
     starts, ends = [0], []
     for n in range(1, len(heads)):
         keys = [c.hit.key for c in cols[n - 1]]
-        ckt = _ckt_cols(keys)
-        k = heads[n] - 1
-        # The previous table ends at its last row that looks like a circuit, and no lower
-        # than its first short block line (an exact key or a "key: value" line).
-        for j in range(heads[n - 1] + 1, k + 1):
-            if _is_short_block_line(ctx, grid[j]):
-                k = j - 1
-                break
-        while k > heads[n - 1] and not _is_circuit_row(ctx, grid[k], keys, ckt, _near(grid, k)):
-            k -= 1
+        k = _last_row(ctx, grid, heads[n - 1], heads[n] - 1, keys)
         starts.append(k + 1)
         ends.append(k + 1)
         # Only lines above the next block's panel-name line; below it they are its values.
@@ -799,7 +841,15 @@ def rows_to_panels(
             for j in range(k + 1, named_at)
             if _ambiguous_key_line(ctx, grid[j], keys, _near(grid, j))
         }
-    ends.append(len(grid))
+    keys = [c.hit.key for c in cols[-1]]
+    # With no circuit column nothing can be told from a circuit row: the table keeps every row.
+    last = len(grid) - 1
+    if _ckt_cols(keys):
+        last = _last_row(ctx, grid, heads[-1], last, keys, titled=True)
+    ends.append(last + 1)
     for n, h in enumerate(heads):
         _table(ctx, grid, h, cols[n], starts[n], ends[n])
+    for j in range(last + 1, len(grid)):
+        if text := ", ".join(c.strip() for c in grid[j] if c.strip()):
+            ctx.unp("row", text, "no circuit number", locate(j))
     return out
