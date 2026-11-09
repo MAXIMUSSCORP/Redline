@@ -1582,6 +1582,87 @@ LAYOUTS = [
         ],
         id="RV75_lone_rating_under_title_not_a_circuit",
     ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "3,b,20,1",
+            "",
+            "Page 2 of 2",
+            _H,
+            "",
+            "Kitchen",
+            "7,Oven,40,2",
+            "9,Dish,30,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Page 2 of 2", "not a header block key: no alias matches"),
+            ("Kitchen", "no circuit number"),
+            ("7, Oven, 40, 2", "no circuit number"),
+            ("9, Dish, 30, 1", "no circuit number"),
+        ],
+        id="RV77_page2_section_heading_cut_marks_panel_above",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "2026-02-04 00:00:00,Heater,40,2"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [("2026-02-04 00:00:00, Heater, 40, 2", "no circuit number")],
+        id="RV78_date_circuit_cell_last_row_marks_panel",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "2026-02-04 00:00:00,Heater,40,2",
+            "",
+            "Panel,LP-2",
+            "Bus,100",
+            _H,
+            "1,b,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True}), ("LP-2", ["1"], {"bus": 100.0})],
+        [("2026-02-04 00:00:00, Heater, 40, 2", "not a header block key: no alias matches")],
+        id="RV78_date_circuit_cell_between_tables_marks_panel_above",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "3,b,20,1",
+            "TOTAL,,40,",
+            "NOTES:",
+            "1,Provide GFCI,,",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("TOTAL, 40", "no circuit number"),
+            ("NOTES:", "no circuit number"),
+            ("1, Provide GFCI", "no circuit number"),
+        ],
+        id="RV79_total_then_notes_without_blank_not_circuits",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "Notes:", "1,Provide GFCI,,"],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("Notes:", "no circuit number"), ("1, Provide GFCI", "no circuit number")],
+        id="RV79_notes_directly_under_circuits_not_circuits",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "LP-2,225A", _H, "1,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-2, 225A", "not a header block key: no alias matches"),
+            ("1, b, 20, 1", "no panel name"),
+        ],
+        id="RV80_two_cell_title_between_tables_not_a_circuit",
+    ),
 ]
 
 
@@ -2175,3 +2256,74 @@ def test_pcol_blank_rows_mark_panel_of_last_row(cfg):
     parsed = parse(rows + [hdr, ["", "5", "d", "20"]], cfg)
     marked = {p.name: _marked(p) for p in parsed.panels}
     assert marked == {"LP-1": True, "LP-2": False}
+
+
+def test_page2_section_heading_cut_marks_panel_above(cfg):
+    page1 = [
+        ["Panel", "LP-1"],
+        ["Bus", "100"],
+        _CKT_HEAD,
+        ["1", "a", "20", "1"],
+        [],
+        ["Page 2 of 2"],
+    ]
+    for tail in (
+        [_CKT_HEAD, [], ["Kitchen"], ["7", "Oven", "40", "2"], ["9", "Dish", "30", "1"]],
+        [_CKT_HEAD, [], ["Kitchen"]],
+        [_CKT_HEAD, [], ["TOTAL", "", "40"]],
+    ):
+        parsed = parse(page1 + tail, cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1"], tail
+        assert _marked(parsed.panels[0]), tail
+        assert len(parsed.panels) == 1, tail
+
+
+def test_long_or_date_circuit_cell_cut_marks_panel(cfg):
+    for cell_ in ("2026-02-04 00:00:00", "2,4,6 (3 pole)"):
+        row = [cell_, "Heater", "40", "2"]
+        last = [["Panel", "LP-1"], _CKT_HEAD, ["1", "a", "20", "1"], row]
+        parsed = parse(last, cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1"], cell_
+        assert _marked(parsed.panels[0]), cell_
+        mid = [["Panel", "LP-1"], _CKT_HEAD, ["1", "a", "20", "1"], row, []]
+        mid += [["Panel", "LP-2"], _CKT_HEAD, ["1", "b", "20", "1"]]
+        by = {p.name: p for p in parse(mid, cfg).panels}
+        assert _marked(by["LP-1"]) and not _marked(by["LP-2"]), cell_
+        assert [c.number for c in by["LP-1"].circuits] == ["1"], cell_
+
+
+def test_total_then_notes_without_blank_not_circuits(cfg):
+    head = [
+        ["Panel", "LP-1"],
+        ["Bus", "100"],
+        _CKT_HEAD,
+        ["1", "a", "20", "1"],
+        ["3", "b", "20", "1"],
+    ]
+    for tail in (
+        [["TOTAL", "", "40"], ["NOTES:"], ["1", "Provide GFCI"]],
+        [["Subtotal", "", "40"], ["Notes"], ["1", "Provide GFCI"]],
+        [["NOTES:"], ["1", "Provide GFCI"], ["2", "Existing load"]],
+    ):
+        parsed = parse(head + tail, cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], tail
+        assert _marked(parsed.panels[0]), tail
+        listed = {u.raw for u in parsed.unparsed}
+        assert "1, Provide GFCI" in listed, tail
+    # RV27 short last rows and lone digits directly under circuits stay circuits.
+    parsed = parse(head + [["7"], ["9A"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "3", "7", "9A"]
+
+
+def test_two_cell_title_between_tables_not_a_circuit(cfg):
+    for title in (["LP-2", "225A"], ["LP-2", "Lighting"]):
+        rows = [["Panel", "LP-1"], ["Bus", "100"], _CKT_HEAD, ["1", "a", "20", "1"], []]
+        parsed = parse(rows + [title, _CKT_HEAD, ["1", "b", "20", "1"]], cfg)
+        assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+            ("LP-1", ["1"])
+        ], title
+        assert _marked(parsed.panels[0]), title
+        assert ", ".join(title) in {u.raw for u in parsed.unparsed}, title
+
+
+_CKT_HEAD = ["Ckt", "Description", "Breaker", "Poles"]
