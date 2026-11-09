@@ -55,8 +55,8 @@ def _pairs(
     return out
 
 
-def _text(items: Iterable[object], total: int, noun: str) -> str:
-    out = [clip(x, 200) for x in islice(items, MAX_ROWS)]
+def _text(items: Iterable[object], total: int, noun: str, limit: int = 200) -> str:
+    out = [clip(x, limit) for x in islice(items, MAX_ROWS)]
     if total > MAX_ROWS:
         out.append(f"and {total - MAX_ROWS} more {noun}")
     return "; ".join(out)
@@ -156,9 +156,10 @@ def render_html(project: Project, result: RunResult, cfg: Config) -> str:
             "seeds",
         ),
         extractors=_text(
-            (f"{clip(k)} {clip(v)}" for k, v in (ri.extractor_versions if ri else {}).items()),
+            (f"{clip(k)} {clip(v, 200)}" for k, v in (ri.extractor_versions if ri else {}).items()),
             len(ri.extractor_versions) if ri else 0,
             "extractors",
+            limit=300,  # key (80) + space + value (200) must not be cut again
         ),
         models=_text(
             ri.model_ids_versions_hashes if ri else (),

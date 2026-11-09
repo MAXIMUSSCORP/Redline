@@ -6,6 +6,7 @@ import json
 import math
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from redline import __version__
@@ -24,6 +25,7 @@ from redline.model import (
     project_from_dict,
 )
 from redline.parsers.csv_xlsx import SUFFIXES, InputError, parse_file
+from redline.parsers.tabular import Parsed
 from redline.registry import RULES
 from redline.report.csv_out import write_findings_csv
 from redline.report.html import render_html
@@ -38,6 +40,9 @@ def _parser() -> argparse.ArgumentParser:
     chk.add_argument("--config", metavar="DIR", default="config")
     chk.add_argument("--out", metavar="PATH", default="report.html")
     chk.add_argument("--skip-rule", metavar="ID", action="append", default=[])
+    xc = sub.add_parser("xcheck", help="compare what the two DWG extractors read from a drawing")
+    xc.add_argument("files", nargs="+", metavar="FILE", help="DWG or DXF files")
+    xc.add_argument("--config", metavar="DIR", default="config")
     return ap
 
 
@@ -103,11 +108,25 @@ def _flag_repeated_panels(project: Project) -> None:
         project.unparsed.append(Unparsed("panel", group[0].name, why, group[0].source))
 
 
+def _reader(f: Path) -> Callable[[Path, Config], Parsed] | None:
+    """The parse function for a file, or None when no reader takes the file type. The DWG and
+    WDP readers are imported only when a file may need them."""
+    if f.name.lower().endswith((".json", ".dwg", ".dxf", ".wdp")):
+        from redline.parsers import aecad_side, dxf
+
+        if dxf.accepts(f):
+            return dxf.parse_file
+        if f.suffix.lower() in aecad_side.SUFFIXES:
+            return aecad_side.parse_file
+    return parse_file if f.suffix.lower() in SUFFIXES else None
+
+
 def _load_inputs(paths: list[str], cfg: Config) -> tuple[Project, int, list[Path], list[Path]]:
     """Read files and folders. Returns the project, the count of files read, the files
     tried and the input folders. A failing file is listed and the rest are still read."""
     project = Project(name=Path(paths[0]).resolve().name)
     read, tried, folders = 0, [], []
+    versions: dict[str, str] = {}
     for raw in paths:
         p = Path(raw)
         if p.is_dir():
@@ -129,13 +148,14 @@ def _load_inputs(paths: list[str], cfg: Config) -> tuple[Project, int, list[Path
         for f in files:
             tried.append(f)
             project.inputs.append(f.name)
-            if f.suffix.lower() not in SUFFIXES and f.exists():
+            parse = _reader(f)
+            if parse is None and f.exists():
                 project.coverage.append(
                     CoverageEntry(f.name, "file", "not read: unsupported file type", "none", "")
                 )
                 continue
             try:
-                parsed = parse_file(f, cfg)
+                parsed = (parse or parse_file)(f, cfg)
             except Exception as e:  # noqa: BLE001 - a bad file must not stop the others
                 src = Source(f.name, "file", Method.CSV, Confidence.LOW)
                 detail = " ".join(str(e).split()) if isinstance(e, InputError) else type(e).__name__
@@ -146,12 +166,33 @@ def _load_inputs(paths: list[str], cfg: Config) -> tuple[Project, int, list[Path
             project.panels += parsed.panels
             project.unparsed += parsed.unparsed
             project.coverage += parsed.coverage
+            for key, text in parsed.provenance.items():
+                n = 1
+                while (name := key if n == 1 else f"{key} #{n}") in versions:
+                    n += 1
+                versions[name] = text
+    if versions:
+        project.run_info = RunInfo(tool_version="", extractor_versions=versions)
     _flag_repeated_panels(project)
     return project, read, tried, folders
 
 
+def _xcheck(args: argparse.Namespace) -> int:
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as e:
+        return _fail(f"config error: {' '.join(str(e).split())}")
+    from redline.tools import xcheck
+
+    text, code = xcheck.run([Path(f) for f in args.files], cfg)
+    print(text)
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "xcheck":
+        return _xcheck(args)
     if args.demo_project and args.inputs:
         return _fail("give input files or --demo-project, not both.")
     if not args.demo_project and not args.inputs:
