@@ -140,3 +140,16 @@ def test_two_column_each_half_judged_on_its_own(cfg):
     ]
     # The second listed half may have been a circuit, so the panel is not whole.
     assert panel.bus_rating_a.confidence is Confidence.LOW
+
+
+def test_two_column_letter_labels_with_blank_spacer_row_read(cfg):
+    # RV95: blank spacer rows never end a two-column CB1, CB2 schedule.
+    head = ["Ckt", "Description", "Load VA", "Breaker", "Poles"] * 2
+    rows = [["Panel", "LP1"], ["Bus", "100"], head]
+    rows += [["CB1", "Lights", "800", "20", "1", "CB2", "Recept", "900", "20", "1"], []]
+    rows += [["CB3", "Lights", "800", "20", "1", "CB4", "Recept", "900", "20", "1"]]
+    parsed = rows_to_panels(
+        rows, cfg, file="t.csv", method=Method.CSV, locate=lambda i: f"row={i + 1}"
+    )
+    assert [c.number for c in parsed.panels[0].circuits] == ["CB1", "CB2", "CB3", "CB4"]
+    assert not [u for u in parsed.unparsed if u.kind == "row"]
