@@ -469,7 +469,8 @@ def _table(
     else:
         # Only a header repeated directly under the table above continues its panel.
         # A title line naming another panel ends it too ("Panel LP-1 (continued)" does not).
-        above = ctx.last_panel
+        # After a panel-column table the rows may belong to its last placed panel.
+        above = ctx.last_panel or ctx.pcol_panel
         if block.read_rows or (ctx.last_name and not _names_only(rows[start:h], ctx.last_name[0])):
             ctx.last_name = None
         if block.name:

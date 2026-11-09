@@ -1062,9 +1062,9 @@ LAYOUTS = [
             "Ckt,Description,Breaker,Poles",
             "9,misc,20,1",
         ],
-        [("LP-1", ["1"], {"bus": 100.0, "voltage": 208.0}), ("LP-2", ["1"], {})],
+        [("LP-1", ["1"], {"bus": 100.0, "voltage": 208.0}), ("LP-2", ["1"], {"incomplete": True})],
         [("9, misc, 20, 1", "no panel name")],
-        id="RV41_no_inherit_past_panel_column_table",
+        id="RV41_no_inherit_past_panel_column_table_lp1_unmarked_lp2_marked",
     ),
     pytest.param(
         [
