@@ -7,18 +7,19 @@ Licensing: this plugin runs on the owner's workstation only (PLAN row 38). It is
 ## Build
 
 ```
-dotnet build extractors/acad_plugin/RedlinePlugin.csproj -c Release -p:AcadDir="D:/Autodesk/AutoCAD 2026" -p:AcadVersion=2026
+dotnet build extractors/acad_plugin/RedlinePlugin.csproj -c Release -p:AcadDir="C:/Program Files/Autodesk/AutoCAD 2027" -p:AcadVersion=2027
 ```
 
-Output goes to `bin/<AcadVersion>/RedlinePlugin.dll`. The build fails with a plain message when `AcadDir` is empty. The project references `AcCoreMgd.dll` and `AcDbMgd.dll` with `Private=false`, so no Autodesk assembly is copied. There is no `AcMgd.dll` and no package reference; `System.Text.Json` comes from the .NET 8 shared framework.
+Output goes to `bin/<AcadVersion>/RedlinePlugin.dll`. The build fails with a plain message when `AcadDir` is empty. The project references `AcCoreMgd.dll` and `AcDbMgd.dll` with `Private=false`, so no Autodesk assembly is copied. There is no `AcMgd.dll` and no package reference; `System.Text.Json` comes from the .NET 10 shared framework.
 
 ## Versions
 
 | AutoCAD | Status |
 |---|---|
-| 2026 | built (D7) |
+| 2027 | built (PLAN row 42) |
+| 2026 | not built |
 | 2025 and earlier | not built |
-| 2027 and later | not built |
+| 2028 and later | not built |
 
 Which versions the firm runs is UNVERIFIED. Another version is one build command with its own `AcadDir` and `AcadVersion`.
 
@@ -45,9 +46,10 @@ REDLINE_DUMP
 
 The plugin reads each table cell with `Table.TextString(row, col, FormatOption.IgnoreMtextFormat)` and sets `evaluated` true when that call succeeds, false when it throws. Whether this member returns the evaluated FIELD value, not a stale cached string, is UNVERIFIED until L2.7 checks it on the owner's FIELD table.
 
+
 ## Load test
 
-Date: 2026-11-09. AutoCAD 2026 (accoreconsole 25.1, build W.122.0.0). A command built against `AcCoreMgd.dll` and `AcDbMgd.dll` (about 20 lines, in a temp folder, not in this repo), run on a temp copy of `gold/dwg/etsu_entc2160_m04/Tiny Electrical Plan.dwg`.
+Date: 2026-11-09. AutoCAD 2027 (accoreconsole X.60.0.0, core console 26.0.60, .NET 10), run on a temp copy of `gold/dwg/etsu_entc2160_m04/Tiny Electrical Plan.dwg`, started by subprocess with stdin closed and absolute paths.
 
 Script lines:
 
@@ -55,8 +57,9 @@ Script lines:
 FILEDIA
 0
 NETLOAD
-C:/Users/Zaidz/AppData/Local/Temp/redline-m2/L2.1-load/proj/out/LoadTest.dll
-LOADTEST_PING
+C:/Users/Zaidz/redline/plugin/RedlinePlugin.dll
+REDLINE_DUMP
+<output json path>
 ```
 
-Outcome: NOT REACHED. `accoreconsole.exe` itself crashes at startup with exception 0xc0000005 in `AcPal.dll`, before it reads any script line. It crashes the same way with no arguments, with `/i` only, and with a script holding only `FILEDIA 0`, so the plugin is not the cause. Seen from a subprocess with stdin closed, from PowerShell `Start-Process`, and hidden-window. Raised to the lead as an environment blocker; no SECURELOAD prompt appeared, and no AutoCAD setting was changed. NETLOAD on .NET 8 remains UNVERIFIED, and the live gates G1.7 to G1.9 could not run.
+Outcome: NOT LOADED. The console starts and opens the drawing in about 2 s with exit 0, then NETLOAD prints `Unable to load <path> assembly.` and `REDLINE_DUMP` is an unknown command, so no JSON is written. A trivial one-command assembly built the same way fails the same way, and from a path under `%TEMP%` too, so the plugin code is not the cause. A read-only query shows `SECURELOAD` is 1 and `TRUSTEDPATHS` is empty. SECURELOAD blocking an untrusted path is the likely cause, but it is not proven. Raised as D10; no AutoCAD setting was changed, and the live gates G1.7 to G1.9 could not run.
