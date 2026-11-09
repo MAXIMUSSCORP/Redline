@@ -198,6 +198,7 @@ class _Tally:
     unplaced_text: int = 0
     shared_columns: int = 0
     other_block_text: int = 0
+    table_render_text: int = 0
     mleaders: int = 0
 
 
@@ -255,9 +256,15 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
         elif t in ("TEXT", "MTEXT"):
             texts.setdefault((layout, e.get("xref_path")), []).append(e)
     star_t = [k for k in texts if k[0].upper().startswith("BLOCK:*T")]
+    if any(e.get("type") == "ACAD_TABLE" for e in entities):
+        # The RawDrawing does not link a table to its *T block. With any table present,
+        # *T text is the table's own rendering, already read or listed above.
+        for k in star_t:
+            tally.table_render_text += sum(1 for e in texts[k] if _clean(e.get("text")))
+        star_t = []
     loose = [k for k in texts if not k[0].upper().startswith("BLOCK:")]
     for k, group in texts.items():
-        if k not in star_t and k not in loose:
+        if k not in star_t and k not in loose and not k[0].upper().startswith("BLOCK:*T"):
             tally.other_block_text += sum(1 for e in group if _clean(e.get("text")))
     for k in star_t + loose:
         try:
@@ -404,6 +411,8 @@ def _drawing_entry(data: dict, file: str, t: _Tally, out: Parsed) -> CoverageEnt
         parts.append(f"{t.shared_columns} loose-text cells shared a column with another cell")
     if t.other_block_text:
         parts.append(f"{t.other_block_text} texts in other block definitions not read")
+    if t.table_render_text:
+        parts.append(f"{t.table_render_text} texts in table render blocks not read twice")
     if t.mleaders:
         parts.append(f"{t.mleaders} multileaders not read")
     return CoverageEntry(file, "drawing", "; ".join(parts), Method.DXF_TABLE.value, _NO_SUMMARY)
