@@ -893,6 +893,68 @@ def _table_end(
     return end if cut is None else cut
 
 
+def _word_key_line(ctx: _Ctx, row: list[str], keys: list[str | None]) -> bool:
+    """A description-first line of at most two cells whose description cell is a header block key
+    by words and units alone ("Bus Rating (A),225"). It is a block line wherever it sits (RV102)."""
+    cells = [c.strip() for c in row if c.strip()]
+    at = next((j for j, c in enumerate(row) if c.strip()), len(row))
+    if (
+        not cells
+        or len(cells) > 2
+        or ":" in cells[0]
+        or not (at < len(keys) and keys[at] == "description")
+    ):
+        return False
+    hit = ctx.block_match(cells[0])
+    if hit.key in (None, "panel_name") or hit.conf == Confidence.HIGH:
+        return False
+    # Only alias and unit words: "Main lobby lights" is a circuit description.
+    return set(normalize_header(cells[0]).split()) - hit.words <= _UNIT_WORDS
+
+
+def _word_tail(
+    ctx: _Ctx, grid: list[list[str]], head: int, end: int, limit: int, keys: list[str | None]
+) -> tuple[int, list[int]]:
+    """The table end and the cut rows when the table's last rows are word-matched block lines
+    directly above the next block line or header (RV102): they are listed, never circuits."""
+    units = _units_rows(grid, head, limit + 1)
+    cut: list[int] = []
+    while end > head and end not in units and _word_key_line(ctx, grid[end], keys):
+        nxt = next(
+            (
+                j
+                for j in range(end + 1, limit + 2)
+                if j >= len(grid) or any(c.strip() for c in grid[j])
+            ),
+            None,
+        )
+        if (
+            nxt is None
+            or nxt >= len(grid)
+            or not (
+                nxt == limit + 1
+                or _word_key_line(ctx, grid[nxt], keys)
+                or _is_block_key_line(ctx, grid[nxt])
+            )
+        ):
+            break
+        cut.append(end)
+        end = next(
+            (
+                j
+                for j in range(end - 1, head, -1)
+                if j not in units and any(c.strip() for c in grid[j])
+            ),
+            max(units, default=head),
+        )
+    return end, cut
+
+
+def _is_block_key_line(ctx: _Ctx, row: list[str]) -> bool:
+    cells = [c.strip() for c in row if c.strip()]
+    return 0 < len(cells) <= 2 and ctx.block_match(cells[0].partition(":")[0]).key is not None
+
+
 def _trim_suffix_run(
     ctx: _Ctx, grid: list[list[str]], head: int, last: int, units: set[int], keys: list[str | None]
 ) -> int | None:
@@ -981,12 +1043,16 @@ def rows_to_panels(
     for n in range(1, len(heads)):
         keys = [c.hit.key for c in cols[n - 1]]
         k = _table_end(ctx, grid, heads[n - 1], heads[n] - 1, keys)
+        k, word_cut = _word_tail(ctx, grid, heads[n - 1], k, heads[n] - 1, keys)
+        if word_cut:
+            gap_cut.add(n - 1)
         starts.append(k + 1)
         ends.append(k + 1)
         # Only lines above the next block's panel-name line; below it they are its values.
         named_at = next(
             (j for j in range(k + 1, heads[n]) if _is_panel_line(ctx, grid[j])), heads[n]
         )
+        ctx.ambiguous |= set(word_cut)
         ctx.ambiguous |= {
             j
             for j in range(k + 1, named_at)

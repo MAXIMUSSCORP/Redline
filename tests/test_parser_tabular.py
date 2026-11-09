@@ -675,9 +675,9 @@ LAYOUTS = [
             _D,
             "Recep,1,20,1",
         ],
-        [("LP-1", ["1", "225"], {}), ("LP-2", ["1"], {})],
-        [],
-        id="B_residual_word_bus_line_above_panel_reads_as_circuit",
+        [("LP-1", ["1"], {"incomplete": True}), ("LP-2", ["1"], {})],
+        [("Bus Rating (A), 225", _AMB)],
+        id="B_word_bus_line_above_panel_listed",
     ),
     pytest.param(
         ["Panel,LP-1", _D, "Lights,1,20,1", "", "Panel,LP-2", "Bus Rating,225", _D, "Recep,1,20,1"],
@@ -3035,6 +3035,75 @@ def test_digit_letter_title_above_block_line_desc_first_listed(cfg):
         assert all(c.number != "225A" for p in parsed.panels for c in p.circuits), block
         assert "LP2, 225A" in [r[0] for r in _listed(parsed)], block
         assert _marked(lp1), block
+
+
+def test_word_block_line_above_panel_desc_first_listed(cfg):
+    # RV102: in a description-first table, a word-matched block line ("Bus Rating (A),225") that
+    # is the last line above the next panel line or header is listed, not circuit 225; the panel
+    # above is marked and neither panel reads its value. After "Panel" it is still a block value.
+    for line, blank in (
+        (["Bus Rating (A)", "225"], True),
+        (["Main Breaker (A)", "100"], True),
+        (["Voltage (V)", "208"], True),
+        (["Bus Rating (A)", "225"], False),
+    ):
+        rows = [
+            ["Panel", "LP-1"],
+            _DESC_HEAD,
+            ["Lights", "1", "800", "20"],
+            ["Recep", "3", "900", "20"],
+        ]
+        rows += ([[""]] if blank else []) + [
+            line,
+            ["Panel", "LP-2"],
+            _DESC_HEAD,
+            ["Recep", "1", "800", "20"],
+        ]
+        parsed = parse(rows, cfg)
+        lp1, lp2 = _by_name(parsed)["LP-1"], _by_name(parsed)["LP-2"]
+        assert [c.number for c in lp1.circuits] == ["1", "3"], line
+        assert [c.number for c in lp2.circuits] == ["1"], line
+        assert ", ".join(line) in [r[0] for r in _listed(parsed)], line
+        assert _marked(lp1), line
+        assert lp2.bus_rating_a.value is None, line
+        assert lp2.main_breaker_a.value is None, line
+        assert lp2.voltage_v.value is None, line
+    # Directly above a header with no panel line: same.
+    rows = [
+        ["Panel", "LP-1"],
+        _DESC_HEAD,
+        ["Lights", "1", "800", "20"],
+        ["Bus Rating (A)", "225"],
+        _DESC_HEAD,
+    ]
+    parsed = parse(rows + [["Recep", "1", "800", "20"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1"]
+    assert "Bus Rating (A), 225" in [r[0] for r in _listed(parsed)]
+    # After the panel line it is that panel's value.
+    after = [["Panel", "LP-1"], _DESC_HEAD, ["Lights", "1", "800", "20"], [""], ["Panel", "LP-2"]]
+    parsed = parse(
+        after + [["Bus Rating (A)", "225"], _DESC_HEAD, ["Recep", "1", "800", "20"]], cfg
+    )
+    assert _by_name(parsed)["LP-2"].bus_rating_a.value == 225.0
+    assert not _marked(_by_name(parsed)["LP-1"])
+    # A circuit whose description holds those words, mid-table, is still a circuit.
+    rows = [
+        ["Panel", "LP-1"],
+        _DESC_HEAD,
+        ["Lights", "1", "800", "20"],
+        ["Bus Rating (A)", "5", "800", "20"],
+    ]
+    parsed = parse(rows + [["Recep", "7", "900", "20"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "5", "7"]
+    # And a two-cell one under the table with circuits after it.
+    rows = [
+        ["Panel", "LP-1"],
+        _DESC_HEAD,
+        ["Lights", "1", "800", "20"],
+        ["Bus Rating (A)", "5"],
+        ["Recep", "7", "900", "20"],
+    ]
+    assert [c.number for c in parse(rows, cfg).panels[0].circuits] == ["1", "5", "7"]
 
 
 def test_units_row_long_bracket_cell_is_linear(cfg):
