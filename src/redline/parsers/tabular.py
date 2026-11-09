@@ -295,6 +295,7 @@ class _Ctx:
     out: Parsed
     last_name: tuple[str, Source] | None = None  # nearest header block panel name above
     last_panel: Panel | None = None  # the panel built from last_name, for the page-break flag
+    pcol_panel: Panel | None = None  # last panel of the previous panel-column table
     ambiguous: set[int] = field(default_factory=set)  # lines listed, read neither way
 
     def unp(self, kind: str, raw: str, reason: str, locator: str) -> None:
@@ -414,12 +415,17 @@ def _header_block(ctx: _Ctx, rows: list[list[str]], start: int, h: int) -> _Bloc
     return block
 
 
-def _mark_incomplete(panel: Panel) -> None:
-    """Rows after a page break could not be placed: demand and phase balance need the whole
-    panel, so their inputs are LOW and those rules report NEEDS_REVIEW (as for a repeated name)."""
-    note = (
-        "rows after a page break could not be placed; the panel-level check needs the whole panel"
-    )
+_PAGE_NOTE = (
+    "rows after a page break could not be placed; the panel-level check needs the whole panel"
+)
+_BLANK_NOTE = (
+    "rows with a blank panel cell could not be placed; the panel-level check needs the whole panel"
+)
+
+
+def _mark_incomplete(panel: Panel, note: str = _PAGE_NOTE) -> None:
+    """Some rows could not be placed: demand and phase balance need the whole panel, so their
+    inputs are LOW and those rules report NEEDS_REVIEW (as for a repeated name)."""
     for attr in ("bus_rating_a", "phases"):
         v = getattr(panel, attr)
         low = replace(v.source or panel.source, confidence=Confidence.LOW, note=note)
@@ -496,7 +502,7 @@ def _table(
     if table_name:
         get(*table_name)
     circuit_missing = not any("circuit_number" in x.cols for x in halves)
-    blank_panel = False
+    blank_panel = lead_blank = placed = False
     for r in range(h + 1, end):
         cells = rows[r]
         if not any(c.strip() for c in cells):
@@ -535,7 +541,9 @@ def _table(
             if panel is None:
                 ctx.unp("row", text, "no panel name", loc)
                 blank_panel = blank_panel or bool(pcol)
+                lead_blank = lead_blank or (bool(pcol) and not placed)
                 continue
+            placed = True
             vals: dict[str, Value] = {}
             for fld, col in half.cols.items():
                 if fld in ("panel_name", "circuit_number"):
@@ -561,7 +569,11 @@ def _table(
     if blank_panel:
         # A row listed with no panel name may belong to any panel of this table.
         for panel in panels.values():
-            _mark_incomplete(panel)
+            _mark_incomplete(panel, _BLANK_NOTE)
+    if lead_blank and ctx.pcol_panel:
+        # Page 2 starts with rows that continue the last panel of page 1.
+        _mark_incomplete(ctx.pcol_panel, _BLANK_NOTE)
+    ctx.pcol_panel = list(panels.values())[-1] if has_panel_col and panels else None
     ctx.last_panel = panels.get(ctx.last_name[0]) if ctx.last_name else None
     for name, panel in panels.items():
         ctx.out.panels.append(panel)
@@ -595,8 +607,8 @@ def _is_circuit_row(
         return False
     at = next(j for j, c in enumerate(row) if c.strip())
     first = row[at].strip()
-    if any(ch.isalpha() for ch in first) and sum(1 for c in row if c.strip()) == 1:
-        return False  # a lone cell with letters ("LP-2", "Panel LP-2") is a title, not a circuit
+    if first[0].isalpha() and sum(1 for c in row if c.strip()) == 1:
+        return False  # a lone cell starting with a letter ("LP-2", "Panel LP-2") is a title
     hit = ctx.block_match(first.partition(":")[0])
     if hit.key is None:
         return True
@@ -647,31 +659,34 @@ def _prefix(tok: str) -> str:
     return tok[: next((i for i, ch in enumerate(tok) if ch.isdigit()), len(tok))]
 
 
+_REF_WORDS = frozenset({"sheet", "sht", "dwg", "drawing", "page", "pg", "rev", "revision", "of"})
+
+
 @lru_cache(maxsize=4)
-def _name_tokens(name: str) -> tuple[frozenset[str], str, frozenset[str]]:
+def _name_tokens(name: str) -> tuple[frozenset[str], str]:
     toks = [t for t in _TOKEN_SPLIT.split(name.lower()) if t]
-    prefixes = frozenset(_prefix(t) for t in toks if _prefix(t) != t)
-    return frozenset(toks), f" {' '.join(toks)} " if toks else "", prefixes
+    return frozenset(toks), f" {' '.join(toks)} " if toks else ""
 
 
 def _names_only(lines: list[list[str]], name: str) -> bool:
     """Every line between two tables either holds the panel name or no other designation.
 
     A line holding the name as a run of tokens ("Panel LP-1 (continued) - Page 2 of 2") keeps
-    the panel unless it also holds another designation with the same letters ("Panel LP-2 fed
-    from LP-1"). Any other line with a designation (a token with a digit) but the name
-    ("LP-2 Lighting Panel") ends it. Linear in the size of the lines and the name; the name is
-    tokenised once.
+    the panel unless it also holds another panel designation, a token with a letter prefix and
+    a digit, whatever its letters ("LP-1 fed from MDP-1"). A designation right after a sheet
+    or drawing word ("from sheet E-401") is a reference, not a panel. Any other line with a
+    token holding a digit but the name ("LP-2 Lighting Panel") ends it. Linear in the size of
+    the lines and the name; the name is tokenised once.
     """
-    named, phrase, prefixes = _name_tokens(name)
+    named, phrase = _name_tokens(name)
     for r in lines:
         toks = [t for c in r for t in _TOKEN_SPLIT.split(c.lower()) if t]
-        other = [t for t in toks if t not in named and any(ch.isdigit() for ch in t)]
+        other = [(k, t) for k, t in enumerate(toks) if t not in named and any(map(str.isdigit, t))]
         if not other:
             continue
-        # A bare digit or a unit ("2", "208y") is not a panel designation.
-        same = any(_prefix(t) and (not prefixes or _prefix(t) in prefixes) for t in other)
-        if phrase and phrase in f" {' '.join(toks)} " and not same:
+        # A bare digit or a unit ("2", "208y") has no letter prefix: not a panel designation.
+        desig = any(_prefix(t) and (k == 0 or toks[k - 1] not in _REF_WORDS) for k, t in other)
+        if phrase and phrase in f" {' '.join(toks)} " and not desig:
             continue
         return False
     return True
