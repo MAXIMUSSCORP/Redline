@@ -34,6 +34,7 @@ class Parsed:
     panels: list[Panel] = field(default_factory=list)
     unparsed: list[Unparsed] = field(default_factory=list)
     coverage: list[CoverageEntry] = field(default_factory=list)
+    provenance: dict[str, str] = field(default_factory=dict)  # file name -> provenance text
 
 
 def normalize_header(text: str) -> str:
@@ -301,6 +302,8 @@ class _Ctx:
     last_panel: Panel | None = None  # the panel built from last_name, for the page-break flag
     pcol_panel: Panel | None = None  # last panel of the previous panel-column table
     ambiguous: set[int] = field(default_factory=set)  # lines listed, read neither way
+    low_cells: frozenset[tuple[int, int]] = frozenset()  # (row, col) cells capped at LOW
+    low_note: str = ""
 
     def unp(self, kind: str, raw: str, reason: str, locator: str) -> None:
         src = Source(self.file, locator, self.method, Confidence.LOW)
@@ -438,6 +441,8 @@ def _header_block(ctx: _Ctx, rows: list[list[str]], start: int, h: int) -> _Bloc
             continue
         else:
             block.values[hit.key] = _read(hit.key, hit.key, val, ctx.cfg, at, ctx.ph)
+            if any((r, i) in ctx.low_cells for i, c in enumerate(rows[r]) if c.strip()):
+                block.values[hit.key] = _capped(ctx, block.values[hit.key])
             block.read_rows.append((r, raw))
         if extra:
             ctx.unp("row", ", ".join(extra), "extra cells on a header block line", loc)
@@ -464,6 +469,16 @@ def _mark_incomplete(panel: Panel, note: str = _PAGE_NOTE) -> None:
         v = getattr(panel, attr)
         low = replace(v.source or panel.source, confidence=Confidence.LOW, note=note)
         setattr(panel, attr, replace(v, source=low))
+
+
+def _capped(ctx: _Ctx, v: Value) -> Value:
+    """A Value read from a low cell: LOW, with the note after any note it has."""
+    if v.source is None:
+        return v
+    note = f"{v.source.note}; {ctx.low_note}" if v.source.note and ctx.low_note else ctx.low_note
+    note = note or v.source.note
+    conf = min(v.source.confidence, Confidence.LOW)
+    return replace(v, source=replace(v.source, confidence=conf, note=note))
 
 
 def _cell(row: list[str], i: int) -> str:
@@ -597,6 +612,8 @@ def _table(
                     col.hit.unit,
                 )
                 vals[fld] = _read(fld, col.hit.key or fld, _cell(cells, col.i), ctx.cfg, at, ctx.ph)
+                if (r, col.i) in ctx.low_cells:
+                    vals[fld] = _capped(ctx, vals[fld])
             desc = half.cols.get("description")
             spare = desc is not None and _cell(cells, desc.i).upper() in ctx.spare
             spare = spare or vals.get("load_type", Value.missing()).value == "spare"
@@ -991,6 +1008,8 @@ def rows_to_panels(
     method: Method,
     locate: Locate,
     fallback_panel: str | None = None,
+    low_cells: Iterable[tuple[int, int]] = (),
+    low_note: str = "",
 ) -> Parsed:
     grid = [["" if c is None else str(c) for c in r] for r in rows]
     maps = cfg.column_maps
@@ -1010,6 +1029,8 @@ def rows_to_panels(
             (maps.get("two_column_layout") or {}).get("detect_when_headers_repeat")
         ),
         out=out,
+        low_cells=frozenset(low_cells),
+        low_note=low_note,
     )
     need = (maps.get("parsing") or {}).get("min_header_alias_matches", 3)
     heads: list[int] = []
