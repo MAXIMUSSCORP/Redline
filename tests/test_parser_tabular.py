@@ -706,7 +706,7 @@ LAYOUTS = [
     pytest.param(
         [_P, "Panel A,1,a,20", "Panel A,2", _P, "Panel B,1,b,20"],
         [("Panel A", ["1"], {}), ("Panel B", ["1"], {})],
-        [("2", "panel name in header block not used; table has a panel column")],
+        [("Panel A, 2", "panel name is ambiguous; not read")],
         id="G_residual_panel_column_word_name_short_last_row_unparsed",
     ),
     pytest.param(
@@ -2556,6 +2556,12 @@ def test_strict_circuit_row_whitelist(cfg):
         assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], end
         assert _marked(by["LP-1"]) and not _marked(by["LP-2"]), end
         assert [c.number for c in by["LP-2"].circuits] == ["1"], end
+    # A number alone is an empty position only directly under the header or a circuit row.
+    for lone in ("1600", "7", "7A", "225A"):
+        parsed = parse(_TOP + _TWO + [[], [lone]], cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], lone
+        assert _marked(parsed.panels[0]), lone
+        assert _listed(parsed) == [(lone, "no circuit number")], lone
     # Lines below the table with nothing circuit-like in them list without marking the panel.
     parsed = parse(_TOP + _TWO + [["Notes:"], ["see drawing E-101"]], cfg)
     assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"]
@@ -2620,8 +2626,7 @@ def test_panel_key_cell_name_single_token_or_listed(cfg):
         assert panel.source.confidence == Confidence.MEDIUM, key
         assert [c.number for c in panel.circuits] == ["1"], key
         assert (nxt, "extra cells on a header block line") in _listed(parsed), key
-    # More than one token left: the line is listed and no name is taken from it, not from the
-    # key cell and not from the next cell.
+    # More than one token left: the line is listed and no name is taken from it.
     for key, nxt in (
         ("Panel Schedule LP-2 Rev 3", "225A"),
         ("Panel Schedule for LP-2", "225A"),
@@ -2632,8 +2637,12 @@ def test_panel_key_cell_name_single_token_or_listed(cfg):
         reason = "panel key cell holds more than one name; not read"
         assert (f"{key}, {nxt}", reason) in _listed(parsed), key
         assert ("1, Lights, 20, 1", "no panel name") in _listed(parsed), key
-    # A rating is never a panel name. A key cell with only words keeps the next cell as the name.
-    parsed = read("Panel A", "225A")
-    assert parsed.panels == []
-    assert ("Panel A, 225A", "panel name is a rating; not read") in _listed(parsed)
-    assert read("Panel Schedule", "LP-2").panels[0].name == "LP-2"
+    # One token with no digit: the name when the next cell has no digit, listed when it has.
+    assert read("Panel A", "Lighting").panels[0].name == "A"
+    for key, nxt in (("Panel Schedule", "LP-2"), ("Panel A", "225A")):
+        parsed = read(key, nxt)
+        assert parsed.panels == [], key
+        assert (f"{key}, {nxt}", "panel name is ambiguous; not read") in _listed(parsed), key
+    # No token left: the next cell names the panel, as for the exact key.
+    assert read("Panel", "LP-2").panels[0].name == "LP-2"
+    assert read("Panel Designation", "LP-1").panels[0].name == "LP-1"
