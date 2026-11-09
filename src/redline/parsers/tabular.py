@@ -469,7 +469,8 @@ def _table(
     else:
         # Only a header repeated directly under the table above continues its panel.
         # A title line naming another panel ends it too ("Panel LP-1 (continued)" does not).
-        above = ctx.last_panel
+        # After a panel-column table the rows may belong to its last placed panel.
+        above = ctx.last_panel or ctx.pcol_panel
         if block.read_rows or (ctx.last_name and not _names_only(rows[start:h], ctx.last_name[0])):
             ctx.last_name = None
         if block.name:
@@ -588,6 +589,8 @@ def _table(
 
 
 _CKT_TEXT_MAX = 12
+_DESIGNATION = re.compile(r"[A-Za-z]{2,}-?\d")
+_TOTAL_ROW = re.compile(r"(sub[\s-]*)?totals?(\s+(load|va|connected|demand))*:?", re.IGNORECASE)
 
 
 def _ckt_cols(keys: list[str | None]) -> list[int]:
@@ -600,16 +603,27 @@ def _is_circuit_row(
     keys: list[str | None],
     ckt: list[int],
     near: tuple[list[str], list[str]] = ([], []),
+    any_len: bool = False,
 ) -> bool:
     """A number-like circuit cell, on a line that is not an exact header block key.
+
+    any_len drops the length limit on the circuit cell (an Excel date, "2,4,6 (3 pole)"), for
+    deciding whether a row cut from a table may have been a circuit.
 
     keys is the field key of each column of the table above, ckt its circuit column indexes
     (computed once per header so a wide header costs nothing per row), near the rows just
     above and below this one.
     """
     texts = (row[i].strip() for i in takewhile(lambda i: i < len(row), ckt))  # ckt is sorted
-    if not any(len(t) <= _CKT_TEXT_MAX and any(ch in "0123456789" for ch in t) for t in texts):
+    ok = [
+        t
+        for t in texts
+        if (any_len or len(t) <= _CKT_TEXT_MAX) and any(ch in "0123456789" for ch in t)
+    ]
+    if not ok:
         return False
+    if all(t[:1].isalpha() and _DESIGNATION.search(t) for t in ok):
+        return False  # "LP-2" in the circuit cell is a panel title ("LP-2,225A"), not a circuit
     at = next(j for j, c in enumerate(row) if c.strip())
     first = row[at].strip()
     lone = sum(1 for c in row if c.strip()) == 1
@@ -736,23 +750,36 @@ def _last_row(
     A table ends at its last row that looks like a circuit, and no lower than its first short
     block line (an exact key or a "key: value" line). A lone cell counts as a circuit only
     directly under the header or a circuit line, so a lone rating under a title ("225A") is
-    not one.
+    not one. titled (the last table of a grid) also ends at a TOTAL row or a footer title.
     """
     ckt = _ckt_cols(keys)
     for j in range(head + 1, k + 1):
-        if _is_short_block_line(ctx, grid[j]) or (titled and _is_title_after_blank(grid, j)):
+        if _is_short_block_line(ctx, grid[j]) or (
+            titled and _ends_last_table(ctx, grid, head, j, keys, ckt)
+        ):
             return _walk_up(ctx, grid, head, j - 1, keys, ckt)
     return _walk_up(ctx, grid, head, k, keys, ckt)
 
 
-def _is_title_after_blank(grid: list[list[str]], j: int) -> bool:
-    """A lone text cell ("Notes:", "Page 2 of 2") under a blank line, below the last table."""
+def _ends_last_table(
+    ctx: _Ctx, grid: list[list[str]], head: int, j: int, keys: list[str | None], ckt: list[int]
+) -> bool:
+    """A TOTAL row, or a lone text cell ("Notes:", "Page 2 of 2") that follows a blank line or a
+    non-circuit line, or ends in a colon, below the last table."""
     cells = [c.strip() for c in grid[j] if c.strip()]
-    return (
+    if cells and _TOTAL_ROW.fullmatch(cells[0]):
+        return True
+    if not (
         len(cells) == 1
         and any(ch.isalpha() for ch in cells[0])
         and not re.fullmatch(r"\d+[A-Za-z]", cells[0])
-        and not any(c.strip() for c in grid[j - 1])
+    ):
+        return False
+    above = grid[j - 1]
+    return (
+        cells[0].endswith(":")
+        or not any(c.strip() for c in above)
+        or (j - 1 > head and not _is_circuit_row(ctx, above, keys, ckt, _near(grid, j - 1)))
     )
 
 
@@ -830,6 +857,7 @@ def rows_to_panels(
         return out
     cols = [[_Col(i, c.strip(), ctx.match(c)) for i, c in enumerate(grid[h])] for h in heads]
     starts, ends = [0], []
+    gap_cut: set[int] = set()
     for n in range(1, len(heads)):
         keys = [c.hit.key for c in cols[n - 1]]
         k = _last_row(ctx, grid, heads[n - 1], heads[n] - 1, keys)
@@ -844,6 +872,16 @@ def rows_to_panels(
             for j in range(k + 1, named_at)
             if _ambiguous_key_line(ctx, grid[j], keys, _near(grid, j))
         }
+        ckt_k = _ckt_cols(keys)
+        # A circuit-like row cut above the next block (a long or date circuit cell) is listed
+        # by that block; the table above is not whole.
+        if any(
+            j not in ctx.ambiguous
+            and _is_circuit_row(ctx, grid[j], keys, ckt_k, _near(grid, j), any_len=True)
+            and sum(1 for c in grid[j] if c.strip()) > 1
+            for j in range(k + 1, named_at)
+        ):
+            gap_cut.add(n - 1)
     keys = [c.hit.key for c in cols[-1]]
     # With no circuit column nothing can be told from a circuit row: the table keeps every row.
     last = len(grid) - 1
@@ -851,17 +889,25 @@ def rows_to_panels(
         last = _last_row(ctx, grid, heads[-1], last, keys, titled=True)
     ends.append(last + 1)
     for n, h in enumerate(heads):
-        if n == len(heads) - 1:
-            first_panel = len(out.panels)
+        above, before = ctx.last_panel or ctx.pcol_panel, len(out.panels)
         _table(ctx, grid, h, cols[n], starts[n], ends[n])
+        if n in gap_cut:
+            for panel in out.panels[before:] or [above]:
+                if panel:
+                    _mark_incomplete(panel, _BELOW_NOTE)
     ckt = _ckt_cols(keys)
-    cut_circuit = False
+    cut_circuit = cut_any = False
     for j in range(last + 1, len(grid)):
         if text := ", ".join(c.strip() for c in grid[j] if c.strip()):
             ctx.unp("row", text, "no circuit number", locate(j))
-            cut_circuit |= _is_circuit_row(ctx, grid[j], keys, ckt, _near(grid, j))
-    if cut_circuit:
-        # A cut row that looks like a circuit may belong to the panel: it is not whole.
-        for panel in out.panels[first_panel:]:
+            cut_any = True
+            cut_circuit |= _is_circuit_row(ctx, grid[j], keys, ckt, _near(grid, j), any_len=True)
+    # A cut row that looks like a circuit may belong to the panel: it is not whole. A last
+    # table cut back to its header makes no panel, and its rows may continue the one above.
+    made = out.panels[before:]
+    if made and cut_circuit:
+        for panel in made:
             _mark_incomplete(panel, _BELOW_NOTE)
+    elif not made and cut_any and above:
+        _mark_incomplete(above, _BELOW_NOTE)
     return out
