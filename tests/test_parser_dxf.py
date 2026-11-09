@@ -153,11 +153,9 @@ def test_field_table_plugin_vs_fallback(test_cfg):
         for k, va in values(ca).items():
             vb = values(cb)[k]
             assert (va.value, va.raw) == (vb.value, vb.raw)
-            if k == "load_va":
-                assert va.confidence == Confidence.HIGH
-                assert vb.confidence == Confidence.LOW
-            else:
-                assert va.confidence == vb.confidence
+            if va.source:
+                assert va.confidence > Confidence.LOW
+                assert vb.confidence == Confidence.LOW  # D4: every fallback cell is not evaluated
 
 
 def test_dwg_fixture_counts(test_cfg):
@@ -442,3 +440,10 @@ def test_loose_title_without_digit_is_not_split(test_cfg):
     out = dxf.parse_rawdrawing(d, test_cfg)
     assert out.panels == [] or all(p.name != "SCHEDULE" for p in out.panels)
     assert any(u.raw == "LIGHTING PANEL SCHEDULE" for u in out.unparsed)
+
+
+def test_table_render_block_text_is_not_read_again(test_cfg):
+    d = drawing(loose(layout="block:*T2") + [table(schedule())])
+    out = dxf.parse_rawdrawing(d, test_cfg)
+    assert not any("block:*T" in c.source.locator for p in out.panels for c in p.circuits)
+    assert "texts in table render blocks not read twice" in out.coverage[-1].what_read
