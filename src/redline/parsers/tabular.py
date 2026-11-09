@@ -554,7 +554,7 @@ def _table(
             if ccol is None:
                 continue
             pcol = half.cols.get("panel_name") or shared
-            number = _cell(cells, ccol.i)
+            number = _FLOAT_ZERO.sub("", _cell(cells, ccol.i))
             span = [
                 cells[i].strip()
                 for i in range(half.lo, min(half.hi, len(cells)))
@@ -622,7 +622,8 @@ def _table(
 
 
 _CKT_TEXT_MAX = 12
-_NUM = r"[0-9]+[A-Za-z]?"
+# A trailing ".0" is how pandas writes an integer column; the digits are the number.
+_NUM = r"[0-9]+(?:\.0)?[A-Za-z]?"
 _BARE_NUMBER = re.compile(_NUM)
 # Circuit shape: 7, 7A, a list (2,4,6 / 2/4/6), a range (1-3), or a label run into digits (CB1).
 _SHAPE = re.compile(
@@ -671,11 +672,38 @@ def _block_line(
     return filled <= 2 and not (at < len(keys) and keys[at] not in (None, "panel_name"))
 
 
-def _shaped_row(row: list[str], ckt: list[int]) -> int:
+_FLOAT_ZERO = re.compile(r"(?<=[0-9])\.0(?![0-9])")
+_LABEL = re.compile(r"([A-Za-z]{1,4})[0-9]+[A-Za-z]?")
+_TOTAL = re.compile(
+    r"(?:(?:grand\s+|sub[-\s]?)?totals?(?:\s+(?:connected\s+)?load|\s+demand)?"
+    r"|(?:connected|demand)\s+load)\s*:?",
+    re.IGNORECASE,
+)
+
+
+def _label_prefixes(row: list[str], ckt: list[int]) -> set[str]:
+    cells = (_LABEL.fullmatch(t) for t in _circuit_cells(row, ckt) if len(t) <= _CKT_TEXT_MAX)
+    return {m[1].lower() for m in cells if m}
+
+
+def _shaped_row(row: list[str], ckt: list[int], above: list[str] | None = None) -> int:
     """The whitelist (RV85): a circuit cell of circuit shape and another cell filled. Returns the
-    number of filled cells, or 0 when the row does not pass. ckt is the circuit column indexes."""
-    filled = sum(1 for c in row if c.strip())
-    return filled if any(_shaped(t, filled > 1) for t in _circuit_cells(row, ckt)) else 0
+    number of filled cells, or 0 when the row does not pass. ckt is the circuit column indexes.
+    A TOTAL-like first cell never passes (RV90). With above (the row just over this one, blank
+    lines not skipped), a letter-label cell ("CB2") counts only when above holds the same letters
+    ("CB1"), so a panel title like "LP2,225A" between tables is not a circuit (RV89)."""
+    cells = [c.strip() for c in row if c.strip()]
+    filled = len(cells)
+    if cells and len(cells[0]) <= _CKT_TEXT_MAX * 4 and _TOTAL.fullmatch(cells[0]):
+        return 0
+    seen = _label_prefixes(above, ckt) if above is not None else None
+    for t in _circuit_cells(row, ckt):
+        if not _shaped(t, filled > 1):
+            continue
+        m = _LABEL.fullmatch(t)
+        if seen is None or not m or m[1].lower() in seen:
+            return filled
+    return 0
 
 
 def _is_circuit_row(
@@ -699,12 +727,13 @@ def _looks_like_circuit(
     near: tuple[list[str], list[str]],
 ) -> bool:
     """A line cut from a table that may have been a circuit: its circuit cell holds a digit, at
-    any length (an Excel date, "2,4,6 (3 pole)", "LP-2"). A lone cell must be a bare number."""
+    any length (an Excel date, "2,4,6 (3 pole)", "LP-2"). A lone cell must not hold letters, unless it is a bare number."""
     cells = _circuit_cells(row, ckt)
     if not any(ch in "0123456789" for t in cells for ch in t):
         return False
     filled = sum(1 for c in row if c.strip())
-    if filled == 1 and not any(_BARE_NUMBER.fullmatch(t) for t in cells):
+    letters = any(ch.isalpha() for t in cells for ch in t)
+    if filled == 1 and letters and not any(_BARE_NUMBER.fullmatch(t) for t in cells):
         return False
     return not _block_line(ctx, row, keys, filled, near)
 
@@ -804,7 +833,7 @@ def _table_end(
     for j in range(head + 1, limit + 1):
         if not any(c.strip() for c in grid[j]):
             continue
-        filled = _shaped_row(grid[j], ckt)
+        filled = _shaped_row(grid[j], ckt, None if j - 1 == head else grid[j - 1])
         # A number alone is an empty position only directly under the header or a circuit row.
         lone = filled == 1 and j - 1 != head and not _shaped_row(grid[j - 1], ckt)
         if not filled or lone or _is_short_block_line(ctx, grid[j]):
