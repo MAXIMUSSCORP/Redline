@@ -223,11 +223,37 @@ def _check_ai(ai: dict[str, Any]) -> None:
                 )
 
 
+def _check_column_maps(cm: dict[str, Any]) -> None:
+    for key in ("csv_panel_schedule", "panel_header_block"):
+        m = cm.get(key)
+        if not isinstance(m, dict) or not all(
+            isinstance(k, str)
+            and isinstance(v, list)
+            and all(isinstance(a, str) and a.strip() for a in v)
+            for k, v in m.items()
+        ):
+            raise ConfigError(
+                f"column_maps.yaml: {key} must map names to lists of non-empty strings"
+            )
+    two = cm.get("two_column_layout")
+    if not isinstance(two, dict) or not isinstance(two.get("detect_when_headers_repeat"), bool):
+        raise ConfigError(
+            "column_maps.yaml: two_column_layout.detect_when_headers_repeat must be true or false"
+        )
+    parsing = cm.get("parsing")
+    n = parsing.get("min_header_alias_matches") if isinstance(parsing, dict) else None
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+        raise ConfigError(
+            "column_maps.yaml: parsing.min_header_alias_matches must be an integer of 1 or more"
+        )
+
+
 def load_config(config_dir: str | Path) -> Config:
     d = Path(config_dir)
     docs = {f: _read(d / f) for f in CONFIG_FILES}
     _check_cec(docs["cec_tables.yaml"])
     _check_ai(docs["ai.yaml"])
+    _check_column_maps(docs["column_maps.yaml"])
     return Config(
         dir=d,
         cec=docs["cec_tables.yaml"],

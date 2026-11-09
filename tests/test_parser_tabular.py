@@ -1,0 +1,3121 @@
+import copy
+import time
+from dataclasses import replace
+
+import pytest
+
+from redline.model import Confidence, Method, is_mlo
+from redline.parsers.tabular import normalize_header, rows_to_panels
+
+# A fixed copy of the first alias map, so these tests hold when the shipped map grows.
+M0_SCHEDULE = {
+    "panel_name": ["panel", "panel name", "panel id", "pnl"],
+    "circuit_number": ["ckt", "cct", "circuit", "circuit no", "circuit #"],
+    "poles": ["poles", "pole", "p"],
+    "breaker_a": ["breaker", "bkr", "trip", "amps", "ocpd"],
+    "conductor_size": ["wire", "wire size", "conductor", "cable"],
+    "conductor_material": ["material", "cu/al"],
+    "insulation_temp_c": ["insulation", "temp rating", "wire temp"],
+    "length_m": ["length", "run length", "distance"],
+    "load_va": ["load", "load va", "connected load", "va"],
+    "load_kva": ["kva", "load kva"],
+    "load_type": ["load type", "type", "continuous"],
+    "description": ["description", "load description", "served", "desc"],
+    "phase": ["phase", "ph"],
+}
+
+
+def cfg_with(cfg, schedule=None, detect=None):
+    maps = copy.deepcopy(cfg.column_maps)
+    maps["csv_panel_schedule"] = copy.deepcopy(schedule or M0_SCHEDULE)
+    if detect is not None:
+        maps["two_column_layout"]["detect_when_headers_repeat"] = detect
+    return replace(cfg, column_maps=maps)
+
+
+def parse(rows, cfg, **kw):
+    return rows_to_panels(
+        rows, cfg, file="t.csv", method=Method.CSV, locate=lambda i: f"row={i + 1}", **kw
+    )
+
+
+HEAD = ["Panel", "Ckt", "Description", "Load VA", "Breaker", "Wire", "Poles"]
+
+
+@pytest.fixture
+def cfg(test_cfg):
+    return cfg_with(test_cfg)
+
+
+def cell(cfg, header, text):
+    """One circuit whose only unknown is the cell under test."""
+    rows = [["Panel", "Ckt", "Description", header], ["LP-1", "1", "d", text]]
+    parsed = parse(rows, cfg)
+    return parsed, parsed.panels[0].circuits[0]
+
+
+def test_normalize_header_lowers_and_collapses():
+    assert normalize_header("  Wire\tSz. ") == "wire sz"
+    assert normalize_header("Load (VA)") == "load va"
+    assert normalize_header("Circuit #") == "circuit"
+
+
+def test_exact_alias_is_high(cfg):
+    _, c = cell(cfg, "Breaker", "20")
+    assert c.breaker_a.value == 20.0
+    assert c.breaker_a.confidence is Confidence.HIGH
+    assert c.source.confidence is Confidence.HIGH
+
+
+def test_token_set_unique_is_medium(cfg):
+    _, c = cell(cfg, "Breaker Rating", "20")
+    assert c.breaker_a.value == 20.0
+    assert c.breaker_a.confidence is Confidence.MEDIUM
+    assert "'breaker'" in c.breaker_a.source.note
+
+
+def test_token_set_ambiguous_unparsed(cfg):
+    parsed, c = cell(cfg, "Wire Load", "12 AWG")
+    (col,) = [u for u in parsed.unparsed if u.kind == "column"]
+    assert col.raw == "Wire Load"
+    assert "more than one field" in col.reason
+    assert c.conductor_size.source is None
+    assert c.load_va.source is None
+
+
+def test_two_columns_one_field_take_neither(test_cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Breaker", "Bkr"],
+        ["LP-1", "1", "d", "20", "15"],
+    ]
+    for detect in (False, True):
+        parsed = parse(rows, cfg_with(test_cfg, detect=detect))
+        cols = {u.raw: u.reason for u in parsed.unparsed if u.kind == "column"}
+        assert set(cols) == {"Breaker", "Bkr"}
+        assert all("'Breaker' and 'Bkr'" in r for r in cols.values())
+        assert parsed.panels[0].circuits[0].breaker_a.source is None
+
+
+def test_load_va_wins_over_kva_column(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "kVA"],
+        ["LP-1", "1", "d", "1500", "9"],
+    ]
+    parsed = parse(rows, cfg)
+    assert parsed.panels[0].circuits[0].load_va.value == 1500.0
+    (col,) = [u for u in parsed.unparsed if u.kind == "column"]
+    assert (col.raw, col.reason) == ("kVA", "load already read from Load VA")
+
+
+def test_unknown_key_unparsed(test_cfg):
+    cfg = cfg_with(test_cfg, schedule={**M0_SCHEDULE, "bogus": ["zeta"]})
+    parsed, _ = cell(cfg, "Zeta", "5")
+    (col,) = [u for u in parsed.unparsed if u.kind == "column"]
+    assert col.raw == "Zeta"
+    assert "key bogus is not a known field" in col.reason
+
+
+def test_bad_number_is_low(cfg):
+    _, c = cell(cfg, "Breaker", "abc")
+    assert c.breaker_a.value is None
+    assert c.breaker_a.confidence is Confidence.LOW
+    assert c.breaker_a.raw == "abc"
+    _, c = cell(cfg, "Breaker", "1,80")
+    assert c.breaker_a.confidence is Confidence.LOW
+    assert "thousands" in c.breaker_a.source.note
+
+
+def test_placeholder_is_low(cfg):
+    _, c = cell(cfg, "Load VA", "tbd")
+    assert (c.load_va.value, c.load_va.confidence) == (None, Confidence.LOW)
+    assert c.load_va.source.note == "placeholder text"
+    assert c.load_va.raw == "tbd"
+
+
+def test_blank_cell_is_missing(cfg):
+    _, c = cell(cfg, "Breaker", "")
+    assert c.breaker_a.value is None
+    assert c.breaker_a.confidence is Confidence.MISSING
+    assert c.breaker_a.source.note == "blank cell"
+    assert c.breaker_a.raw == ""
+    assert c.breaker_a.source.locator == "row=2; col=Breaker"
+
+
+def test_unit_suffix_read(cfg):
+    assert cell(cfg, "Breaker", "20 A")[1].breaker_a.value == 20.0
+    assert cell(cfg, "Breaker", "20a")[1].breaker_a.value == 20.0
+    assert cell(cfg, "Length", "30 m")[1].length_m.value == 30.0
+    assert cell(cfg, "Insulation", "75 C")[1].insulation_temp_c.value == 75
+    assert cell(cfg, "Insulation", "75°C")[1].insulation_temp_c.value == 75
+    assert cell(cfg, "Load VA", "1800 VA")[1].load_va.value == 1800.0
+
+
+def test_wrong_unit_is_low(cfg):
+    _, c = cell(cfg, "Length", "30 ft")
+    assert (c.length_m.value, c.length_m.confidence) == (None, Confidence.LOW)
+    assert c.length_m.source.note == "unit ft not read"
+    assert c.length_m.raw == "30 ft"
+
+
+def test_thousands_separator(cfg):
+    _, c = cell(cfg, "Load VA", "1,800")
+    assert (c.load_va.value, c.load_va.confidence) == (1800.0, Confidence.HIGH)
+    assert cell(cfg, "Load VA", "12,34")[1].load_va.confidence is Confidence.LOW
+
+
+def test_kva_is_derived(cfg):
+    _, c = cell(cfg, "Load VA", "1.8 kVA")
+    assert c.load_va.value == 1800.0
+    assert c.load_va.source.method is Method.DERIVED
+    assert c.load_va.raw == "1.8 kVA"
+    _, c = cell(cfg, "kVA", "2.5")
+    assert (c.load_va.value, c.load_va.source.method) == (2500.0, Method.DERIVED)
+
+
+def test_kw_needs_power_factor(cfg, cfg_set):
+    _, c = cell(cfg, "Load VA", "2 kW")
+    assert c.load_va.value == 2000.0
+    assert c.load_va.source.method is Method.DERIVED
+    assert c.load_va.confidence is Confidence.MEDIUM
+    no_pf = cfg_set(cfg, ("defaults", "power_factor"), None)
+    _, c = cell(no_pf, "Load VA", "2 kW")
+    assert (c.load_va.value, c.load_va.confidence) == (None, Confidence.LOW)
+    assert "power factor" in c.load_va.source.note
+    assert c.load_va.raw == "2 kW"
+
+
+def test_slash_voltage(test_cfg):
+    cfg = cfg_with(test_cfg, schedule={**M0_SCHEDULE, "voltage_v": ["voltage"]})
+    rows = [
+        ["Panel", "LP-3"],
+        ["Voltage", "120/208"],
+        ["Ckt", "Description", "Breaker"],
+        ["1", "a", "20"],
+    ]
+    (panel,) = parse(rows, cfg).panels
+    assert panel.voltage_v.value == 208.0
+    assert panel.voltage_v.confidence is Confidence.MEDIUM
+    assert panel.voltage_v.source.note == "line-to-line from a/b"
+    assert cell(cfg, "Voltage", "120 V")[1].voltage_v.value == 120.0
+
+
+def test_mlo_main_breaker(cfg):
+    rows = [["Panel", "LP-3"], ["Main", "MLO"], ["Ckt", "Description", "Breaker"], ["1", "a", "20"]]
+    (panel,) = parse(rows, cfg).panels
+    assert is_mlo(panel)
+    assert panel.main_breaker_a.raw == "MLO"
+    rows[1] = ["Main", "100 A"]
+    (panel,) = parse(rows, cfg).panels
+    assert (panel.main_breaker_a.value, is_mlo(panel)) == (100.0, False)
+
+
+def test_check_value_applied(cfg):
+    _, c = cell(cfg, "Poles", "5")
+    assert (c.poles.value, c.poles.confidence) == (5, Confidence.LOW)
+    assert "poles not 1, 2 or 3" in c.poles.source.note
+    _, c = cell(cfg, "Load Type", "Widget")
+    assert c.load_type.value == "widget"
+    assert c.load_type.confidence is Confidence.LOW
+    assert cell(cfg, "Load Type", "Continuous")[1].load_type.confidence is Confidence.HIGH
+
+
+def test_bare_wire_size_is_low(cfg):
+    assert cell(cfg, "Wire", "12")[1].conductor_size.confidence is Confidence.LOW
+    _, c = cell(cfg, "Wire", "#12")
+    assert (c.conductor_size.value, c.conductor_size.confidence) == ("12 AWG", Confidence.HIGH)
+
+
+def test_material_and_phase_text_fields(cfg):
+    assert cell(cfg, "Material", "copper")[1].conductor_material.value == "Cu"
+    assert cell(cfg, "Material", "Aluminium")[1].conductor_material.value == "Al"
+    assert cell(cfg, "Material", "steel")[1].conductor_material.confidence is Confidence.LOW
+    assert cell(cfg, "Phase", "A-B")[1].phases_used.value == "AB"
+    assert cell(cfg, "Phase", "X")[1].phases_used.confidence is Confidence.LOW
+
+
+def test_integer_field_refuses_a_fraction(cfg):
+    _, c = cell(cfg, "Poles", "2.5")
+    assert (c.poles.value, c.poles.confidence) == (None, Confidence.LOW)
+    assert cell(cfg, "Poles", "2.0")[1].poles.value == 2
+
+
+def test_spare_keyword_whole_cell(cfg):
+    rows = [HEAD] + [
+        ["LP-1", str(i), d, "", "", "", ""]
+        for i, d in enumerate(["SPARE", "space", "Spare room lights", "  Spare  "], 1)
+    ]
+    flags = [c.is_spare for c in parse(rows, cfg).panels[0].circuits]
+    assert flags == [True, True, False, True]
+
+
+def test_spare_load_type(cfg):
+    rows = [["Panel", "Ckt", "Description", "Load Type"], ["LP-1", "1", "unused", "spare"]]
+    assert parse(rows, cfg).panels[0].circuits[0].is_spare is True
+    rows[1][3] = "motor"
+    assert parse(rows, cfg).panels[0].circuits[0].is_spare is False
+
+
+def test_header_block_names_panel(cfg):
+    rows = [
+        ["Panel", "LP-3"],
+        ["Voltage", "120/208"],
+        ["Phases", "3"],
+        [],
+        ["Ckt", "Description", "Breaker"],
+        ["1", "a", "20"],
+    ]
+    parsed = parse(rows, cfg)
+    (panel,) = parsed.panels
+    assert panel.name == "LP-3"
+    assert panel.source.confidence is Confidence.HIGH
+    assert panel.source.locator == "row=1"
+    assert (panel.voltage_v.value, panel.phases.value) == (208.0, 3)
+    assert panel.circuits[0].panel == "LP-3"
+    assert parsed.unparsed == []
+
+
+def test_header_block_colon_pair(cfg):
+    rows = [["Panel: LP-9"], ["Ckt", "Description", "Breaker"], ["1", "a", "20"]]
+    assert parse(rows, cfg).panels[0].name == "LP-9"
+
+
+def test_fallback_panel_is_medium(cfg):
+    rows = [["Ckt", "Description", "Breaker"], ["1", "a", "20"]]
+    (panel,) = parse(rows, cfg, fallback_panel="Sheet A").panels
+    assert panel.name == "Sheet A"
+    assert panel.source.confidence is Confidence.MEDIUM
+    assert panel.source.note == "panel name from sheet name"
+
+
+def test_no_panel_name_rows_unparsed(cfg):
+    rows = [["Ckt", "Description", "Breaker"], ["1", "a", "20"], ["2", "b", "20"]]
+    parsed = parse(rows, cfg)
+    assert parsed.panels == []
+    assert [(u.kind, u.reason) for u in parsed.unparsed] == [("row", "no panel name")] * 2
+
+
+def test_multi_panel_split(cfg):
+    rows = [
+        HEAD,
+        ["LP-2", "1", "a", "", "", "", ""],
+        ["LP-1", "1", "b", "", "", "", ""],
+        ["LP-2", "2", "c", "", "", "", ""],
+        ["", "3", "d", "", "", "", ""],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-2", ["1", "2"]),
+        ("LP-1", ["1"]),
+    ]
+    (row,) = [u for u in parsed.unparsed if u.kind == "row"]
+    assert row.reason == "no panel name"
+    assert row.source.locator == "row=5"
+
+
+def test_stacked_tables_split(cfg):
+    head = ["Ckt", "Description", "Breaker"]
+    rows = [
+        ["Panel", "LP-A"],
+        head,
+        ["1", "a", "20"],
+        ["2", "b", "20"],
+        [""],
+        ["Panel", "LP-B"],
+        head,
+        ["1", "c", "15"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-A", ["1", "2"]),
+        ("LP-B", ["1"]),
+    ]
+    assert parsed.panels[1].circuits[0].breaker_a.value == 15.0
+    assert parsed.unparsed == []
+
+
+def test_row_without_circuit_number_unparsed(cfg):
+    rows = [HEAD, ["LP-1", "1", "a", "", "", "", ""], ["LP-1", "", "TOTAL", "5000", "", "", ""]]
+    parsed = parse(rows, cfg)
+    assert len(parsed.panels[0].circuits) == 1
+    (row,) = [u for u in parsed.unparsed if u.kind == "row"]
+    assert (row.reason, row.source.locator) == ("no circuit number", "row=3")
+    assert "TOTAL" in row.raw
+
+
+def test_title_rows_unparsed(cfg):
+    rows = [["Electrical Circuits Schedule"], [""], HEAD, ["LP-1", "1", "a", "", "", "", ""]]
+    parsed = parse(rows, cfg)
+    (row,) = [u for u in parsed.unparsed if u.kind == "row"]
+    assert (row.raw, row.source.locator) == ("Electrical Circuits Schedule", "row=1")
+    assert len(parsed.panels[0].circuits) == 1
+
+
+def test_repeated_header_row(cfg):
+    rows = [
+        HEAD,
+        ["LP-1", "1", "a", "", "", "", ""],
+        ["LP-1", "2", "b", "", "", "", ""],
+        HEAD,
+        ["LP-1", "3", "c", "", "", "", ""],
+    ]
+    parsed = parse(rows, cfg)
+    assert [[c.number for c in p.circuits] for p in parsed.panels] == [["1", "2"], ["3"]]
+    assert parsed.unparsed == []
+
+
+def test_coverage_entry_per_panel(cfg):
+    rows = [
+        HEAD,
+        ["LP-1", "1", "a", "100", "20", "12 AWG", "1"],
+        ["LP-1", "2", "b", "", "20", "12", "1"],
+        ["LP-2", "1", "c", "100", "20", "12 AWG", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [c.unit for c in parsed.coverage] == ["LP-1", "LP-2"]
+    first = parsed.coverage[0]
+    assert first.file == "t.csv"
+    assert first.method == "csv"
+    assert first.what_read.startswith("2 circuits read; 7 of 7 columns mapped")
+    assert first.confidence_summary == "HIGH 8, MEDIUM 0, LOW 1, MISSING 1"
+
+
+def test_no_header_row_gives_table_and_columns(cfg):
+    parsed = parse([[], ["alpha", "", "beta"], ["1", "2", "3"]], cfg)
+    assert parsed.panels == []
+    kinds = [(u.kind, u.raw) for u in parsed.unparsed]
+    assert kinds == [("table", "alpha, beta"), ("column", "alpha"), ("column", "beta")]
+
+
+def test_blank_header_over_data_is_unparsed(cfg):
+    rows = [["Panel", "Ckt", "Description", "", ""], ["LP-1", "1", "a", "x", ""]]
+    parsed = parse(rows, cfg)
+    (col,) = [u for u in parsed.unparsed if u.kind == "column"]
+    assert (col.raw, col.source.locator) == ("", "row=1; col=#4")
+
+
+def test_ragged_and_none_cells_do_not_raise(cfg):
+    rows = [["Panel", "Ckt", "Description", "Breaker"], ["LP-1", "1"], ["LP-1", "2", None, 20]]
+    circuits = parse(rows, cfg).panels[0].circuits
+    assert circuits[0].breaker_a.confidence is Confidence.MISSING
+    assert circuits[1].breaker_a.value == 20.0
+
+
+def _hdr_cell(cfg, header, text):
+    return cell(cfg, header, text)[1]
+
+
+def test_header_unit_kw_not_read_as_va(cfg):
+    c = _hdr_cell(cfg, "Load (kW)", "2.3")
+    assert c.load_va.value is None
+    assert c.load_va.confidence == Confidence.LOW
+    assert "header unit KW not read" in c.load_va.source.note
+    ok = _hdr_cell(cfg, "Load (kVA)", "2.3")
+    assert ok.load_va.value == pytest.approx(2300.0)
+
+
+def test_header_unit_ft_not_read_as_m(cfg):
+    for header, fld in (("Length (ft)", "length_m"), ("Ambient (F)", "ambient_c")):
+        sched = {**M0_SCHEDULE, "ambient_c": ["ambient"]}
+        rows = [["Panel", "Ckt", "Description", header], ["LP-1", "1", "d", "30"]]
+        v = getattr(parse(rows, cfg_with(cfg, sched)).panels[0].circuits[0], fld)
+        assert v.value is None and v.confidence == Confidence.LOW
+        assert "not read" in v.source.note
+
+
+def test_data_row_with_alias_words_is_not_a_header(cfg):
+    rows = [
+        HEAD,
+        ["LP-1", "1", "Lights", "1000", "20", "12", "1"],
+        ["LP-1", "2", "Load bank", "1000", "continuous", "20", "breaker locked"],
+        ["LP-1", "3", "Pump", "1000", "20", "12", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    nums = [c.number for p in parsed.panels for c in p.circuits]
+    assert nums == ["1", "2", "3"]
+
+
+def test_panel_name_like_block_key_keeps_table_rows(cfg):
+    head = ["Panel", "Ckt", "Description", "Load VA", "Breaker"]
+    rows = [
+        head,
+        ["Panel A", "1", "a", "100", "20"],
+        ["Panel A", "3", "c", "100", "20"],
+        head,
+        ["Panel A", "2", "b", "100", "20"],
+    ]
+    parsed = parse(rows, cfg)
+    nums = sorted(c.number for p in parsed.panels for c in p.circuits)
+    assert nums == ["1", "2", "3"]
+
+
+def test_ab_voltage_one_pole_circuit_not_line_to_line(cfg):
+    sched = {**M0_SCHEDULE, "voltage_v": ["voltage", "volts"]}
+    rows = [["Panel", "Ckt", "Description", "Voltage"], ["LP-1", "1", "d", "120/208"]]
+    v = parse(rows, cfg_with(cfg, sched)).panels[0].circuits[0].voltage_v
+    assert v.value is None and v.confidence == Confidence.LOW
+    assert "a/b voltage" in v.source.note
+
+
+def test_block_panel_name_with_panel_column_listed(cfg):
+    rows = [
+        ["Panel", "LP-9"],
+        ["Voltage", "208"],
+        ["Panel", "Ckt", "Description", "Load VA"],
+        ["LP-1", "1", "d", "100"],
+    ]
+    parsed = parse(rows, cfg)
+    assert any("panel name in header block not used" in u.reason for u in parsed.unparsed)
+    assert [p.name for p in parsed.panels] == ["LP-1"]
+
+
+def test_unicode_digits_are_low(cfg):
+    assert _hdr_cell(cfg, "Load VA", "١٢").load_va.value is None
+    assert _hdr_cell(cfg, "Load VA", "١٢").load_va.confidence == Confidence.LOW
+    c = _hdr_cell(cfg, "Poles", "１")
+    assert c.poles.value is None and c.poles.confidence == Confidence.LOW
+
+
+def test_tabular_wide_row_stays_linear(cfg):
+    import time
+
+    rows = [["panel", "ckt", "breaker", "load va", "description"]]
+    rows.append(["LP-1", "0", "20", "100", "x"] + [""] * 99995 + ["wide"])
+    rows += [["LP-1", str(i), "20", "100", "d"] for i in range(1, 4001)]
+    t0 = time.perf_counter()
+    parsed = parse(rows, cfg)
+    assert time.perf_counter() - t0 < 5
+    assert len(parsed.panels[0].circuits) == 4001
+
+
+def test_later_table_without_circuit_column_stays_separate(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["LP-1", "1", "Lights", "1000", "20"],
+        [],
+        ["Panel", "Description", "Load VA", "Breaker"],
+        ["LP-2", "Heater", "3000", "30"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [p.name for p in parsed.panels] == ["LP-1"]
+    circuits = parsed.panels[0].circuits
+    assert [c.number for c in circuits] == ["1"]
+    assert circuits[0].load_va.value == 1000.0 and circuits[0].breaker_a.value == 20.0
+    assert any("Heater" in u.raw for u in parsed.unparsed)
+
+
+def test_header_unit_amps_not_read_as_va(cfg):
+    sched = {**M0_SCHEDULE, "voltage_v": ["voltage"]}
+    for header, fld in (
+        ("Load (A)", "load_va"),
+        ("Load (MVA)", "load_va"),
+        ("Breaker (kA)", "breaker_a"),
+        ("Voltage (kV)", "voltage_v"),
+    ):
+        rows = [["Panel", "Ckt", "Description", header], ["LP-1", "1", "d", "22"]]
+        v = getattr(parse(rows, cfg_with(cfg, sched)).panels[0].circuits[0], fld)
+        assert v.value is None and v.confidence == Confidence.LOW, header
+        assert "header unit" in v.source.note, header
+
+
+def test_header_unit_own_unit_still_read(cfg):
+    sched = {
+        **M0_SCHEDULE,
+        "voltage_v": ["voltage"],
+        "ambient_c": ["ambient"],
+    }
+    for header, fld, text, want in (
+        ("Breaker (A)", "breaker_a", "20", 20.0),
+        ("Voltage (V)", "voltage_v", "208", 208.0),
+        ("Length (m)", "length_m", "30", 30.0),
+        ("Ambient (C)", "ambient_c", "30", 30),
+        ("Load (VA)", "load_va", "1000", 1000.0),
+        ("Load (kVA)", "load_va", "1.5", 1500.0),
+    ):
+        rows = [["Panel", "Ckt", "Description", header], ["LP-1", "1", "d", text]]
+        v = getattr(parse(rows, cfg_with(cfg, sched)).panels[0].circuits[0], fld)
+        assert v.value == pytest.approx(want), header
+        assert v.confidence != Confidence.LOW, header
+
+
+def test_word_matched_block_line_not_a_circuit(cfg):
+    head = ["Panel", "Ckt", "Description", "Load VA", "Breaker"]
+    rows = [
+        head,
+        ["LP-1", "1", "a", "100", "20"],
+        ["Bus Rating (A)", "225"],
+        head,
+        ["LP-2", "1", "b", "100", "20"],
+    ]
+    parsed = parse(rows, cfg)
+    assert sorted(p.name for p in parsed.panels) == ["LP-1", "LP-2"]
+    assert all(c.number == "1" for p in parsed.panels for c in p.circuits)
+
+
+def test_word_matched_description_last_row_stays_circuit(cfg):
+    head = ["Description", "Ckt", "Breaker", "Poles"]
+    for desc, tail in (("Panel LP-2 feeder", "3"), ("Main lobby lights", "3")):
+        rows = [
+            ["Panel", "LP-1"],
+            head,
+            ["Lights", "1", "20", "1"],
+            [desc, tail],
+            [],
+            ["Panel", "LP-2"],
+            head,
+            ["Recep", "1", "20", "1"],
+        ]
+        by = {p.name: p for p in parse(rows, cfg).panels}
+        assert sorted(by) == ["LP-1", "LP-2"], desc
+        assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], desc
+        assert [c.number for c in by["LP-2"].circuits] == ["1"], desc
+        assert by["LP-2"].main_breaker_a.value is None, desc
+
+
+_DESC_FIRST = ["Description", "Ckt", "Breaker", "Poles"]
+
+
+@pytest.mark.parametrize("line", [["Main Bkr (A)", "100"], ["Bus Rating (A)", "225"]])
+def test_word_matched_block_line_after_exact_panel_line_desc_first(cfg, line):
+    h = _DESC_FIRST
+    rows = [
+        ["Panel", "LP-1"],
+        h,
+        ["Lights", "1", "20", "1"],
+        [],
+        ["Panel", "LP-2"],
+        line,
+        h,
+        ["Recep", "1", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    by = {p.name: p for p in parsed.panels}
+    assert [c.number for c in by["LP-1"].circuits] == ["1"]
+    assert [c.number for c in by["LP-2"].circuits] == ["1"]
+    p2 = by["LP-2"]
+    assert 100 in (p2.main_breaker_a.value, p2.bus_rating_a.value) or 225 in (
+        p2.main_breaker_a.value,
+        p2.bus_rating_a.value,
+    )
+    assert not [u for u in parsed.unparsed if "no panel name" in u.reason]
+
+
+def test_csv_wide_header_with_many_rows_parses_in_linear_time(cfg):
+    import time
+
+    wide = ["Ckt", "Description", "Breaker"] + [""] * 99997 + ["wide"]
+    for body in (["x", "y", "z"], ["1", "d", "20"]):
+        rows = [wide] + [list(body) for _ in range(5000)] + [wide]
+        t0 = time.perf_counter()
+        parse(rows, cfg)
+        assert time.perf_counter() - t0 < 5
+
+
+# Layout corpus (RV36). Every table shape a review round found, pinned to its expected panels,
+# circuits, header-block values and unparsed rows. A change to the header or block-line
+# heuristic that breaks an earlier shape fails here. "residual" ids pin an accepted limit.
+_D = "Description,Ckt,Breaker,Poles"
+_P = "Panel,Ckt,Description,Breaker"
+_H = "Ckt,Description,Breaker,Poles"
+_H = "Ckt,Description,Breaker,Poles"
+_AMB = "panel row or header block line; not read"
+LAYOUTS = [
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Panel LP-2 feeder,3",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="two_csv_description_last_row_block_words",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Main lobby lights,3",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="two_b_csv_main_lobby_lights_last_row",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Panel,LP-2",
+            "Bus Rating (A),225",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0})],
+        [],
+        id="A_panel_then_word_bus_line",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Bus Rating (A),225",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"], {"incomplete": True}), ("LP-2", ["1"], {})],
+        [("Bus Rating (A), 225", _AMB)],
+        id="B_word_bus_line_above_panel_listed",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "", "Panel,LP-2", "Bus Rating,225", _D, "Recep,1,20,1"],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0})],
+        [],
+        id="C_exact_bus_line_after_panel",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Main: 100", "Panel,LP-2", _D, "Recep,1,20,1"],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"main": 100.0})],
+        [],
+        id="D_main_colon_between",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Panel,LP-2", "Main Bkr (A),100", _D, "Recep,1,20,1"],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"main": 100.0})],
+        [],
+        id="E_main_bkr_word_after_panel_no_gap",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,a,20", "Bus Rating (A),225,A", _P, "LP-2,1,b,20"],
+        [("LP-1", ["1"], {}), ("Bus Rating (A)", ["225"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="F_residual_three_cell_block_line_makes_panel",
+    ),
+    pytest.param(
+        [_P, "Panel A,1,a,20", "Panel A,2", _P, "Panel B,1,b,20"],
+        [("Panel A", ["1"], {}), ("Panel B", ["1"], {})],
+        [("Panel A, 2", "panel name is ambiguous; not read")],
+        id="G_residual_panel_column_word_name_short_last_row_unparsed",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Ckt,Description,Breaker,Poles",
+            "1,Lights,20,1",
+            "3,Panel LP-2 feeder",
+            "",
+            "Panel,LP-2",
+            "Ckt,Description,Breaker,Poles",
+            "1,x,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="H_ckt_first_last_row_block_words",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            ",,,,Bus Rating (A),225",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0})],
+        [],
+        id="I_block_words_beyond_header_first_cell",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Main lobby: lights,3",
+            "Recep,5,20,1",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="J_colon_description_mid_table_two_cells",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Main lobby: lights,3", "Recep,5,20,1"],
+        [("LP-1", ["1", "3", "5"], {})],
+        [],
+        id="J0_colon_description_single_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Room 101: recep,3",
+            "Recep,5,20,1",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="K_room_colon_mid_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Note: spare,3",
+            "Recep,5,20,1",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="L_note_colon_mid_table",
+    ),
+    pytest.param(
+        [_P, "MAIN,1,a,20", "MAIN,2", "MAIN,3,c,20", _P, "LP-2,1,b,20"],
+        [("MAIN", ["1", "2", "3"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="M_panel_column_MAIN_short_row",
+    ),
+    pytest.param(
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Recep,3,20,1", _D, "Fan,5,20,1"],
+        [("LP-1", ["1", "3"], {}), ("LP-1", ["5"], {})],
+        [],
+        id="N_repeated_header_page_break_without_panel_column",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Location,3",
+            "Recep,5,20,1",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="O_exact_key_description_mid_table",
+    ),
+    pytest.param(
+        [_P, "MAIN,1,a,20", "MAIN,3,c,20", _P, "LP-2,1,b,20"],
+        [("MAIN", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="M2_panel_column_MAIN_no_short_row",
+    ),
+    pytest.param(
+        [_P, "LP-2,1,b,20", _P, "MAIN,1,a,20", "MAIN,3,c,20"],
+        [("LP-2", ["1"], {}), ("MAIN", ["1", "3"], {})],
+        [],
+        id="M3_panel_column_MAIN_second_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Voltage,208",
+            "Phases,3",
+            "Bus Rating,100",
+            "Main Breaker,100",
+            "Description,Ckt,Breaker,Poles,Load VA",
+            "Lights,1,20,1,1200",
+            "Room 101: recep,3",
+            "Heater A,5,40,2,9000",
+            "Heater B,7,40,2,9000",
+            "",
+            "Panel,LP-2",
+            "Description,Ckt,Breaker,Poles,Load VA",
+            "Fan,1,20,1,500",
+        ],
+        [
+            ("LP-1", ["1", "3", "5", "7"], {"bus": 100.0, "main": 100.0, "voltage": 208.0}),
+            ("LP-2", ["1"], {}),
+        ],
+        [],
+        id="j2_block_then_colon_row_then_next_panel",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Panel,LP-2",
+            "Main Breaker,100",
+            "Bus Rating,225",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0, "main": 100.0})],
+        [],
+        id="RV25_block_values_stay_with_second_panel",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Panel,LP-2",
+            "Main Bkr (A),100",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"main": 100.0})],
+        [],
+        id="RV31_word_main_after_panel_line",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "",
+            "Panel,LP-2",
+            "Bus Rating (A),225",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {"bus": 225.0})],
+        [],
+        id="RV31_word_bus_after_panel_line",
+    ),
+    pytest.param(
+        [_P, "Panel A,1,a,20", "Panel A,3,c,20", _P, "Panel A,2,b,20"],
+        [("Panel A", ["1", "3"], {}), ("Panel A", ["2"], {})],
+        [],
+        id="RV3_panel_A_name_keeps_rows_across_repeated_header",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-3",
+            "Voltage,208",
+            "Bus Rating,225",
+            "Main Breaker,MLO",
+            "",
+            "Ckt,Description,Breaker",
+            "1,a,20",
+            "3,b,20",
+        ],
+        [("LP-3", ["1", "3"], {"bus": 225.0, "voltage": 208.0})],
+        [],
+        id="header_block_schedule",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,Lights,20", "", "Panel,Description,Breaker", "LP-2,Heater,30"],
+        [("LP-1", ["1"], {})],
+        [("LP-2, Heater, 30", "no circuit number column")],
+        id="later_table_without_circuit_column",
+    ),
+    pytest.param(
+        [
+            "Panel,Ckt,Description,Load VA,Breaker,Wire,Poles",
+            "LP-1,1,Lights,1000,20,12,1",
+            "LP-1,2,Load bank,1000,continuous,20,breaker locked",
+            "LP-1,3,Pump,1000,20,12,1",
+        ],
+        [("LP-1", ["1", "2", "3"], {})],
+        [],
+        id="alias_word_data_row_not_a_header",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-3",
+            "Ckt,Description,Breaker,Ckt,Description,Breaker",
+            "1,a,20,2,b,20",
+            "3,c,20,4,d,20",
+        ],
+        [("LP-3", ["1", "2", "3", "4"], {})],
+        [],
+        id="two_column_layout",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Voltage,208",
+            "",
+            "Ckt,Description,Breaker",
+            "1,a,20",
+            "",
+            "Panel,LP-2",
+            "Voltage,120",
+            "",
+            "Ckt,Description,Breaker",
+            "1,b,20",
+        ],
+        [("LP-1", ["1"], {"voltage": 208.0}), ("LP-2", ["1"], {"voltage": 120.0})],
+        [],
+        id="two_panels_samples_style_block",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Room 101: recep,3",
+            "Recep,5,20,1",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="RV34_room_colon_mid_table_keeps_following_rows",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Main lobby: lights,3",
+            "Recep,5,20,1",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="RV34_main_lobby_colon_keeps_following_rows",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            _D,
+            "Lights,1,20,1",
+            "Location,3",
+            "Recep,5,20,1",
+            "",
+            "Panel,LP-2",
+            _D,
+            "Recep,1,20,1",
+        ],
+        [("LP-1", ["1", "3", "5"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="RV34_exact_location_row_keeps_following_rows",
+    ),
+    pytest.param(
+        [_P, "MAIN,1,a,20", "MAIN,3,c,20", _P, "LP-2,1,b,20"],
+        [("MAIN", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [],
+        id="RV35_panel_named_MAIN_not_block_key",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "",
+            "Bus Rating,225,A",
+            "Panel,LP-2",
+            "Ckt,Description,Breaker,Poles",
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [("Bus Rating, 225, A", _AMB)],
+        id="RV40_bus_rating_three_cells_after_panel_column_table",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "Panel,LP-2,120/208V",
+            "Ckt,Description,Breaker,Poles",
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [("120/208V", "extra cells on a header block line")],
+        id="RV40_panel_line_with_voltage_after_panel_column_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            "Voltage,208",
+            "Ckt,Description,Breaker,Poles",
+            "1,Heat,20,1",
+            "",
+            _P,
+            "LP-2,1,x,20",
+            "",
+            "Ckt,Description,Breaker,Poles",
+            "9,misc,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "voltage": 208.0}), ("LP-2", ["1"], {"incomplete": True})],
+        [("9, misc, 20, 1", "no panel name")],
+        id="RV41_no_inherit_past_panel_column_table_lp1_unmarked_lp2_marked",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            "Ckt,Description,Breaker,Poles",
+            "1,Heat,20,1",
+            "",
+            "Bus Rating,225",
+            "Ckt,Description,Breaker,Poles",
+            "5,misc,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0})],
+        [("Bus Rating, 225", "no panel name"), ("5, misc, 20, 1", "no panel name")],
+        id="RV41_own_block_without_panel_line_does_not_inherit",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "MAIN,1,feeder,400",
+            "",
+            "Panel,LP-2",
+            "Ckt,Description,Breaker,Poles",
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {})],
+        [("MAIN, 1, feeder, 400", _AMB)],
+        id="RV45_single_row_block_key_panel_at_end_then_block_table",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "MAIN,1,feeder,400",
+            "Panel,LP-2",
+            "Ckt,Description,Breaker,Poles",
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {})],
+        [("MAIN, 1, feeder, 400", _AMB)],
+        id="RV45_single_row_block_key_panel_no_blank_line",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", "MAIN,1,feeder,400", "", _P, "LP-2,1,z,20"],
+        [("LP-1", ["1"], {}), ("LP-2", ["1"], {})],
+        [("MAIN, 1, feeder, 400", _AMB)],
+        id="RV45_single_row_block_key_panel_then_panel_column_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            "Ckt,Description,Breaker,Poles",
+            "1,a,20,1",
+            "3,b,20,1",
+            "Panel LP-1 (continued)",
+            "Ckt,Description,Breaker,Poles",
+            "5,c,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0}), ("LP-1", ["5"], {})],
+        [("Panel LP-1 (continued)", "header block key panel_name has no value")],
+        id="RV46_continued_title_line_keeps_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            "Ckt,Description,Breaker,Poles",
+            "1,a,20,1",
+            "",
+            "LP-1 continued",
+            "",
+            "Ckt,Description,Breaker,Poles",
+            "5,c,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-1", ["5"], {})],
+        [("LP-1 continued", "not a header block key: no alias matches")],
+        id="RV46_continued_line_after_blank_keeps_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,a,20,1",
+            "3,b,20,1",
+            "",
+            "(continued)",
+            _H,
+            "5,c,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0}), ("LP-1", ["5"], {})],
+        [("(continued)", "not a header block key: no alias matches")],
+        id="RV56_bare_paren_title_keeps_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,a,20,1",
+            "3,b,20,1",
+            "",
+            "Continued",
+            _H,
+            "5,c,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0}), ("LP-1", ["5"], {})],
+        [("Continued", "not a header block key: no alias matches")],
+        id="RV56_bare_word_title_keeps_inheritance",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus Rating,100", _H, "1,a,20,1", "3,b,20,1", "", "cont'd", _H, "5,c,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0}), ("LP-1", ["5"], {})],
+        [("cont'd", "not a header block key: no alias matches")],
+        id="RV56_bare_contd_title_keeps_inheritance",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus Rating,100", _D, "Lights,1,20,1", "", _D, "Fan,5,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-1", ["5"], {})],
+        [],
+        id="RV39_page_break_part_one_keeps_block_values_part_two_has_none",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", "LP-1,3,y,20", "", "Panel,LP-2,120/208V,3PH", _H, "1,z,20,1"],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [("120/208V, 3PH", "extra cells on a header block line")],
+        id="RV50_panel_line_four_cells_after_panel_column_table",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", "LP-1,3,y,20", "", "Bus Rating,225,A,Cu", "Panel,LP-2", _H, "1,z,20,1"],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [("Bus Rating, 225, A, Cu", _AMB)],
+        id="RV50_bus_rating_four_cells_above_panel_line",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "",
+            "Voltage,120/208,3PH,4W",
+            "Panel,LP-2",
+            _H,
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [("Voltage, 120/208, 3PH, 4W", _AMB)],
+        id="RV50_voltage_four_cells_above_panel_line",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", "LP-1,3,y,20", "", "Panel: LP-2,208V,3PH,rev 3", _H, "1,z,20,1"],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {})],
+        [("208V, 3PH, rev 3", "extra cells on a header block line")],
+        id="RV50_colon_panel_line_four_cells_after_panel_column_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Voltage,120",
+            "Phases,1",
+            "Bus Rating,100",
+            "Main Breaker,100",
+            _H,
+            "1,Heat,4000,1",
+            "",
+            "LP-2 Lighting Panel",
+            _H,
+            "1,Lights,500,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "main": 100.0, "voltage": 120.0, "incomplete": True})],
+        [
+            ("LP-2 Lighting Panel", "header block key panel_name has no value"),
+            ("1, Lights, 500, 1", "no panel name"),
+        ],
+        id="RV51_title_naming_other_panel_ends_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "",
+            "LP-10 Lighting",
+            _H,
+            "1,Lights,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-10 Lighting", "not a header block key: no alias matches"),
+            ("1, Lights, 20, 1", "no panel name"),
+        ],
+        id="RV51_title_naming_LP_10_is_not_LP_1",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "Panel LP-1 (continued) - Page 2 of 2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-1", ["5"], {})],
+        [("Panel LP-1 (continued) - Page 2 of 2", "header block key panel_name has no value")],
+        id="RV62_continued_title_with_page_number_keeps_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "",
+            "Continued - Page 2 of 3",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Continued - Page 2 of 3", "not a header block key: no alias matches"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV62_page_title_without_panel_name_rows_unplaced",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "",
+            "Panel,LP-2",
+            "Bus,225,A",
+            "Voltage,120/208,3PH",
+            _H,
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {"bus": 225.0, "voltage": 208.0})],
+        [
+            ("A", "extra cells on a header block line"),
+            ("3PH", "extra cells on a header block line"),
+        ],
+        id="RV63_block_lines_after_panel_line_read",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "LP-2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("LP-2", "not a header block key: no alias matches"), ("5, Fan, 20, 1", "no panel name")],
+        id="RV66_short_title_LP_2",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "Panel LP-2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Panel LP-2", "header block key panel_name has no value"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_short_title_Panel_LP_2",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "LP-2 A wing",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-2 A wing", "not a header block key: no alias matches"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_short_title_LP_2_A_wing",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "SUB LP-1 FEEDER TO LP-2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("SUB LP-1 FEEDER TO LP-2", "not a header block key: no alias matches"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_sub_feeder_title",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "LP-1A",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("LP-1A", "not a header block key: no alias matches"), ("5, Fan, 20, 1", "no panel name")],
+        id="RV66_LP_1A_title_ends_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "Panel LP-1A (continued)",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Panel LP-1A (continued)", "header block key panel_name has no value"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_Panel_LP_1A_continued_ends_inheritance",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "Panel LP-2 fed from LP-1",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            (
+                "Panel LP-2 fed from LP-1",
+                "not a header block key: matches more than one field: fed_from, panel_name",
+            ),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_title_naming_two_panels",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus Rating,100",
+            _H,
+            "1,Heat,20,1",
+            "3,Lights,20,1",
+            "",
+            "Page 2",
+            _H,
+            "5,Fan,20,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Page 2", "not a header block key: no alias matches"),
+            ("5, Fan, 20, 1", "no panel name"),
+        ],
+        id="RV66_bare_page_title_is_listed_not_a_circuit",
+    ),
+    pytest.param(
+        [
+            _P,
+            "LP-1,1,x,20",
+            "LP-1,3,y,20",
+            "",
+            "Panel Schedules",
+            "Main,100,A",
+            "Panel,LP-2",
+            "Bus,100",
+            _H,
+            "1,z,20,1",
+        ],
+        [("LP-1", ["1", "3"], {}), ("LP-2", ["1"], {"bus": 100.0})],
+        [
+            ("Panel Schedules", "header block key panel_name has no value"),
+            ("Main, 100, A", "panel row or header block line; not read"),
+        ],
+        id="RV64_ambiguous_line_below_panel_word_title_listed",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,x,20", ",3,y,20", ",5,z,20"],
+        [("LP-1", ["1"], {"incomplete": True})],
+        [("3, y, 20", "no panel name"), ("5, z, 20", "no panel name")],
+        id="RV67_blank_panel_cells_mark_table_panels",
+    ),
+    pytest.param(
+        ["Panel,MDP-1", "Bus,100", _H, "1,a,20,1", "", "LP-1 FED FROM MDP-1", _H, "1,b,20,1"],
+        [("MDP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-1 FED FROM MDP-1", "header block key fed_from has no value"),
+            ("1, b, 20, 1", "no panel name"),
+        ],
+        id="RV68_fed_from_other_prefix_ends_inheritance",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "LP-1 continued from sheet E-401", _H]
+        + ["3,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-1", ["3"], {})],
+        [("LP-1 continued from sheet E-401", "not a header block key: no alias matches")],
+        id="RV68_sheet_reference_keeps_inheritance",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,a,20", "LP-3,1,b,20", _P, ",3,c,20"],
+        [("LP-1", ["1"], {}), ("LP-3", ["1"], {"incomplete": True})],
+        [("3, c, 20", "no panel name")],
+        id="RV69_blank_rows_after_page_break_mark_panel_above",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "7A"],
+        [("LP-1", ["1", "7A"], {"bus": 100.0})],
+        [],
+        id="RV70_lone_letter_suffixed_circuit_stays_circuit",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "Schedule of LP-2 (fed from LP-1)",
+            _H,
+            "3,b,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Schedule of LP-2 (fed from LP-1)", "header block key fed_from has no value"),
+            ("3, b, 20, 1", "no panel name"),
+        ],
+        id="RV71_of_before_designation_ends_inheritance",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "100A MLO", _H, "3,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("100A MLO", "not a header block key: no alias matches"),
+            ("3, b, 20, 1", "no panel name"),
+        ],
+        id="RV72_lone_digit_led_title_not_a_circuit",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,a,20", "LP-2,1,b,20", "LP-1,3,c,20", _P, ",5,d,20"],
+        [("LP-1", ["1", "3"], {"incomplete": True}), ("LP-2", ["1"], {})],
+        [("5, d, 20", "no panel name")],
+        id="RV73_pcol_blank_rows_mark_panel_of_last_row",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "TOTAL,,40,"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [("TOTAL, 40", "no circuit number")],
+        id="RV74_total_row_below_last_table_not_a_circuit",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "", "Page 2 of 2"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [("Page 2 of 2", "no circuit number")],
+        id="RV74_page_footer_below_last_table_not_a_circuit",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "", "Notes:", "1,Provide GFCI,,"],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("Notes:", "no circuit number"), ("1, Provide GFCI", "no circuit number")],
+        id="RV74_notes_below_last_table_not_circuits",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "", "Receptacles", "5,c,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("Receptacles", "no circuit number"), ("5, c, 20, 1", "no circuit number")],
+        id="RV76_section_heading_in_last_table_marks_panel",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "LP-2", "225A", _H, "1,b,20,1", "3,c,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-2", "not a header block key: no alias matches"),
+            ("225A", "not a header block key: no alias matches"),
+            ("1, b, 20, 1", "no panel name"),
+            ("3, c, 20, 1", "no panel name"),
+        ],
+        id="RV75_lone_rating_under_title_not_a_circuit",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "3,b,20,1",
+            "",
+            "Page 2 of 2",
+            _H,
+            "",
+            "Kitchen",
+            "7,Oven,40,2",
+            "9,Dish,30,1",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("Page 2 of 2", "not a header block key: no alias matches"),
+            ("Kitchen", "no circuit number"),
+            ("7, Oven, 40, 2", "no circuit number"),
+            ("9, Dish, 30, 1", "no circuit number"),
+        ],
+        id="RV77_page2_section_heading_cut_marks_panel_above",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "2026-02-04 00:00:00,Heater,40,2"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [("2026-02-04 00:00:00, Heater, 40, 2", "no circuit number")],
+        id="RV78_date_circuit_cell_last_row_marks_panel",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "2026-02-04 00:00:00,Heater,40,2",
+            "",
+            "Panel,LP-2",
+            "Bus,100",
+            _H,
+            "1,b,20,1",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True}), ("LP-2", ["1"], {"bus": 100.0})],
+        [("2026-02-04 00:00:00, Heater, 40, 2", "not a header block key: no alias matches")],
+        id="RV78_date_circuit_cell_between_tables_marks_panel_above",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "3,b,20,1",
+            "TOTAL,,40,",
+            "NOTES:",
+            "1,Provide GFCI,,",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("TOTAL, 40", "no circuit number"),
+            ("NOTES:", "no circuit number"),
+            ("1, Provide GFCI", "no circuit number"),
+        ],
+        id="RV79_total_then_notes_without_blank_not_circuits",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "Notes:", "1,Provide GFCI,,"],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("Notes:", "no circuit number"), ("1, Provide GFCI", "no circuit number")],
+        id="RV79_notes_directly_under_circuits_not_circuits",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "LP-2,225A", _H, "1,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-2, 225A", "not a header block key: no alias matches"),
+            ("1, b, 20, 1", "no panel name"),
+        ],
+        id="RV80_two_cell_title_between_tables_not_a_circuit",
+    ),
+    pytest.param(
+        ["Panel,LP-3", "Bus,100", _H, "CB1,a,20,1", "CB2,b,20,1", "CB3,c,20,1"],
+        [("LP-3", ["CB1", "CB2", "CB3"], {"bus": 100.0})],
+        [],
+        id="RV81_letter_prefixed_circuit_labels_read",
+    ),
+    pytest.param(
+        ["Panel,LP1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "LP2,225A", _H, "1,c,20,1"],
+        [("LP1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP2, 225A", "not a header block key: no alias matches"),
+            ("1, c, 20, 1", "no panel name"),
+        ],
+        id="RV89_hyphenless_title_between_tables_not_a_circuit",
+    ),
+    pytest.param(
+        [
+            "Panel,LP1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "",
+            "LP2,Lighting Panel",
+            "Panel,LP2",
+            "Bus,225",
+            _H,
+            "1,c,20,1",
+        ],
+        [("LP1", ["1"], {"bus": 100.0, "incomplete": True}), ("LP2", ["1"], {"bus": 225.0})],
+        [("LP2, Lighting Panel", "not a header block key: no alias matches")],
+        id="RV89_hyphenless_title_then_block",
+    ),
+    pytest.param(
+        [
+            "Panel,Ckt,Description,Breaker",
+            "LP-1,1,a,20",
+            "LP-1,3,b,20",
+            "Total Connected Load,12000",
+        ],
+        [("LP-1", ["1", "3"], {"incomplete": True})],
+        [("Total Connected Load, 12000", "no circuit number")],
+        id="RV90_panel_column_total_load_row_ends_table",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "5-7"],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [("5-7", "no circuit number")],
+        id="RV91_lone_range_last_marks_panel",
+    ),
+    pytest.param(
+        ["Panel,Ckt,Description,Breaker", "LP-1,1.0,a,20", "LP-1,2.0,b,20", "LP-1,12.0,c,20"],
+        [("LP-1", ["1", "2", "12"], {})],
+        [],
+        id="RV92_float_written_circuit_numbers_read",
+    ),
+    pytest.param(
+        # RV89: a label with other letters than the row above ends the table; it is listed.
+        ["Panel,LP-3", "Bus,100", _H, "CB1,a,20,1", "CB2,b,20,1", "SPD1,c,20,1"],
+        [("LP-3", ["CB1", "CB2"], {"bus": 100.0, "incomplete": True})],
+        [("SPD1, c, 20, 1", "no circuit number")],
+        id="RV89_label_with_other_letters_ends_table",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "Panel,LP-2", "Bus,100", _H, "CKT1,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-2", ["CKT1"], {"bus": 100.0})],
+        [],
+        id="RV81_ckt_label_second_table_read",
+    ),
+    pytest.param(
+        ["Panel LP-2,225A", _H, "5,Fan,20,1"],
+        [("LP-2", ["5"], {})],
+        [("225A", "extra cells on a header block line")],
+        id="RV82_panel_key_cell_designation_then_rating",
+    ),
+    pytest.param(
+        ["Panel LP-2,Fed from LP-1", _H, "5,Fan,20,1"],
+        [("LP-2", ["5"], {})],
+        [("Fed from LP-1", "extra cells on a header block line")],
+        id="RV82_panel_key_cell_designation_then_fed_from",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "Panel LP-2,Fed from LP-1", _H, "5,b,20,1"],
+        # The line is cut from table 1 and looks like a circuit row, so LP-1 is marked (safe side).
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True}), ("LP-2", ["5"], {})],
+        [("Fed from LP-1", "extra cells on a header block line")],
+        id="RV82_panel_key_cell_designation_between_tables",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            "Description,Ckt,Breaker,Poles",
+            "a,1,20,1",
+            "Total,2,20,1",
+            "c,3,20,1",
+        ],
+        # RV90: a TOTAL-like first cell is never a circuit row, whatever number follows.
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [("Total, 2, 20, 1", "no circuit number"), ("c, 3, 20, 1", "no circuit number")],
+        id="RV90_total_description_with_circuit_number_ends_table",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "2,b,20,1", ",Subtotal,40,", "3,c,20,1"],
+        # RV83 abandoned (RV85): a row without a circuit number ends the table. The rest is
+        # listed and the panel is marked.
+        [("LP-1", ["1", "2"], {"bus": 100.0, "incomplete": True})],
+        [("Subtotal, 40", "no circuit number"), ("3, c, 20, 1", "no circuit number")],
+        id="RV85_subtotal_mid_table_ends_table_rest_listed_and_marked",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,TOTAL 1,20,1", "2,b,20,1"],
+        [("LP-1", ["1", "2"], {"bus": 100.0})],
+        [],
+        id="RV83_total_in_description_with_number_unchanged",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "7", "", "3,b,20,1"],
+        [("LP-1", ["1", "7", "3"], {"bus": 100.0})],
+        [],
+        id="RV85_empty_position_and_blank_row_keep_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "TOTAL,,1700",
+            "1,All breakers bolt-on",
+            "2,Verify",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("TOTAL, 1700", "no circuit number"),
+            ("1, All breakers bolt-on", "no circuit number"),
+            ("2, Verify", "no circuit number"),
+        ],
+        id="RV87_numbered_notes_after_total_listed_and_marked",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "LP-2,225A,MLO", _H, "1,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-2, 225A, MLO", "not a header block key: no alias matches"),
+            ("1, b, 20, 1", "no panel name"),
+        ],
+        id="RV86_three_cell_designation_title_between_tables",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "", "2A,225A,MLO", "", _H]
+        + ["1,Heater,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("2A, 225A, MLO", "not a header block key: no alias matches"),
+            ("1, Heater, 20, 1", "no panel name"),
+        ],
+        id="RV93_digit_letter_title_between_tables",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1A,a,20,1", "2A,b,20,1"],
+        [("LP-1", ["1A", "2A"], {"bus": 100.0})],
+        [],
+        id="RV93_letter_suffixed_circuits_after_letter_suffixed_row_stay",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "Total VA,1700"],
+        [("LP-1", ["1"], {"bus": 100.0})],
+        [("Total VA, 1700", "no circuit number")],
+        id="RV94_total_va_listed_not_a_circuit",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "CB1,a,20,1", "", "CB2,b,20,1", "", "CB3,c,20,1"],
+        [("LP-1", ["CB1", "CB2", "CB3"], {"bus": 100.0})],
+        [],
+        id="RV95_letter_labels_with_blank_spacer_rows",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, ",,(A),", "1,a,20,1", "3,b,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [],
+        id="RV96_units_row_under_header",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "", "VA,A,kVA,", "CB1,a,20,1"],
+        [("LP-1", ["CB1"], {"bus": 100.0})],
+        [],
+        id="RV96_bare_units_row_after_blank_line",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "2A,Lighting Panel", "225A,MLO"],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("2A, Lighting Panel", "no circuit number"),
+            ("225A, MLO", "no circuit number"),
+        ],
+        id="RV97_two_line_digit_letter_title",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "41A,b,20,1", "41B,c,20,1"],
+        [("LP-1", ["1", "41A", "41B"], {"bus": 100.0})],
+        [],
+        id="RV97_paired_half_size_breakers_stay",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, ",,(HP),(A)", ",,(FLA),(Hz)", "1,a,20,1", "3,b,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [],
+        id="RV98_two_units_rows_with_hp_fla_hz",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, ",,(" + "a" * 20000 + "),", "1,a,20,1", "3,b,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [],
+        id="RV99_unclosed_bracket_cell_under_header",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            "Description,Ckt,Load VA,Breaker",
+            "Lights,1,800,20",
+            "Heat,3,900,20",
+            "LP2,225A",
+            "Bus,225",
+            "Panel,LP-2",
+            "Description,Ckt,Load VA,Breaker",
+            "Lights,1,800,20",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True}), ("LP-2", ["1"], {"bus": 225.0})],
+        [("LP2, 225A", "not a header block key: no alias matches")],
+        id="RV100_desc_first_digit_letter_title_above_block_line",
+    ),
+]
+
+
+@pytest.mark.parametrize(("lines", "panels", "unparsed"), LAYOUTS)
+def test_layout_corpus(cfg, lines, panels, unparsed):
+    # Panels are compared by position: (name, circuit numbers, block values) per panel part,
+    # so a page-break continuation cannot hide the block values of its first part.
+    parsed = parse([line.split(",") for line in lines], cfg)
+    got = []
+    for p in parsed.panels:
+        vals = {
+            "bus": p.bus_rating_a.value,
+            "main": p.main_breaker_a.value,
+            "voltage": p.voltage_v.value,
+        }
+        got_vals = {k: v for k, v in vals.items() if v is not None}
+        if "could not be placed" in (
+            p.bus_rating_a.source.note or "" if p.bus_rating_a.source else ""
+        ):
+            got_vals["incomplete"] = True  # bus LOW: the panel-level checks are NEEDS_REVIEW
+        got.append((p.name, [c.number for c in p.circuits], got_vals))
+    assert got == panels
+    assert [(u.raw, u.reason) for u in parsed.unparsed if u.kind != "column"] == unparsed
+
+
+@pytest.mark.parametrize(
+    "mid", [["Room 101: recep", "3"], ["Main lobby: lights", "3"], ["Location", "3"]]
+)
+def test_short_block_word_circuit_row_mid_table_keeps_following_rows(cfg, mid):
+    h = _DESC_FIRST
+    rows = [
+        ["Panel", "LP-1"],
+        h,
+        ["Lights", "1", "20", "1"],
+        mid,
+        ["Recep", "5", "20", "1"],
+        [],
+        ["Panel", "LP-2"],
+        h,
+        ["Recep", "1", "20", "1"],
+    ]
+    by = {p.name: p for p in parse(rows, cfg).panels}
+    assert [c.number for c in by["LP-1"].circuits] == ["1", "3", "5"]
+    assert [c.number for c in by["LP-2"].circuits] == ["1"]
+
+
+def test_panel_column_exact_block_key_name_keeps_table_rows(cfg):
+    head = ["Panel", "Ckt", "Description", "Breaker"]
+    rows = [
+        head,
+        ["MAIN", "1", "a", "20"],
+        ["MAIN", "3", "c", "20"],
+        head,
+        ["LP-2", "1", "b", "20"],
+    ]
+    by = {p.name: p for p in parse(rows, cfg).panels}
+    assert [c.number for c in by["MAIN"].circuits] == ["1", "3"]
+    assert [c.number for c in by["LP-2"].circuits] == ["1"]
+    assert by["LP-2"].main_breaker_a.confidence is Confidence.MISSING
+
+
+def test_wide_circuit_header_with_blank_lines_is_linear(cfg):
+    import time
+
+    head = ["ckt"] * 6000 + ["load", "breaker"]
+    rows = [head] + [[""]] * 100000 + [["ckt", "load", "breaker"]]
+    t0 = time.perf_counter()
+    parse(rows, cfg)
+    assert time.perf_counter() - t0 < 5
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        ["Panel,LP-1", _D, "Lights,1,20,1", "Recep,3,20,1", _D, "Fan,5,20,1"],
+        [
+            "Panel,LP-1",
+            "Ckt,Description,Breaker,Poles",
+            "1,Lights,20,1",
+            "3,Recep,20,1",
+            "Ckt,Description,Breaker,Poles",
+            "5,Fan,20,1",
+        ],
+    ],
+)
+def test_page_break_header_keeps_block_panel_name(cfg, lines):
+    parsed = parse([line.split(",") for line in lines], cfg)
+    got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+    assert got == [("LP-1", ["1", "3"]), ("LP-1", ["5"])]
+    assert [u for u in parsed.unparsed if u.kind != "column"] == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [["Bus Rating", "225", "A"], ["Panel", "LP-2", "120/208V"], ["Panel: LP-2", "208V", "rev 3"]],
+)
+def test_exact_key_three_cell_block_line_after_panel_column_table_stays_block(cfg, line):
+    head = ["Panel", "Ckt", "Description", "Breaker"]
+    rows = [
+        head,
+        ["LP-1", "1", "x", "20"],
+        ["LP-1", "3", "y", "20"],
+        [],
+        line,
+        *([["Panel", "LP-2"]] if line[0] == "Bus Rating" else []),
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "z", "20", "1"],
+    ]
+    got = {p.name: [c.number for c in p.circuits] for p in parse(rows, cfg).panels}
+    assert got == {"LP-1": ["1", "3"], "LP-2": ["1"]}
+
+
+def _case_b_tail(extra):
+    return [
+        ["Panel", "LP-1"],
+        ["Bus Rating", "100"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "Heat", "20", "1"],
+        [],
+        *extra,
+    ]
+
+
+def test_block_name_not_inherited_past_panel_column_table(cfg):
+    rows = _case_b_tail(
+        [
+            ["Panel", "Ckt", "Description", "Breaker"],
+            ["LP-2", "1", "x", "20"],
+            [],
+            ["Ckt", "Description", "Breaker", "Poles"],
+            ["9", "misc", "20", "1"],
+        ]
+    )
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-1", ["1"]),
+        ("LP-2", ["1"]),
+    ]
+
+
+def test_block_without_panel_line_does_not_inherit_name(cfg):
+    rows = _case_b_tail(
+        [["Bus Rating", "225"], ["Ckt", "Description", "Breaker", "Poles"], ["5", "m", "20", "1"]]
+    )
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [("LP-1", ["1"])]
+    assert parsed.panels[0].bus_rating_a.value == 100
+
+
+def test_page_break_with_continued_line_keeps_block_panel_name(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus Rating", "100"],
+        sub,
+        ["1", "a", "20", "1"],
+        ["3", "b", "20", "1"],
+        ["Panel LP-1 (continued)"],
+        sub,
+        ["5", "c", "20", "1"],
+        ["7", "d", "20", "1"],
+        ["9", "e", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+    assert got == [("LP-1", ["1", "3"]), ("LP-1", ["5", "7", "9"])]
+    assert not [u for u in parsed.unparsed if u.reason == "no panel name"]
+
+
+_AMB_LINES = [
+    ["MAIN", "1", "Feeder", "1000", "noncontinuous", "1", "20"],
+    ["MAIN", "1", "Feeder to LP-2", "TBD", "3", "30000", "other"],
+    ["MAIN", "1", "feeder", "-", "3"],
+    ["MAIN", "1", "feeder", "3P", "400AT"],
+    ["Bus Rating", "225", "A"],
+    ["Bus Rating", "225", "A", "Cu"],
+    ["Voltage", "120/208", "3PH", "4W"],
+]
+
+
+def _two_blocks(line):
+    return [
+        ["Panel", "Ckt", "Description", "Breaker"],
+        ["LP-1", "1", "x", "20"],
+        ["LP-1", "3", "y", "20"],
+        line,
+        ["Panel", "LP-2"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "z", "20", "1"],
+        ["3", "w", "20", "1"],
+    ]
+
+
+@pytest.mark.parametrize("line", _AMB_LINES, ids=lambda x: ",".join(x))
+def test_ambiguous_key_line_listed_not_read(cfg, line):
+    parsed = parse(_two_blocks(line), cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-1", ["1", "3"]),
+        ("LP-2", ["1", "3"]),
+    ]
+    raw = ", ".join(line)
+    assert [(u.raw, u.reason) for u in parsed.unparsed if u.raw == raw] == [
+        (raw, "panel row or header block line; not read")
+    ]
+    lp2 = parsed.panels[1]
+    assert lp2.main_breaker_a.value is None
+    assert lp2.bus_rating_a.value is None
+    assert lp2.voltage_v.value is None
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        ["Panel", "LP-2", "120/208V"],
+        ["Panel", "LP-2", "120/208V", "3PH"],
+        ["Panel: LP-2", "208V", "rev 3"],
+        ["Panel: LP-2", "208V", "3PH", "rev 3"],
+    ],
+)
+def test_panel_key_line_with_extra_cells_stays_block(cfg, line):
+    rows = [
+        ["Panel", "Ckt", "Description", "Breaker"],
+        ["LP-1", "1", "x", "20"],
+        ["LP-1", "3", "y", "20"],
+        [],
+        line,
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "z", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-1", ["1", "3"]),
+        ("LP-2", ["1"]),
+    ]
+
+
+def test_bare_continued_title_keeps_inheritance(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    for word in ["(continued)", "Continued", "cont'd"]:
+        rows = [
+            ["Panel", "LP-1"],
+            ["Bus", "100"],
+            sub,
+            ["1", "Heat", "20", "1"],
+            ["3", "Heat", "20", "1"],
+            [],
+            [word],
+            sub,
+            ["5", "Heat", "20", "1"],
+            ["7", "Heat", "20", "1"],
+            ["9", "Heat", "20", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+            ("LP-1", ["1", "3"]),
+            ("LP-1", ["5", "7", "9"]),
+        ]
+        assert not [u for u in parsed.unparsed if u.reason == "no panel name"]
+
+
+def test_names_only_long_name_linear():
+    from redline.parsers.tabular import _names_only
+
+    name = "a " * 65000 + "b"
+    title = ["a " * 65000 + "a"] * 8
+    t0 = time.perf_counter()
+    assert _names_only([title], name)
+    assert time.perf_counter() - t0 < 2
+
+
+def test_title_naming_other_panel_ends_inheritance(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    titles = {
+        "LP-2 Lighting Panel": False,
+        "LP-10 Lighting": False,
+        "Panel LP-1 (continued)": True,
+        "lp-1 CONTINUED": True,
+    }
+    for title, kept in titles.items():
+        rows = [
+            ["Panel", "LP-1"],
+            ["Bus Rating", "100"],
+            sub,
+            ["1", "Heat", "4000", "1"],
+            [],
+            [title],
+            sub,
+            ["1", "Lights", "500", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        assert got == ([("LP-1", ["1"])] * (2 if kept else 1)), title
+        assert any(u.reason == "no panel name" for u in parsed.unparsed) is not kept, title
+
+
+def test_continued_title_with_page_or_sheet_number_keeps_block_panel_name(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    titles = [
+        ["Panel LP-1 (continued) - Page 2 of 2"],
+        ["LP-1 continued from sheet E-401"],
+        ["Panel LP-1 208Y/120V (cont.)"],
+        ["LP-1 cont'd 3PH 4W"],
+        ["LP-1 (continued)", "Rev 2"],
+    ]
+    for title in titles:
+        rows = [
+            ["Panel", "LP-1"],
+            ["Bus", "100"],
+            sub,
+            ["1", "a", "20", "1"],
+            ["3", "b", "20", "1"],
+            title,
+            sub,
+            ["5", "c", "20", "1"],
+            ["7", "d", "20", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        assert got == [("LP-1", ["1", "3"]), ("LP-1", ["5", "7"])], title
+        assert not [u for u in parsed.unparsed if u.reason == "no panel name"], title
+
+
+def test_block_lines_after_panel_line_read(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Breaker"],
+        ["LP-1", "1", "x", "20"],
+        ["LP-1", "3", "y", "20"],
+        [],
+        ["Panel", "LP-2"],
+        ["Bus", "225", "A"],
+        ["Voltage", "120/208", "3PH"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "z", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    lp2 = parsed.panels[1]
+    assert lp2.name == "LP-2"
+    assert lp2.bus_rating_a.value == 225
+    assert lp2.voltage_v.value == 208
+    assert not [
+        u for u in parsed.unparsed if u.reason == "panel row or header block line; not read"
+    ]
+
+
+def _marked(panel):
+    return panel.bus_rating_a.confidence == Confidence.LOW
+
+
+def test_ambiguous_key_line_below_panel_word_title_listed(cfg):
+    for line in (["MAIN", "1", "Feeder", "1000"], ["Main", "100", "A"]):
+        rows = [
+            ["Panel", "Ckt", "Description", "Breaker"],
+            ["LP-1", "1", "x", "20"],
+            ["LP-1", "3", "y", "20"],
+            [],
+            ["Panel Schedules"],
+            line,
+            ["Panel", "LP-2"],
+            ["Voltage", "120"],
+            ["Ckt", "Description", "Breaker", "Poles"],
+            ["1", "z", "20", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        lp2 = parsed.panels[1]
+        assert lp2.name == "LP-2", line
+        assert lp2.main_breaker_a.value is None, line
+        assert lp2.voltage_v.value == 120, line
+        reason = "panel row or header block line; not read"
+        assert any(u.reason == reason for u in parsed.unparsed), line
+
+
+def test_xlsx_unplaced_page_break_rows_mark_panel_incomplete(cfg):
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus Rating", "100"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "a", "20", "1"],
+        [],
+        ["Continued - Page 2 of 3"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["5", "b", "20", "1"],
+    ]
+    first, second = parse(rows, cfg, fallback_panel="E-601").panels
+    assert (first.name, second.name) == ("LP-1", "E-601")
+    assert _marked(first)
+    assert not _marked(second)
+
+
+def test_block_without_panel_line_keeps_panel_above_violation(cfg):
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus Rating", "100"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["1", "a", "20", "1"],
+        [],
+        ["Bus", "225"],
+        ["Voltage", "120"],
+        ["Ckt", "Description", "Breaker", "Poles"],
+        ["5", "b", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1"]
+    assert not _marked(parsed.panels[0])
+    assert any(u.reason == "no panel name" for u in parsed.unparsed)
+
+
+def test_title_naming_two_panels_or_short_title_does_not_join_panel_above(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    titles = [
+        "Panel LP-2 fed from LP-1",
+        "SUB LP-1 FEEDER TO LP-2",
+        "LP-2",
+        "Panel LP-2",
+        "LP-2 A wing",
+        "LP-1A",
+        "Panel LP-1A (continued)",
+    ]
+    for title in titles:
+        rows = [
+            ["Panel", "LP-1"],
+            ["Bus Rating", "100"],
+            sub,
+            ["1", "a", "20", "1"],
+            ["3", "b", "20", "1"],
+            [title],
+            sub,
+            ["5", "c", "20", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        assert got == [("LP-1", ["1", "3"])], title
+        assert _marked(parsed.panels[0]), title
+        assert any(u.reason == "no panel name" for u in parsed.unparsed), title
+
+
+def test_blank_panel_cell_rows_mark_table_panels_incomplete(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["LP-1", "1", "a", "1000", "20"],
+        ["", "3", "b", "8000", "20"],
+        ["LP-2", "1", "c", "500", "20"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [p.name for p in parsed.panels] == ["LP-1", "LP-2"]
+    assert all(_marked(p) for p in parsed.panels)
+    assert [u.reason for u in parsed.unparsed if u.kind == "row"] == ["no panel name"]
+
+
+def test_rule_title_other_prefix_feeder_ends_inheritance(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    ends = [
+        ("MDP-1", "LP-1 FED FROM MDP-1"),
+        ("LP-1", "SUB LP-1 FEEDER TO LP-2"),
+        ("LP-1", "LP-1A"),
+        ("LP-1", "Panel LP-1 fed from E-401"),
+    ]
+    keeps = [
+        "LP-1 continued from sheet E-401",
+        "Panel LP-1 (continued) - Page 2 of 2",
+        "Panel LP-1 208Y/120V (cont.)",
+        "LP-1 cont'd 3PH 4W",
+        "LP-1 (cont.) see dwg E-401 rev 3",
+    ]
+    cases = [(n, t, False) for n, t in ends] + [("LP-1", t, True) for t in keeps]
+    for name, title, kept in cases:
+        rows = [["Panel", name], ["Bus Rating", "100"], sub, ["1", "a", "20", "1"], [title], sub]
+        parsed = parse(rows + [["5", "c", "20", "1"]], cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        if kept:
+            assert got == [(name, ["1"]), (name, ["5"])], title
+        else:
+            assert got == [(name, ["1"])], title
+            assert _marked(parsed.panels[0]), title
+            assert any(u.reason == "no panel name" for u in parsed.unparsed), title
+
+
+def test_pcol_blank_rows_after_page_break_mark_panel_above(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["LP-3", "1", "a", "1000", "20"],
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["", "3", "b", "8000", "20"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [p.name for p in parsed.panels] == ["LP-3"]
+    assert _marked(parsed.panels[0])
+    assert [u.reason for u in parsed.unparsed if u.kind == "row"] == ["no panel name"]
+    assert "blank panel cell" in parsed.panels[0].bus_rating_a.source.note
+
+
+def test_lone_letter_suffixed_circuit_number_stays_circuit(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    for lone, circuit in (("7A", True), ("1A", True), ("LP-2", False), ("Page 2", False)):
+        rows = [
+            ["Panel", "LP-1"],
+            ["Bus Rating", "100"],
+            sub,
+            ["1", "a", "20", "1"],
+            [lone],
+            sub,
+            ["9", "z", "20", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        nums = [c.number for c in parsed.panels[0].circuits]
+        assert (lone in nums) is circuit, lone
+
+
+def test_rows_below_last_table_not_circuits(cfg):
+    head = ["Panel,LP-1", "Voltage,120", "Bus,100", _H, "1,a,20,1", "3,b,20,1"]
+    for tail in (["TOTAL,,40,"], ["", "Page 2 of 2"], ["", "Notes:", "1,Provide GFCI,,"]):
+        parsed = parse([line.split(",") for line in head + tail], cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], tail
+        listed = [u.raw for u in parsed.unparsed if u.reason == "no circuit number"]
+        assert listed, tail
+        assert all(
+            x not in [c.number for c in parsed.panels[0].circuits] for x in ("TOTAL", "Notes:")
+        )
+
+
+def test_section_heading_in_last_table_marks_panel(cfg):
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus", "100"],
+        ["Main", "100"],
+        _H.split(","),
+        ["1", "a", "20", "1"],
+        ["3", "b", "20", "1"],
+        [],
+        ["Receptacles"],
+        ["5", "c", "20", "1"],
+        ["7", "d", "20", "1"],
+        ["9", "e", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    panel = parsed.panels[0]
+    assert [c.number for c in panel.circuits] == ["1", "3"]
+    assert panel.bus_rating_a.confidence == Confidence.LOW
+    assert "rows below the table could not be placed" in panel.bus_rating_a.source.note
+    listed = {u.raw for u in parsed.unparsed if u.reason == "no circuit number"}
+    assert {"Receptacles", "5, c, 20, 1", "7, d, 20, 1", "9, e, 20, 1"} <= listed
+
+
+def test_lone_rating_under_title_does_not_join_panel_above(cfg):
+    rows = [
+        ["Panel", "LP-1"],
+        ["Bus", "100"],
+        _H.split(","),
+        ["1", "a", "20", "1"],
+        [],
+        ["LP-2"],
+        ["225A"],
+        _H.split(","),
+        ["1", "b", "20", "1"],
+        ["3", "c", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [("LP-1", ["1"])]
+    assert {"LP-2", "225A"} <= {u.raw for u in parsed.unparsed}
+
+
+def test_rule_title_designation_after_of_ends_inheritance(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    for title, kept in (
+        ("Schedule of LP-2 (fed from LP-1)", False),
+        ("Part of LP-2 (fed from LP-1)", False),
+        ("Panel LP-1 (continued) - Page 2 of 2", True),
+    ):
+        rows = [["Panel", "LP-1"], ["Bus Rating", "100"], sub, ["1", "a", "20", "1"], [title], sub]
+        parsed = parse(rows + [["5", "c", "20", "1"]], cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        if kept:
+            assert got == [("LP-1", ["1"]), ("LP-1", ["5"])], title
+        else:
+            assert got == [("LP-1", ["1"])], title
+            assert _marked(parsed.panels[0]), title
+            assert any(u.reason == "no panel name" for u in parsed.unparsed), title
+
+
+def test_lone_digit_led_title_not_a_circuit(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    for lone in ("100A MLO", "120/208V", "2 of 2", "3PH 4W"):
+        rows = [["Panel", "LP-1"], ["Bus Rating", "100"], sub, ["1", "a", "20", "1"], [lone], sub]
+        parsed = parse(rows + [["9", "z", "20", "1"]], cfg)
+        assert all(lone not in [c.number for c in p.circuits] for p in parsed.panels), lone
+        assert [c.number for c in parsed.panels[0].circuits] == ["1"], lone
+
+
+def test_pcol_blank_rows_mark_panel_of_last_row(cfg):
+    hdr = ["Panel", "Ckt", "Description", "Breaker"]
+    rows = [hdr, ["LP-1", "1", "a", "20"], ["LP-2", "1", "b", "20"], ["LP-1", "3", "c", "20"]]
+    parsed = parse(rows + [hdr, ["", "5", "d", "20"]], cfg)
+    marked = {p.name: _marked(p) for p in parsed.panels}
+    assert marked == {"LP-1": True, "LP-2": False}
+
+
+def test_page2_section_heading_cut_marks_panel_above(cfg):
+    page1 = [
+        ["Panel", "LP-1"],
+        ["Bus", "100"],
+        _CKT_HEAD,
+        ["1", "a", "20", "1"],
+        [],
+        ["Page 2 of 2"],
+    ]
+    for tail in (
+        [_CKT_HEAD, [], ["Kitchen"], ["7", "Oven", "40", "2"], ["9", "Dish", "30", "1"]],
+        [_CKT_HEAD, [], ["Kitchen"]],
+        [_CKT_HEAD, [], ["TOTAL", "", "40"]],
+    ):
+        parsed = parse(page1 + tail, cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1"], tail
+        assert _marked(parsed.panels[0]), tail
+        assert len(parsed.panels) == 1, tail
+
+
+def test_long_or_date_circuit_cell_cut_marks_panel(cfg):
+    for cell_ in ("2026-02-04 00:00:00", "2,4,6 (3 pole)"):
+        row = [cell_, "Heater", "40", "2"]
+        last = [["Panel", "LP-1"], _CKT_HEAD, ["1", "a", "20", "1"], row]
+        parsed = parse(last, cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1"], cell_
+        assert _marked(parsed.panels[0]), cell_
+        mid = [["Panel", "LP-1"], _CKT_HEAD, ["1", "a", "20", "1"], row, []]
+        mid += [["Panel", "LP-2"], _CKT_HEAD, ["1", "b", "20", "1"]]
+        by = {p.name: p for p in parse(mid, cfg).panels}
+        assert _marked(by["LP-1"]) and not _marked(by["LP-2"]), cell_
+        assert [c.number for c in by["LP-1"].circuits] == ["1"], cell_
+
+
+def test_total_then_notes_without_blank_not_circuits(cfg):
+    head = [
+        ["Panel", "LP-1"],
+        ["Bus", "100"],
+        _CKT_HEAD,
+        ["1", "a", "20", "1"],
+        ["3", "b", "20", "1"],
+    ]
+    for tail in (
+        [["TOTAL", "", "40"], ["NOTES:"], ["1", "Provide GFCI"]],
+        [["Subtotal", "", "40"], ["Notes"], ["1", "Provide GFCI"]],
+        [["NOTES:"], ["1", "Provide GFCI"], ["2", "Existing load"]],
+    ):
+        parsed = parse(head + tail, cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], tail
+        assert _marked(parsed.panels[0]), tail
+        listed = {u.raw for u in parsed.unparsed}
+        assert "1, Provide GFCI" in listed, tail
+    # RV27 short last rows and lone digits directly under circuits stay circuits.
+    parsed = parse(head + [["7"], ["9A"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "3", "7", "9A"]
+
+
+def test_two_cell_title_between_tables_not_a_circuit(cfg):
+    for title in (["LP-2", "225A"], ["LP-2", "Lighting"]):
+        rows = [["Panel", "LP-1"], ["Bus", "100"], _CKT_HEAD, ["1", "a", "20", "1"], []]
+        parsed = parse(rows + [title, _CKT_HEAD, ["1", "b", "20", "1"]], cfg)
+        assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+            ("LP-1", ["1"])
+        ], title
+        assert _marked(parsed.panels[0]), title
+        assert ", ".join(title) in {u.raw for u in parsed.unparsed}, title
+
+
+_CKT_HEAD = ["Ckt", "Description", "Breaker", "Poles"]
+
+
+_FULL = (
+    "Ckt,Description,Load (VA),Load Type,Poles,Phase,Breaker,Wire Sz.,Material,Insulation,"
+    "Conductors in Raceway,Length,Voltage"
+)
+
+
+def _full_row(ckt, va):
+    return f"{ckt},x,{va},noncontinuous,1,A,20,12 AWG,Cu,75,3,10,120".split(",")
+
+
+def test_letter_prefixed_circuit_labels_read_or_mark_panel(cfg):
+    top = [["Panel", "LP-3"], ["Bus", "100"], _FULL.split(",")]
+    for labels in (["CB1", "CB2", "CB3"], ["SPD1", "SPD2", "SPD3"], ["CKT11", "CKT12", "CKT13"]):
+        rows = top + [_full_row(c, 1000 * (i + 1)) for i, c in enumerate(labels)]
+        (panel,) = parse(rows, cfg).panels
+        assert [c.number for c in panel.circuits] == labels
+        assert sum(c.load_va.value for c in panel.circuits) == 6000.0
+        assert panel.bus_rating_a.confidence != Confidence.LOW
+    # RV89: a label whose letters differ from the circuit row above is not read; it is listed.
+    rows = top + [_full_row(c, 1000) for c in ("1", "2", "SPD1")]
+    parsed = parse(rows, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "2"]
+    assert parsed.panels[0].bus_rating_a.confidence == Confidence.LOW
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker", "Poles"],
+        ["LP-1", "BKR1", "a", "800", "20", "1"],
+        ["LP-1", "BKR2", "b", "800", "20", "1"],
+        ["LP-2", "BKR1", "c", "800", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-1", ["BKR1", "BKR2"]),
+        ("LP-2", ["BKR1"]),
+    ]
+    # A cut row with such a label still marks the panel: no result without it.
+    cut = [["Panel", "LP-1"], ["Bus", "100"], HEAD[1:], ["1", "a", "800", "20", "", "1"]]
+    cut += [[], ["Notes:"], ["CB9", "x", "800", "20", "", "1"]]
+    (panel,) = parse(cut, cfg).panels
+    assert panel.bus_rating_a.confidence == Confidence.LOW
+
+
+def test_panel_key_cell_with_designation_not_named_from_next_cell(cfg):
+    # Rule: the name is the key cell without the word Panel (MEDIUM, noted); the next cell is
+    # listed as an extra cell and never read as the name or a rating.
+    for tail in ("225A", "Fed from LP-1"):
+        rows = [["Panel LP-2", tail], _H.split(","), ["5", "Fan", "20", "1"]]
+        parsed = parse(rows, cfg)
+        (panel,) = parsed.panels
+        assert panel.name == "LP-2"
+        assert panel.source.confidence == Confidence.MEDIUM
+        assert [c.number for c in panel.circuits] == ["5"]
+        assert [(u.raw, u.reason) for u in parsed.unparsed if u.kind == "row"] == [
+            (tail, "extra cells on a header block line")
+        ]
+
+
+def test_subtotal_row_in_combined_schedule_ends_table_later_panels_marked(cfg):
+    # RV83 is abandoned: the TOTAL row ends the table, so LP-2 is listed and LP-1 is marked.
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker", "Poles"],
+        ["LP-1", "1", "a", "800", "20", "1"],
+        ["LP-1", "2", "b", "800", "20", "1"],
+        ["TOTAL", "", "", "1600", "", ""],
+        ["LP-2", "1", "c", "800", "20", "1"],
+        ["LP-2", "2", "d", "800", "20", "1"],
+        ["TOTAL", "", "", "1600", "", ""],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-1", ["1", "2"])
+    ]
+    assert _marked(parsed.panels[0])
+    got = [(u.raw, u.reason) for u in parsed.unparsed if u.kind == "row"]
+    assert got == [
+        ("TOTAL, 1600", "no circuit number"),
+        ("LP-2, 1, c, 800, 20, 1", "no circuit number"),
+        ("LP-2, 2, d, 800, 20, 1", "no circuit number"),
+        ("TOTAL, 1600", "no circuit number"),
+    ]
+
+
+def test_long_circuit_cell_designation_check_is_linear(cfg):
+    import time
+
+    long = "a" * 100000 + " 1"
+    top = [["Panel", "LP-1"], ["Bus", "100"], _H.split(","), ["1", "a", "20", "1"]]
+    after = top + [[], [long, "x", "20", "1"]]
+    between = (
+        top + [[long, "x", "20", "1"]] + [["Panel", "LP-2"], _H.split(","), ["1", "b", "20", "1"]]
+    )
+    for rows in (after, between):
+        start = time.perf_counter()
+        parse(rows, cfg)
+        assert time.perf_counter() - start < 1.0
+
+
+_TOP = [["Panel", "LP-1"], ["Bus", "100"], _CKT_HEAD]
+_TWO = [["1", "a", "20", "1"], ["3", "b", "20", "1"]]
+
+
+def _listed(parsed):
+    return [(u.raw, u.reason) for u in parsed.unparsed if u.kind == "row"]
+
+
+def _by_name(parsed):
+    return {p.name: p for p in parsed.panels}
+
+
+def test_strict_circuit_row_whitelist(cfg):
+    # Circuit shapes are read, each with a filled cell beside it.
+    shapes = ["7", "7A", "2,4,6", "2/4/6", "1-3", "1.0", "12.0"]
+    rows = _TOP + [[n, "x", "20", "1"] for n in shapes]
+    (panel,) = parse(rows, cfg).panels
+    assert [c.number for c in panel.circuits] == [s.replace(".0", "") for s in shapes]
+    assert not _marked(panel)
+    # A letter label is a circuit directly under the header or under the same letters (RV89).
+    for labels in (["CB1", "CB2"], ["CKT12", "CKT13"], ["BKR1", "BKR2"], ["A1", "A2"], ["L1"]):
+        rows = _TOP + [[n, "x", "20", "1"] for n in labels]
+        (panel,) = parse(rows, cfg).panels
+        assert [c.number for c in panel.circuits] == labels
+        assert not _marked(panel)
+    # An empty position (a number alone) and blank rows do not end the table.
+    rows = _TOP + [["1", "a", "20", "1"], ["7"], [], [""], ["3", "b", "20", "1"], ["5A"]]
+    parsed = parse(rows, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "7", "3", "5A"]
+    assert parsed.panels[0].circuits[1].breaker_a.confidence == Confidence.MISSING
+    assert not _marked(parsed.panels[0]) and not _listed(parsed)
+    # Anything else ends the table. The circuit-shaped rows below it are listed and mark the
+    # panel, in the last table and between tables.
+    ends = ["TOTAL,,1700", "Notes:", "Receptacles", "Page 2 of 2", "LP-2,225A,MLO", "1600 VA"]
+    below = [["5", "c", "20", "1"], ["7", "d", "20", "1"]]
+    for end in ends:
+        line = end.split(",")
+        raw = ", ".join(c for c in line if c)
+        parsed = parse(_TOP + _TWO + [line] + below, cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], end
+        assert _marked(parsed.panels[0]), end
+        assert _listed(parsed) == [
+            (raw, "no circuit number"),
+            ("5, c, 20, 1", "no circuit number"),
+            ("7, d, 20, 1", "no circuit number"),
+        ], end
+        tail = [[], ["Panel", "LP-2"], _CKT_HEAD, ["1", "z", "20", "1"]]
+        by = _by_name(parse(_TOP + _TWO + [line] + below + tail, cfg))
+        assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], end
+        assert _marked(by["LP-1"]) and not _marked(by["LP-2"]), end
+        assert [c.number for c in by["LP-2"].circuits] == ["1"], end
+    # A number alone is an empty position only directly under the header or a circuit row.
+    for lone in ("1600", "7", "7A", "225A"):
+        parsed = parse(_TOP + _TWO + [[], [lone]], cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], lone
+        assert _marked(parsed.panels[0]), lone
+        assert _listed(parsed) == [(lone, "no circuit number")], lone
+    # Lines below the table with nothing circuit-like in them list without marking the panel.
+    parsed = parse(_TOP + _TWO + [["Notes:"], ["see drawing E-101"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"]
+    assert not _marked(parsed.panels[0])
+    assert [r for r, _ in _listed(parsed)] == ["Notes:", "see drawing E-101"]
+
+
+def test_designation_title_with_extra_cells_between_tables_not_a_circuit(cfg):
+    for title, named in (
+        (["LP-2", "225A", "MLO"], False),
+        (["Panel LP-2", "225A", "MLO"], True),
+        (["LP-2", "120/208V", "3PH", "225A"], False),
+    ):
+        rows = _TOP + _TWO + [[], title, _CKT_HEAD, ["1", "z", "20", "1"], ["3", "y", "20", "1"]]
+        parsed = parse(rows, cfg)
+        by = _by_name(parsed)
+        assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], title
+        assert _marked(by["LP-1"]), title
+        if named:
+            # The key cell names the panel; the rest of the line is extra cells.
+            assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+                ("LP-1", ["1", "3"]),
+                ("LP-2", ["1", "3"]),
+            ], title
+            assert ("225A, MLO", "extra cells on a header block line") in _listed(parsed)
+        else:
+            assert list(by) == ["LP-1"], title
+            assert (", ".join(title), "not a header block key: no alias matches") in _listed(parsed)
+            assert ("1, z, 20, 1", "no panel name") in _listed(parsed), title
+
+
+def test_total_in_circuit_column_and_numbered_notes_after_total_not_circuits(cfg):
+    cases = (
+        [["SUBTOTAL", "", "1600"], ["5", "c", "20", "1"]],
+        [["TOTAL", "", "", "", "1700"], ["1", "All breakers bolt-on"], ["2", "Verify in field"]],
+        [["TOTAL"], ["DEMAND @ 80%", "", "2400"], ["125% CONT", "", "1250"]],
+    )
+    for tail in cases:
+        for more in ([], [[], ["Panel", "LP-2"], _CKT_HEAD, ["1", "z", "20", "1"]]):
+            parsed = parse(_TOP + _TWO + tail + more, cfg)
+            by = _by_name(parsed)
+            assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], tail
+            assert _marked(by["LP-1"]), tail
+            assert ("LP-2" in by) is bool(more), tail
+            listed = [raw for raw, _ in _listed(parsed)]
+            for row in tail:
+                assert ", ".join(c for c in row if c) in listed, (tail, row)
+            if more:
+                assert [c.number for c in by["LP-2"].circuits] == ["1"], tail
+
+
+def test_panel_key_cell_name_single_token_or_listed(cfg):
+    def read(key, nxt):
+        rows = [[key, nxt], ["Voltage", "208"], _CKT_HEAD, ["1", "Lights", "20", "1"]]
+        return parse(rows, cfg)
+
+    # Alias words are removed from the key cell. One token left names the panel (MEDIUM).
+    for key, nxt in (("Panel Name LP-2", "225A"), ("Panel LP-2", "225A"), ("Panel LP-2", "MLO")):
+        parsed = read(key, nxt)
+        (panel,) = parsed.panels
+        assert panel.name == "LP-2", key
+        assert panel.source.confidence == Confidence.MEDIUM, key
+        assert [c.number for c in panel.circuits] == ["1"], key
+        assert (nxt, "extra cells on a header block line") in _listed(parsed), key
+    # More than one token left: the line is listed and no name is taken from it.
+    for key, nxt in (
+        ("Panel Schedule LP-2 Rev 3", "225A"),
+        ("Panel Schedule for LP-2", "225A"),
+        ("Panel Schedule Rm101", "LP-2"),
+    ):
+        parsed = read(key, nxt)
+        assert parsed.panels == [], key
+        reason = "panel key cell holds more than one name; not read"
+        assert (f"{key}, {nxt}", reason) in _listed(parsed), key
+        assert ("1, Lights, 20, 1", "no panel name") in _listed(parsed), key
+    # One token with no digit: the name when the next cell has no digit, listed when it has.
+    assert read("Panel A", "Lighting").panels[0].name == "A"
+    for key, nxt in (("Panel Schedule", "LP-2"), ("Panel A", "225A")):
+        parsed = read(key, nxt)
+        assert parsed.panels == [], key
+        assert (f"{key}, {nxt}", "panel name is ambiguous; not read") in _listed(parsed), key
+    # No token left: the next cell names the panel, as for the exact key.
+    assert read("Panel", "LP-2").panels[0].name == "LP-2"
+    assert read("Panel Designation", "LP-1").panels[0].name == "LP-1"
+
+
+def test_hyphenless_title_between_tables_not_a_circuit(cfg):
+    # RV89: "LP2,225A" and "LP2,Lighting Panel" are titles, not circuit LP2 of the table above.
+    t2 = [["Panel", "LP2"], ["Bus", "225"], _CKT_HEAD, ["1", "Heater", "20", "1"]]
+    for title in (
+        ["LP2", "225A"],
+        ["LP2", "Lighting Panel"],
+        ["H1", "480Y/277V"],
+        ["PP1", "x", "y"],
+    ):
+        for gap in ([], [[]]):
+            rows = _TOP + _TWO + gap + [title] + gap + [_CKT_HEAD, ["1", "Heater", "20", "1"]]
+            parsed = parse(rows, cfg)
+            assert all(c.number != title[0] for p in parsed.panels for c in p.circuits), title
+            lp1 = _by_name(parsed)["LP-1"]
+            assert [c.number for c in lp1.circuits] == ["1", "3"], title
+            assert _marked(lp1), title
+            assert any(u.raw == ", ".join(title) for u in parsed.unparsed), title
+    parsed = parse(_TOP + _TWO + [[], ["LP2", "Lighting Panel"]] + t2, cfg)
+    by = _by_name(parsed)
+    assert [c.number for c in by["LP-1"].circuits] == ["1", "3"]
+    assert [c.number for c in by["LP2"].circuits] == ["1"]
+    # The same title as the last line of the sheet is listed and marks the panel.
+    parsed = parse(_TOP + _TWO + [["H1", "480Y/277V"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"]
+    assert _marked(parsed.panels[0])
+    assert _listed(parsed) == [("H1, 480Y/277V", "no circuit number")]
+
+
+def test_total_row_with_number_in_circuit_column_ends_table(cfg):
+    # RV90: a TOTAL-like first cell never passes, whatever number follows.
+    for total in ("Total Connected Load", "Demand Load", "Subtotal", "SUB-TOTAL", "Totals:"):
+        # Panel column: no panel is invented from the label.
+        pc = [["Panel", "Ckt", "Description", "Breaker"], ["LP-1", "1", "a", "20"]]
+        pc += [["LP-1", "3", "b", "20"], [total, "12000"]]
+        parsed = parse(pc, cfg)
+        assert [p.name for p in parsed.panels] == ["LP-1"], total
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], total
+        assert _marked(parsed.panels[0]), total
+        assert _listed(parsed) == [(f"{total}, 12000", "no circuit number")], total
+        # Description first: the label is not a circuit and later rows are not read.
+        df = [["Panel", "LP-1"], _DESC_FIRST, ["Lights", "1", "20", "1"], [total, "12000"]]
+        parsed = parse(df + [["Recep", "3", "20", "1"]], cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1"], total
+        assert _marked(parsed.panels[0]), total
+        assert _listed(parsed)[0] == (f"{total}, 12000", "no circuit number"), total
+
+
+def test_lone_range_or_date_cut_marks_panel(cfg):
+    # RV91: a lone range or date is circuit-like and marks the panel; a lone word does not.
+    for lone in ("5-7", "2026-04-02 00:00:00", "4/5"):
+        parsed = parse(_TOP + _TWO + [[lone]], cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], lone
+        assert _marked(parsed.panels[0]), lone
+        assert _listed(parsed) == [(lone, "no circuit number")], lone
+    parsed = parse(_TOP + _TWO + [["Notes:"], ["see E-101"]], cfg)
+    assert not _marked(parsed.panels[0])
+
+
+def test_float_written_circuit_numbers_read(cfg):
+    # RV92: pandas writes an integer column with a missing value as 1.0, 2.0.
+    rows = [["Panel", "LP-1"], ["Bus", "100"], _CKT_HEAD]
+    rows += [["1.0", "a", "20", "1"], ["2.0", "b", "20", "1"], ["3.0", "c", "20", "1"]]
+    parsed = parse(rows, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "2", "3"]
+    assert not _marked(parsed.panels[0]) and not _listed(parsed)
+    pc = [["Panel", "Ckt", "Description", "Breaker"], ["LP-1", "12.0", "a", "20"]]
+    assert [c.number for c in parse(pc, cfg).panels[0].circuits] == ["12"]
+    # A real decimal is not a circuit number.
+    assert parse(rows[:3] + [["1.5", "a", "20", "1"]], cfg).panels[0].circuits == []
+
+
+def test_digit_letter_title_between_tables_not_a_circuit(cfg):
+    # RV93: "2A,225A,MLO" and "2A,Lighting Panel" are titles, not circuit 2A of the table above.
+    t2 = [_CKT_HEAD, ["1", "Heater", "20", "1"]]
+    for title, mid in (
+        (["2A", "225A", "MLO"], []),
+        (["2A", "Lighting Panel"], []),
+        (["2A", "225A", "MLO"], [["Bus", "225"]]),
+        (["1B", "Lighting Panel"], []),
+    ):
+        for gap in ([], [[]]):
+            parsed = parse(_TOP + _TWO + gap + [title] + gap + mid + t2, cfg)
+            lp1 = _by_name(parsed)["LP-1"]
+            assert [c.number for c in lp1.circuits] == ["1", "3"], title
+            assert _marked(lp1), title
+            assert any(u.raw == ", ".join(title) for u in parsed.unparsed), title
+            assert all(c.number != title[0] for p in parsed.panels for c in p.circuits), title
+    # Rows that follow a letter-suffixed row, or sit mid-table, keep it.
+    sfx = [["1A", "a", "20", "1"], ["2A", "b", "20", "1"]]
+    assert [c.number for c in parse(_TOP + sfx, cfg).panels[0].circuits] == ["1A", "2A"]
+    mid = _TOP + [["1", "a", "20", "1"], ["2A", "b", "20", "1"], ["3", "c", "20", "1"]]
+    assert [c.number for c in parse(mid, cfg).panels[0].circuits] == ["1", "2A", "3"]
+    # A lone letter-suffixed number keeps RV70.
+    assert [c.number for c in parse(_TOP + _TWO + [["7A"]], cfg).panels[0].circuits][-1] == "7A"
+
+
+def test_two_line_digit_letter_title_not_circuits(cfg):
+    # RV97: a two-line title ("2A,Lighting Panel" then "225A,MLO") is a run of letter-suffixed
+    # rows with different numbers; none is a circuit of the table above.
+    t2 = [_CKT_HEAD, ["1", "Heater", "20", "1"]]
+    for title in (
+        [["2A", "Lighting Panel"], ["225A", "MLO"]],
+        [["2A", "Lighting Panel"], ["208Y/120V", "3PH", "4W"]],
+        [["2A", "Lighting Panel"], ["225A", "MLO", "22kAIC"]],
+    ):
+        for mid in ([], [["Panel", "2A"]]):
+            for gap in ([], [[]]):
+                parsed = parse(_TOP + _TWO + gap + title + gap + mid + t2, cfg)
+                lp1 = _by_name(parsed)["LP-1"]
+                assert [c.number for c in lp1.circuits] == ["1", "3"], title
+                assert _marked(lp1), title
+                for row in title:
+                    assert any(u.raw == ", ".join(row) for u in parsed.unparsed), row
+                nums = {c.number for p in parsed.panels for c in p.circuits}
+                assert not nums & {"2A", "225A", "208Y/120V"}, title
+                assert all(c.load_va.value in (None, 800.0, 900.0, 8000.0) for c in lp1.circuits)
+    # Paired half-size breakers keep reading; a lone suffixed row keeps RV93.
+    pair = _TOP + _TWO + [["41A", "x", "20", "1"], ["41B", "y", "20", "1"]]
+    assert [c.number for c in parse(pair, cfg).panels[0].circuits][-2:] == ["41A", "41B"]
+    pair = _TOP + _TWO + [[], ["2A", "x", "20", "1"], ["2B", "y", "20", "1"]]
+    assert [c.number for c in parse(pair, cfg).panels[0].circuits][-2:] == ["2A", "2B"]
+    lone = _TOP + _TWO + [["2A", "Lighting Panel"]]
+    assert [c.number for c in parse(lone, cfg).panels[0].circuits] == ["1", "3"]
+
+
+def test_total_wordings_never_circuits_or_panels(cfg):
+    # RV94 (and RV90): any first cell with the whole word total, in any wording.
+    labels = ["Total VA", "Total Conn. Load", "Total Conn. Load:", "Phase Totals", "TOTAL KVA"]
+    labels += ["Total Connected Load", "Demand Load", "Subtotal", "SUB-TOTAL", "Totals:"]
+    for total in labels:
+        pc = [["Panel", "Ckt", "Description", "Breaker"], ["LP-1", "1", "a", "20"]]
+        parsed = parse(pc + [[total, "42", "", "1700"]], cfg)
+        assert [p.name for p in parsed.panels] == ["LP-1"], total
+        assert [c.number for c in parsed.panels[0].circuits] == ["1"], total
+        assert any(u.raw.startswith(total) for u in parsed.unparsed), total
+        parsed = parse(_TOP + _TWO + [[total, "1700"], ["5", "e", "20", "1"]], cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], total
+        assert [p.name for p in parsed.panels] == ["LP-1"], total
+        df = [["Panel", "LP-1"], _DESC_FIRST, ["Lights", "1", "20", "1"], [total, "12000"]]
+        assert [c.number for c in parse(df, cfg).panels[0].circuits] == ["1"], total
+    # A word that only contains the letters is not a total.
+    for desc in ("Totalizer meter", "Subtotalling relay"):
+        df = [["Panel", "LP-1"], _DESC_FIRST, [desc, "1", "20", "1"]]
+        assert [c.number for c in parse(df, cfg).panels[0].circuits] == ["1"], desc
+
+
+def test_letter_labels_with_blank_spacer_rows_read(cfg):
+    # RV95: the letter-prefix check looks at the nearest non-blank row above.
+    labels = [["CB1", "a", "20", "1"], [], ["CB2", "b", "20", "1"], [], ["CB3", "c", "20", "1"]]
+    parsed = parse(_TOP + labels, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["CB1", "CB2", "CB3"]
+    assert not _marked(parsed.panels[0]) and not _listed(parsed)
+    # Blank rows under the header: the first label is still first under the header.
+    parsed = parse(_TOP + [[]] + labels, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["CB1", "CB2", "CB3"]
+    # RV89 titles still end the table, with or without blank rows.
+    for title in (["LP2", "225A"], ["H1", "480Y/277V"]):
+        parsed = parse(_TOP + _TWO + [[], title, []] + [_CKT_HEAD, ["1", "Heater", "20", "1"]], cfg)
+        assert all(c.number != title[0] for p in parsed.panels for c in p.circuits), title
+        assert [c.number for c in _by_name(parsed)["LP-1"].circuits] == ["1", "3"], title
+
+
+def test_more_units_rows_under_header_are_part_of_header(cfg):
+    # RV98: bracketed headings with no digit, more unit words, and two or more units rows.
+    for rows_ in (
+        [["", "", "(HP)", ""]],
+        [["", "", "(FLA)", "(Hz)"]],
+        [["", "", "(kW)", "(PH)"]],
+        [["", "", "HP", "FLA"], ["", "", "Hz", "PF"]],
+        [["", "", "(VA)", "(A)"], ["", "", "(VA)", "(A)"]],
+        [["", "", "(HP)", ""], ["", "", "(FLA)", ""], ["", "", "(Hz)", ""]],
+    ):
+        for gap in ([], [[]]):
+            rows = _TOP + gap + rows_ + [["1", "a", "20", "1"], ["3", "b", "20", "1"]]
+            parsed = parse(rows, cfg)
+            assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], rows_
+            assert not _listed(parsed) and not _marked(parsed.panels[0]), rows_
+    # A cell with a digit is never a unit, and a data row after the units rows ends them.
+    parsed = parse(_TOP + [["", "", "(20A)", ""]] + _TWO, cfg)
+    assert _listed(parsed)[0] == ("(20A)", "no circuit number")
+    parsed = parse(_TOP + [["", "", "(A)", ""], ["Spare", "", "", ""], ["", "", "(A)", ""]], cfg)
+    assert [r[0] for r in _listed(parsed)] == ["Spare", "(A)"]
+
+
+def test_units_row_under_header_is_part_of_header(cfg):
+    # RV96: a units row directly under the header is neither listed nor the end of the table.
+    for units in (
+        ["", "", "(A)", ""],
+        ["", "", "A", "%"],
+        ["(VA)", "kVA", "(A)", "AWG"],
+        ["", "", "(m)", "ft"],
+    ):
+        for gap in ([], [[]]):
+            rows = _TOP + gap + [units, ["1", "a", "20", "1"], ["3", "b", "20", "1"]]
+            parsed = parse(rows, cfg)
+            assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], units
+            assert not _listed(parsed) and not _marked(parsed.panels[0]), units
+        lab = _TOP + [units, ["CB1", "a", "20", "1"], ["CB2", "b", "20", "1"]]
+        assert [c.number for c in parse(lab, cfg).panels[0].circuits] == ["CB1", "CB2"], units
+    # A lone number straight after the units row is an empty position, as under a header.
+    parsed = parse(_TOP + [["", "", "(A)", ""], ["1"], ["3", "b", "20", "1"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"]
+    # A second row that is not all units is data, and units deeper in the table are not skipped.
+    deep = _TOP + _TWO + [["", "", "(A)", ""]]
+    assert _listed(parse(deep, cfg)) == [("(A)", "no circuit number")]
+    word = parse(_TOP + [["Spare", "", "", ""]] + _TWO, cfg)
+    assert _listed(word)[0] == ("Spare", "no circuit number")
+    assert word.panels[0].circuits == []
+
+
+_DESC_HEAD = ["Description", "Ckt", "Load VA", "Breaker"]
+
+
+def test_digit_letter_title_above_block_line_desc_first_listed(cfg):
+    # RV100: in a description-first table, "LP2,225A" above a header-block line is a title,
+    # not circuit 225A of the panel above, and the panel is marked.
+    for block in (["Bus", "225"], ["Volts", "208"], ["Phases", "3"]):
+        rows = [
+            ["Panel", "LP1"],
+            ["Bus", "100"],
+            _DESC_HEAD,
+            ["Lights", "1", "800", "20"],
+            ["Heat", "3", "900", "20"],
+            ["LP2", "225A"],
+            block,
+            ["Panel", "LP2"],
+            _DESC_HEAD,
+            ["Lights", "1", "800", "20"],
+        ]
+        parsed = parse(rows, cfg)
+        lp1 = _by_name(parsed)["LP1"]
+        assert [c.number for c in lp1.circuits] == ["1", "3"], block
+        assert all(c.number != "225A" for p in parsed.panels for c in p.circuits), block
+        assert "LP2, 225A" in [r[0] for r in _listed(parsed)], block
+        assert _marked(lp1), block
+
+
+def test_word_block_line_above_panel_desc_first_listed(cfg):
+    # RV102: in a description-first table, a word-matched block line ("Bus Rating (A),225") that
+    # is the last line above the next panel line or header is listed, not circuit 225; the panel
+    # above is marked and neither panel reads its value. After "Panel" it is still a block value.
+    for line, blank in (
+        (["Bus Rating (A)", "225"], True),
+        (["Main Breaker (A)", "100"], True),
+        (["Voltage (V)", "208"], True),
+        (["Bus Rating (A)", "225"], False),
+    ):
+        rows = [
+            ["Panel", "LP-1"],
+            _DESC_HEAD,
+            ["Lights", "1", "800", "20"],
+            ["Recep", "3", "900", "20"],
+        ]
+        rows += ([[""]] if blank else []) + [
+            line,
+            ["Panel", "LP-2"],
+            _DESC_HEAD,
+            ["Recep", "1", "800", "20"],
+        ]
+        parsed = parse(rows, cfg)
+        lp1, lp2 = _by_name(parsed)["LP-1"], _by_name(parsed)["LP-2"]
+        assert [c.number for c in lp1.circuits] == ["1", "3"], line
+        assert [c.number for c in lp2.circuits] == ["1"], line
+        assert ", ".join(line) in [r[0] for r in _listed(parsed)], line
+        assert _marked(lp1), line
+        assert lp2.bus_rating_a.value is None, line
+        assert lp2.main_breaker_a.value is None, line
+        assert lp2.voltage_v.value is None, line
+    # Directly above a header with no panel line: same.
+    rows = [
+        ["Panel", "LP-1"],
+        _DESC_HEAD,
+        ["Lights", "1", "800", "20"],
+        ["Bus Rating (A)", "225"],
+        _DESC_HEAD,
+    ]
+    parsed = parse(rows + [["Recep", "1", "800", "20"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1"]
+    assert "Bus Rating (A), 225" in [r[0] for r in _listed(parsed)]
+    # After the panel line it is that panel's value.
+    after = [["Panel", "LP-1"], _DESC_HEAD, ["Lights", "1", "800", "20"], [""], ["Panel", "LP-2"]]
+    parsed = parse(
+        after + [["Bus Rating (A)", "225"], _DESC_HEAD, ["Recep", "1", "800", "20"]], cfg
+    )
+    assert _by_name(parsed)["LP-2"].bus_rating_a.value == 225.0
+    assert not _marked(_by_name(parsed)["LP-1"])
+    # A circuit whose description holds those words, mid-table, is still a circuit.
+    rows = [
+        ["Panel", "LP-1"],
+        _DESC_HEAD,
+        ["Lights", "1", "800", "20"],
+        ["Bus Rating (A)", "5", "800", "20"],
+    ]
+    parsed = parse(rows + [["Recep", "7", "900", "20"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "5", "7"]
+    # And a two-cell one under the table with circuits after it.
+    rows = [
+        ["Panel", "LP-1"],
+        _DESC_HEAD,
+        ["Lights", "1", "800", "20"],
+        ["Bus Rating (A)", "5"],
+        ["Recep", "7", "900", "20"],
+    ]
+    assert [c.number for c in parse(rows, cfg).panels[0].circuits] == ["1", "5", "7"]
+
+
+def test_units_row_long_bracket_cell_is_linear(cfg):
+    # RV99: an unclosed bracketed cell under the header costs linear time.
+    t0 = time.perf_counter()
+    parse(_TOP + [["", "", "(" + "a" * 130000, ""]] + _TWO, cfg)
+    assert time.perf_counter() - t0 < 1
+    for _ in range(10):
+        t0 = time.perf_counter()
+        parse(_TOP + [["", "", "(" + "a" * 20000, ""]] + _TWO, cfg)
+        assert time.perf_counter() - t0 < 1
+    # Same answers on the short forms.
+    for cellv, unit in (("(HP)", True), ("( )", False), ("(20A)", False), ("(SPARE)", True)):
+        rows = _TOP + [["", "", cellv, ""]] + _TWO
+        assert (not _listed(parse(rows, cfg))) == unit, cellv
