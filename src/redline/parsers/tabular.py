@@ -685,11 +685,12 @@ _UNITS_ROW_WORDS = frozenset(
 )
 _UNITS_ROW_CELL = re.compile(r"\s*([^()\[\]\s]{1,6})\s*")
 # A bracketed cell with no digit is a unit ("(HP)"); "(20A)" is not.
-_UNITS_BRACKET = re.compile(r"[(\[][^()\[\]0-9]*[^()\[\]0-9\s][^()\[\]0-9]*[)\]]")
+_UNITS_BRACKET = re.compile(r"[(\[]([^()\[\]0-9]*)[)\]]")
 
 
 def _is_unit(c: str) -> bool:
-    if _UNITS_BRACKET.fullmatch(c):
+    m = _UNITS_BRACKET.fullmatch(c)
+    if m and m[1].strip():
         return True
     m = _UNITS_ROW_CELL.fullmatch(c)
     return bool(m) and m[1].lower() in _UNITS_ROW_WORDS
@@ -888,7 +889,7 @@ def _table_end(
         prev = j
         if not _block_line(ctx, grid[j], keys, filled, _near(grid, j)):
             end = j
-    cut = _trim_suffix_run(ctx, grid, head, end, units, keys) if end == prev else None
+    cut = _trim_suffix_run(ctx, grid, head, end, units, keys)
     return end if cut is None else cut
 
 

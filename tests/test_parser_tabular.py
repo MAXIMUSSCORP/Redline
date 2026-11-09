@@ -1872,6 +1872,29 @@ LAYOUTS = [
         [],
         id="RV98_two_units_rows_with_hp_fla_hz",
     ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, ",,(" + "a" * 20000 + "),", "1,a,20,1", "3,b,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [],
+        id="RV99_unclosed_bracket_cell_under_header",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            "Description,Ckt,Load VA,Breaker",
+            "Lights,1,800,20",
+            "Heat,3,900,20",
+            "LP2,225A",
+            "Bus,225",
+            "Panel,LP-2",
+            "Description,Ckt,Load VA,Breaker",
+            "Lights,1,800,20",
+        ],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True}), ("LP-2", ["1"], {"bus": 225.0})],
+        [("LP2, 225A", "not a header block key: no alias matches")],
+        id="RV100_desc_first_digit_letter_title_above_block_line",
+    ),
 ]
 
 
@@ -2985,3 +3008,45 @@ def test_units_row_under_header_is_part_of_header(cfg):
     word = parse(_TOP + [["Spare", "", "", ""]] + _TWO, cfg)
     assert _listed(word)[0] == ("Spare", "no circuit number")
     assert word.panels[0].circuits == []
+
+
+_DESC_HEAD = ["Description", "Ckt", "Load VA", "Breaker"]
+
+
+def test_digit_letter_title_above_block_line_desc_first_listed(cfg):
+    # RV100: in a description-first table, "LP2,225A" above a header-block line is a title,
+    # not circuit 225A of the panel above, and the panel is marked.
+    for block in (["Bus", "225"], ["Volts", "208"], ["Phases", "3"]):
+        rows = [
+            ["Panel", "LP1"],
+            ["Bus", "100"],
+            _DESC_HEAD,
+            ["Lights", "1", "800", "20"],
+            ["Heat", "3", "900", "20"],
+            ["LP2", "225A"],
+            block,
+            ["Panel", "LP2"],
+            _DESC_HEAD,
+            ["Lights", "1", "800", "20"],
+        ]
+        parsed = parse(rows, cfg)
+        lp1 = _by_name(parsed)["LP1"]
+        assert [c.number for c in lp1.circuits] == ["1", "3"], block
+        assert all(c.number != "225A" for p in parsed.panels for c in p.circuits), block
+        assert "LP2, 225A" in [r[0] for r in _listed(parsed)], block
+        assert _marked(lp1), block
+
+
+def test_units_row_long_bracket_cell_is_linear(cfg):
+    # RV99: an unclosed bracketed cell under the header costs linear time.
+    t0 = time.perf_counter()
+    parse(_TOP + [["", "", "(" + "a" * 130000, ""]] + _TWO, cfg)
+    assert time.perf_counter() - t0 < 1
+    for _ in range(10):
+        t0 = time.perf_counter()
+        parse(_TOP + [["", "", "(" + "a" * 20000, ""]] + _TWO, cfg)
+        assert time.perf_counter() - t0 < 1
+    # Same answers on the short forms.
+    for cellv, unit in (("(HP)", True), ("( )", False), ("(20A)", False), ("(SPARE)", True)):
+        rows = _TOP + [["", "", cellv, ""]] + _TWO
+        assert (not _listed(parse(rows, cfg))) == unit, cellv
