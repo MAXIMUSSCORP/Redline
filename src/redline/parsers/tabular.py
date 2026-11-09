@@ -483,7 +483,8 @@ def _count(counts: Counter, values: Iterable[Value]) -> None:
 def _table(
     ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: int, end: int
 ) -> None:
-    data = rows[h + 1 : end]
+    u = _units_row(rows, h, end)
+    data = rows[h + 1 : end] if u is None else rows[h + 1 : u] + rows[u + 1 : end]
     used = max((i + 1 for r in data for i, c in enumerate(r) if c.strip()), default=0)
     width = max(len(cols), used)
     cols = cols + [_Col(i, "", ctx.match("")) for i in range(len(cols), width)]
@@ -521,7 +522,7 @@ def _table(
                     ctx.unp("row", raw, "no panel name", ctx.locate(r))
             # A header-only table whose rows are not in the panel above may be its rest; a table
             # with block lines of its own is another panel.
-            rest = not block.read_rows and any(c.strip() for r in rows[h + 1 : end] for c in r)
+            rest = not block.read_rows and any(c.strip() for r in data for c in r)
             if above and rest:
                 _mark_incomplete(above)
     panels: dict[str, Panel] = {}
@@ -541,7 +542,7 @@ def _table(
     last_placed: Panel | None = None
     for r in range(h + 1, end):
         cells = rows[r]
-        if not any(c.strip() for c in cells):
+        if r == u or not any(c.strip() for c in cells):
             continue
         loc = ctx.locate(r)
         if circuit_missing:
@@ -674,11 +675,29 @@ def _block_line(
 
 _FLOAT_ZERO = re.compile(r"(?<=[0-9])\.0(?![0-9])")
 _LABEL = re.compile(r"([A-Za-z]{1,4})[0-9]+[A-Za-z]?")
-_TOTAL = re.compile(
-    r"(?:(?:grand\s+|sub[-\s]?)?totals?(?:\s+(?:connected\s+)?load|\s+demand)?"
-    r"|(?:connected|demand)\s+load)\s*:?",
-    re.IGNORECASE,
+# A first cell holding the whole word total (RV90, RV94) or "demand load" is never a circuit.
+_TOTAL = re.compile(r"\b(?:sub[-\s]?)?totals?\b|\bdemand\s+load\b", re.IGNORECASE)
+_CONNECTED = re.compile(r"connected\s+load\s*:?", re.IGNORECASE)
+_SUFFIXED = re.compile(r"[0-9]+(?:\.0)?[A-Za-z]")
+_UNITS_ROW_WORDS = frozenset(
+    {"va", "kva", "a", "ka", "amp", "amps", "awg", "kcmil", "mm", "mm2", "m", "ft"}
+    | {"v", "kv", "w", "kw", "%", "volts"}
 )
+_UNITS_ROW_CELL = re.compile(r"[(\[]?\s*([^()\[\]\s]{1,6})\s*[)\]]?")
+
+
+def _units_row(rows: list[list[str]], h: int, end: int) -> int | None:
+    """The first non-blank row under the header at h when every filled cell is a unit, in
+    brackets or bare ("(VA)", "A", "kVA", "%"): a units row is part of the header (RV96)."""
+    for r in range(h + 1, end):
+        cells = [c.strip() for c in rows[r] if c.strip()]
+        if not cells:
+            continue
+        ok = all(
+            (m := _UNITS_ROW_CELL.fullmatch(c)) and m[1].lower() in _UNITS_ROW_WORDS for c in cells
+        )
+        return r if ok else None
+    return None
 
 
 def _label_prefixes(row: list[str], ckt: list[int]) -> set[str]:
@@ -686,22 +705,41 @@ def _label_prefixes(row: list[str], ckt: list[int]) -> set[str]:
     return {m[1].lower() for m in cells if m}
 
 
-def _shaped_row(row: list[str], ckt: list[int], above: list[str] | None = None) -> int:
+def _shaped_row(
+    row: list[str],
+    ckt: list[int],
+    above: list[str] | None = None,
+    final: Callable[[], bool] | None = None,
+) -> int:
     """The whitelist (RV85): a circuit cell of circuit shape and another cell filled. Returns the
     number of filled cells, or 0 when the row does not pass. ckt is the circuit column indexes.
     A TOTAL-like first cell never passes (RV90). With above (the row just over this one, blank
     lines not skipped), a letter-label cell ("CB2") counts only when above holds the same letters
-    ("CB1"), so a panel title like "LP2,225A" between tables is not a circuit (RV89)."""
+    ("CB1"), so a panel title like "LP2,225A" between tables is not a circuit (RV89). Likewise a
+    row with more than one cell, a digits-plus-letter number ("2A") and final() true (the last
+    row before the next header or block line) counts only when above has a letter suffix too
+    (RV93)."""
     cells = [c.strip() for c in row if c.strip()]
     filled = len(cells)
-    if cells and len(cells[0]) <= _CKT_TEXT_MAX * 4 and _TOTAL.fullmatch(cells[0]):
+    first = cells[0] if cells and len(cells[0]) <= _CKT_TEXT_MAX * 4 else ""
+    if _TOTAL.search(first) or _CONNECTED.fullmatch(first):
         return 0
     seen = _label_prefixes(above, ckt) if above is not None else None
     for t in _circuit_cells(row, ckt):
         if not _shaped(t, filled > 1):
             continue
         m = _LABEL.fullmatch(t)
-        if seen is None or not m or m[1].lower() in seen:
+        if m:
+            if seen is None or m[1].lower() in seen:
+                return filled
+        elif (
+            above is None
+            or filled == 1
+            or not _SUFFIXED.search(t)
+            or any(_SUFFIXED.fullmatch(x) for x in _circuit_cells(above, ckt))
+            or not final
+            or not final()
+        ):
             return filled
     return 0
 
@@ -829,15 +867,28 @@ def _table_end(
     A number alone must sit directly under the header or a circuit row. A whitelisted row that is a block key line ("Location,3") is a circuit only when a circuit
     row follows it."""
     ckt = _ckt_cols(keys)
-    end = head
+    end = prev = head
+    units = _units_row(grid, head, limit + 1)
+    if units is not None:
+        end = units
+
+    def final(j: int) -> Callable[[], bool]:
+        def last() -> bool:
+            q = next((k for k in range(j + 1, limit + 1) if any(c.strip() for c in grid[k])), None)
+            return q is None or not _shaped_row(grid[q], ckt)
+
+        return last
+
     for j in range(head + 1, limit + 1):
-        if not any(c.strip() for c in grid[j]):
+        if j == units or not any(c.strip() for c in grid[j]):
             continue
-        filled = _shaped_row(grid[j], ckt, None if j - 1 == head else grid[j - 1])
+        # The nearest non-blank row above; directly under the header there is none.
+        filled = _shaped_row(grid[j], ckt, None if prev == head else grid[prev], final(j))
         # A number alone is an empty position only directly under the header or a circuit row.
-        lone = filled == 1 and j - 1 != head and not _shaped_row(grid[j - 1], ckt)
+        lone = filled == 1 and j - 1 not in (head, units) and not _shaped_row(grid[j - 1], ckt)
         if not filled or lone or _is_short_block_line(ctx, grid[j]):
             break
+        prev = j
         if not _block_line(ctx, grid[j], keys, filled, _near(grid, j)):
             end = j
     return end

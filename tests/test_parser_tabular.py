@@ -1811,6 +1811,46 @@ LAYOUTS = [
         ],
         id="RV86_three_cell_designation_title_between_tables",
     ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "3,b,20,1", "", "2A,225A,MLO", "", _H]
+        + ["1,Heater,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("2A, 225A, MLO", "not a header block key: no alias matches"),
+            ("1, Heater, 20, 1", "no panel name"),
+        ],
+        id="RV93_digit_letter_title_between_tables",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1A,a,20,1", "2A,b,20,1"],
+        [("LP-1", ["1A", "2A"], {"bus": 100.0})],
+        [],
+        id="RV93_letter_suffixed_circuits_after_letter_suffixed_row_stay",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "Total VA,1700"],
+        [("LP-1", ["1"], {"bus": 100.0})],
+        [("Total VA, 1700", "no circuit number")],
+        id="RV94_total_va_listed_not_a_circuit",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "CB1,a,20,1", "", "CB2,b,20,1", "", "CB3,c,20,1"],
+        [("LP-1", ["CB1", "CB2", "CB3"], {"bus": 100.0})],
+        [],
+        id="RV95_letter_labels_with_blank_spacer_rows",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, ",,(A),", "1,a,20,1", "3,b,20,1"],
+        [("LP-1", ["1", "3"], {"bus": 100.0})],
+        [],
+        id="RV96_units_row_under_header",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "", "VA,A,kVA,", "CB1,a,20,1"],
+        [("LP-1", ["CB1"], {"bus": 100.0})],
+        [],
+        id="RV96_bare_units_row_after_blank_line",
+    ),
 ]
 
 
@@ -2785,3 +2825,91 @@ def test_float_written_circuit_numbers_read(cfg):
     assert [c.number for c in parse(pc, cfg).panels[0].circuits] == ["12"]
     # A real decimal is not a circuit number.
     assert parse(rows[:3] + [["1.5", "a", "20", "1"]], cfg).panels[0].circuits == []
+
+
+def test_digit_letter_title_between_tables_not_a_circuit(cfg):
+    # RV93: "2A,225A,MLO" and "2A,Lighting Panel" are titles, not circuit 2A of the table above.
+    t2 = [_CKT_HEAD, ["1", "Heater", "20", "1"]]
+    for title, mid in (
+        (["2A", "225A", "MLO"], []),
+        (["2A", "Lighting Panel"], []),
+        (["2A", "225A", "MLO"], [["Bus", "225"]]),
+        (["1B", "Lighting Panel"], []),
+    ):
+        for gap in ([], [[]]):
+            parsed = parse(_TOP + _TWO + gap + [title] + gap + mid + t2, cfg)
+            lp1 = _by_name(parsed)["LP-1"]
+            assert [c.number for c in lp1.circuits] == ["1", "3"], title
+            assert _marked(lp1), title
+            assert any(u.raw == ", ".join(title) for u in parsed.unparsed), title
+            assert all(c.number != title[0] for p in parsed.panels for c in p.circuits), title
+    # Rows that follow a letter-suffixed row, or sit mid-table, keep it.
+    sfx = [["1A", "a", "20", "1"], ["2A", "b", "20", "1"]]
+    assert [c.number for c in parse(_TOP + sfx, cfg).panels[0].circuits] == ["1A", "2A"]
+    mid = _TOP + [["1", "a", "20", "1"], ["2A", "b", "20", "1"], ["3", "c", "20", "1"]]
+    assert [c.number for c in parse(mid, cfg).panels[0].circuits] == ["1", "2A", "3"]
+    # A lone letter-suffixed number keeps RV70.
+    assert [c.number for c in parse(_TOP + _TWO + [["7A"]], cfg).panels[0].circuits][-1] == "7A"
+
+
+def test_total_wordings_never_circuits_or_panels(cfg):
+    # RV94 (and RV90): any first cell with the whole word total, in any wording.
+    labels = ["Total VA", "Total Conn. Load", "Total Conn. Load:", "Phase Totals", "TOTAL KVA"]
+    labels += ["Total Connected Load", "Demand Load", "Subtotal", "SUB-TOTAL", "Totals:"]
+    for total in labels:
+        pc = [["Panel", "Ckt", "Description", "Breaker"], ["LP-1", "1", "a", "20"]]
+        parsed = parse(pc + [[total, "42", "", "1700"]], cfg)
+        assert [p.name for p in parsed.panels] == ["LP-1"], total
+        assert [c.number for c in parsed.panels[0].circuits] == ["1"], total
+        assert any(u.raw.startswith(total) for u in parsed.unparsed), total
+        parsed = parse(_TOP + _TWO + [[total, "1700"], ["5", "e", "20", "1"]], cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], total
+        assert [p.name for p in parsed.panels] == ["LP-1"], total
+        df = [["Panel", "LP-1"], _DESC_FIRST, ["Lights", "1", "20", "1"], [total, "12000"]]
+        assert [c.number for c in parse(df, cfg).panels[0].circuits] == ["1"], total
+    # A word that only contains the letters is not a total.
+    for desc in ("Totalizer meter", "Subtotalling relay"):
+        df = [["Panel", "LP-1"], _DESC_FIRST, [desc, "1", "20", "1"]]
+        assert [c.number for c in parse(df, cfg).panels[0].circuits] == ["1"], desc
+
+
+def test_letter_labels_with_blank_spacer_rows_read(cfg):
+    # RV95: the letter-prefix check looks at the nearest non-blank row above.
+    labels = [["CB1", "a", "20", "1"], [], ["CB2", "b", "20", "1"], [], ["CB3", "c", "20", "1"]]
+    parsed = parse(_TOP + labels, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["CB1", "CB2", "CB3"]
+    assert not _marked(parsed.panels[0]) and not _listed(parsed)
+    # Blank rows under the header: the first label is still first under the header.
+    parsed = parse(_TOP + [[]] + labels, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["CB1", "CB2", "CB3"]
+    # RV89 titles still end the table, with or without blank rows.
+    for title in (["LP2", "225A"], ["H1", "480Y/277V"]):
+        parsed = parse(_TOP + _TWO + [[], title, []] + [_CKT_HEAD, ["1", "Heater", "20", "1"]], cfg)
+        assert all(c.number != title[0] for p in parsed.panels for c in p.circuits), title
+        assert [c.number for c in _by_name(parsed)["LP-1"].circuits] == ["1", "3"], title
+
+
+def test_units_row_under_header_is_part_of_header(cfg):
+    # RV96: a units row directly under the header is neither listed nor the end of the table.
+    for units in (
+        ["", "", "(A)", ""],
+        ["", "", "A", "%"],
+        ["(VA)", "kVA", "(A)", "AWG"],
+        ["", "", "(m)", "ft"],
+    ):
+        for gap in ([], [[]]):
+            rows = _TOP + gap + [units, ["1", "a", "20", "1"], ["3", "b", "20", "1"]]
+            parsed = parse(rows, cfg)
+            assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], units
+            assert not _listed(parsed) and not _marked(parsed.panels[0]), units
+        lab = _TOP + [units, ["CB1", "a", "20", "1"], ["CB2", "b", "20", "1"]]
+        assert [c.number for c in parse(lab, cfg).panels[0].circuits] == ["CB1", "CB2"], units
+    # A lone number straight after the units row is an empty position, as under a header.
+    parsed = parse(_TOP + [["", "", "(A)", ""], ["1"], ["3", "b", "20", "1"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"]
+    # A second row that is not all units is data, and units deeper in the table are not skipped.
+    deep = _TOP + _TWO + [["", "", "(A)", ""]]
+    assert _listed(parse(deep, cfg)) == [("(A)", "no circuit number")]
+    word = parse(_TOP + [["Spare", "", "", ""]] + _TWO, cfg)
+    assert _listed(word)[0] == ("Spare", "no circuit number")
+    assert word.panels[0].circuits == []
