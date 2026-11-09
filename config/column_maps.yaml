@@ -47,3 +47,6 @@ parsing:                      # lengths relative to text height, never absolute 
   render_dpi: 250
   crop_long_edge_px: 2500
   tile_overlap_fraction: 0.10
+  accoreconsole_path: D:/Autodesk/AutoCAD 2026/accoreconsole.exe   # D6; %VAR% expanded
+  acad_plugin_dll: null      # path must hold no space (unquoted NETLOAD)
+  odafc_path: null           # ODAFileConverter.exe
