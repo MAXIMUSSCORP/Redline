@@ -776,3 +776,29 @@ def test_unplaced_page_break_rows_mark_panel_incomplete(tmp_path):
     assert rows and {r["severity"] for r in rows} == {"NEEDS_REVIEW"}
     html = out.read_text(encoding="utf-8")
     assert "5, Heater, 4000, noncontinuous, 1, 20" in html and "no panel name" in html
+
+
+def test_cut_footer_and_page2_rows_keep_panel_demand_needs_review(tmp_path):
+    head = "Ckt,Description,Load VA,Load Type,Phase,Breaker,Poles"
+    top = ["Panel,LP-1", "Bus,100", "Voltage,120/208", "Phases,3", head]
+    body = ["1,Lights,800,noncontinuous,A,20,1", "3,Recepts,900,receptacle,B,20,1"]
+    shapes = {
+        "page2": [
+            *body,
+            "",
+            "Page 2 of 2",
+            head,
+            "",
+            "Kitchen",
+            "7,Oven,9000,noncontinuous,A,40,2",
+        ],
+        "notes": [*body, "TOTAL,,1700,,,,", "NOTES:", "1,Provide GFCI breaker,,,,,"],
+    }
+    for name, tail in shapes.items():
+        d = tmp_path / name
+        d.mkdir()
+        (d / "lp1.csv").write_text("\n".join([*top, *tail]) + "\n", encoding="utf-8")
+        rc, out = _csv_run(d, d / "lp1.csv")
+        assert rc == 0, name
+        rows = [r for r in _rows(out, "panel_demand") if "LP-1" in r["message"]]
+        assert rows and {r["severity"] for r in rows} == {"NEEDS_REVIEW"}, name
