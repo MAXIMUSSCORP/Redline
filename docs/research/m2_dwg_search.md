@@ -116,3 +116,23 @@ Public portals will not deliver 10 real DWGs. Realistic route: email requests to
 4. Others (leads only, UNVERIFIED): https://github.com/codelibs/libdxfrw "test files" section; https://www.cadforum.cz/en/download.asp?file=Test (404 to fetcher); https://sourceforge.net/projects/libdwg-testsuite/ (GPLv3); https://people.math.sc.edu/Burkardt/data/dxf/dxf.html (LGPL-ish, UNVERIFIED, mostly geometry).
 - Not found: any GitHub repo with real electrical panel-schedule DWGs. ODA/Teigha sample files: no public sample set found.
 
+## Round 2, 2026-11-09
+
+The owner asked for a deeper search. Three Sonnet agents searched code hosts and open datasets, AutoCAD Electrical training material, and free CAD libraries and forums (about 120 searches). Full agent notes stayed in the session scratchpad; the results are below.
+
+- No filled North American panel schedule DWG with breaker and wire sizes was found under a reusable licence. DesignsCAD lists free files with load schedules, but most are metric, need a login, and state no licence.
+- Real AutoCAD Electrical projects were found, and the owner approved four downloads.
+
+### Downloaded to `gold/dwg/` (git-ignored, about 310 MB)
+
+| Folder | Source | Licence | Contents |
+|---|---|---|---|
+| `ace_sample_projects/` | github.com/nghiank/aceSampleProjects, master ZIP, 65 MB | None stated, Autodesk origin: private use only | 10 AutoCAD Electrical projects (`.wdp`): wddemo, Nfpademo, Ieeedemo, iecdemo, Iec60617Demo, Gbdemo, Jisdemo, Extra Library Demo, H-S244test (with `H-S244test_cat.mdb`), perf_2340. 517 DWG: 181 AC1015 (2000), 156 AC1021 (2007), 180 AC1024 (2010) |
+| `autodesk_learn_ee_mfg/` | files.upskill-dev.autodesk.com, course "Introduction to electrical engineering for manufacturing", 25.9 MB ZIP, no login | Unclear, Autodesk training material: private use only | 10 NFPA projects (`.wdp`): Project_Basics, Project_Drawing_List, Schematic_Wiring, Schematic_Components, Schematic_Editing, Schematic_Reports, Panel_Layouts, PLC_Modules, Custom_Components, Custom_Data. 96 DWG, 93 of them AC1027 (2013) |
+| `arjunb3hl_p003b/` | github.com/ArjunB3hl/autocad-electrical-design, `project-files/` | None stated: private use only | `final_drawing_P003-B.dwg` (92 KB, AC1032 / 2018), sheets E-101, E-102, E-201 (panel P1, 120/208 V, 19 circuits), E-301 single line; `model_P003-B.json` and `assumptions.json` as ground truth. A hypothetical design; breaker and wire sizes UNVERIFIED |
+| `etsu_entc2160_m04/` | ETSU ENTC 2160 Module 04 (dc.etsu.edu/entc-2160-oer/6), through the GitHub mirror tritonsan/Factor | CC BY 4.0, committable with attribution (README kept) | `Tiny Electrical Plan.dwg`, `Electric Symbols.dwg` (AC1032), SHA-256 matches the mirror README. dc.etsu.edu refuses scripted downloads (403), so the other 5 module DWGs need a browser download by the owner |
+
+Not downloaded: the archive.org KFSHR hospital as-builts (likely confidential), the Revit cert-prep datasets (RVT, not DWG), paid DesignsCAD files.
+
+What these files hold beyond file names (tables, FIELDs, `WD_M` attributes, panel schedules) is UNVERIFIED until the M2.3 checks dump them with the plugin or ODA.
+
