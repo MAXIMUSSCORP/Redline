@@ -7,6 +7,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, fields, replace
+from functools import lru_cache
 from itertools import takewhile
 
 from redline.config import Config, default_value
@@ -293,6 +294,7 @@ class _Ctx:
     detect_two_column: bool
     out: Parsed
     last_name: tuple[str, Source] | None = None  # nearest header block panel name above
+    last_panel: Panel | None = None  # the panel built from last_name, for the page-break flag
     ambiguous: set[int] = field(default_factory=set)  # lines listed, read neither way
 
     def unp(self, kind: str, raw: str, reason: str, locator: str) -> None:
@@ -412,6 +414,18 @@ def _header_block(ctx: _Ctx, rows: list[list[str]], start: int, h: int) -> _Bloc
     return block
 
 
+def _mark_incomplete(panel: Panel) -> None:
+    """Rows after a page break could not be placed: demand and phase balance need the whole
+    panel, so their inputs are LOW and those rules report NEEDS_REVIEW (as for a repeated name)."""
+    note = (
+        "rows after a page break could not be placed; the panel-level check needs the whole panel"
+    )
+    for attr in ("bus_rating_a", "phases"):
+        v = getattr(panel, attr)
+        low = replace(v.source or panel.source, confidence=Confidence.LOW, note=note)
+        setattr(panel, attr, replace(v, source=low))
+
+
 def _cell(row: list[str], i: int) -> str:
     return row[i].strip() if i < len(row) else ""
 
@@ -446,6 +460,7 @@ def _table(
     else:
         # Only a header repeated directly under the table above continues its panel.
         # A title line naming another panel ends it too ("Panel LP-1 (continued)" does not).
+        above = ctx.last_panel
         if block.read_rows or (ctx.last_name and not _names_only(rows[start:h], ctx.last_name[0])):
             ctx.last_name = None
         if block.name:
@@ -462,6 +477,8 @@ def _table(
         else:
             for r, raw in block.read_rows:
                 ctx.unp("row", raw, "no panel name", ctx.locate(r))
+            if above and any(c.strip() for r in rows[h + 1 : end] for c in r):
+                _mark_incomplete(above)
     panels: dict[str, Panel] = {}
     stats: dict[str, Counter] = {}
 
@@ -535,6 +552,7 @@ def _table(
         if not made:
             text = ", ".join(c.strip() for c in cells if c.strip())
             ctx.unp("row", text, "no circuit number", loc)
+    ctx.last_panel = panels.get(ctx.last_name[0]) if ctx.last_name else None
     for name, panel in panels.items():
         ctx.out.panels.append(panel)
         read = f"{len(panel.circuits)} circuits read; {mapped} of {total} columns mapped"
@@ -613,24 +631,37 @@ def _ambiguous_key_line(
 _TOKEN_SPLIT = re.compile(r"[^\w-]+")
 
 
-def _names_only(lines: list[list[str]], name: str) -> bool:
-    """No line between two tables holds a designation (a token with a digit) but the name.
+@lru_cache(maxsize=4)
+def _name_tokens(name: str) -> tuple[frozenset[str], str]:
+    toks = [t for t in _TOKEN_SPLIT.split(name.lower()) if t]
+    return frozenset(toks), f" {' '.join(toks)} " if toks else ""
 
-    A title like "(continued)" keeps the panel; "LP-2 Lighting Panel" ends it. Linear in
-    the size of the lines and the name.
+
+def _names_only(lines: list[list[str]], name: str) -> bool:
+    """Every line between two tables either holds the panel name or no other designation.
+
+    A line holding the name as a run of tokens ("Panel LP-1 (continued) - Page 2 of 2") keeps
+    the panel whatever else it says. Any other line with a designation (a token with a digit)
+    but the name ("LP-2 Lighting Panel") ends it. Linear in the size of the lines and the name;
+    the name is tokenised once.
     """
-    named = set(_TOKEN_SPLIT.split(name.lower()))
-    return all(
-        t in named
-        for r in lines
-        for c in r
-        for t in _TOKEN_SPLIT.split(c.lower())
-        if any(ch.isdigit() for ch in t)
-    )
+    named, phrase = _name_tokens(name)
+    for r in lines:
+        toks = [t for c in r for t in _TOKEN_SPLIT.split(c.lower()) if t]
+        if phrase and phrase in f" {' '.join(toks)} ":
+            continue
+        if any(t not in named and any(ch.isdigit() for ch in t) for t in toks):
+            return False
+    return True
 
 
 def _near(grid: list[list[str]], i: int) -> tuple[list[str], list[str]]:
     return (grid[i - 1] if i else [], grid[i + 1] if i + 1 < len(grid) else [])
+
+
+def _is_panel_line(ctx: _Ctx, row: list[str]) -> bool:
+    first = next((c.strip() for c in row if c.strip()), "")
+    return ctx.block_match(first.partition(":")[0]).key == "panel_name"
 
 
 def _is_short_block_line(ctx: _Ctx, row: list[str]) -> bool:
@@ -712,9 +743,13 @@ def rows_to_panels(
             k -= 1
         starts.append(k + 1)
         ends.append(k + 1)
+        # Only lines above the next block's panel-name line; below it they are its values.
+        named_at = next(
+            (j for j in range(k + 1, heads[n]) if _is_panel_line(ctx, grid[j])), heads[n]
+        )
         ctx.ambiguous |= {
             j
-            for j in range(k + 1, heads[n])
+            for j in range(k + 1, named_at)
             if _ambiguous_key_line(ctx, grid[j], keys, _near(grid, j))
         }
     ends.append(len(grid))

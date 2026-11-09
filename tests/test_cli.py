@@ -759,3 +759,20 @@ def test_repeated_inherited_panel_name_memory_linear():
     tracemalloc.stop()
     assert peak < 20_000_000
     assert len(project.unparsed) == 1 and "row 1999" in project.unparsed[0].reason
+
+
+def test_unplaced_page_break_rows_mark_panel_incomplete(tmp_path):
+    head = ["Ckt,Description,Load (VA),Load Type,Poles,Breaker"]
+    row = "{n},Heater,{va},noncontinuous,1,20"
+    lines = ["Panel,LP-1", "Voltage,120", "Phases,1", "Bus,100", "Main,100", *head]
+    lines += [row.format(n=n, va=1000) for n in (1, 3)]
+    lines += ["Continued - Page 2 of 3", *head]
+    lines += [row.format(n=n, va=4000) for n in (5, 7, 9)]
+    f = tmp_path / "pb.csv"
+    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    rc, out = _csv_run(tmp_path, f)
+    assert rc == 0
+    rows = [r for r in _rows(out, "panel_demand") if "LP-1" in r["message"]]
+    assert rows and {r["severity"] for r in rows} == {"NEEDS_REVIEW"}
+    html = out.read_text(encoding="utf-8")
+    assert "5, Heater, 4000, noncontinuous, 1, 20" in html and "no panel name" in html
