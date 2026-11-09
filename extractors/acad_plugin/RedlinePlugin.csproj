@@ -1,20 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>RedlinePlugin</AssemblyName>
     <RootNamespace>Redline</RootNamespace>
     <Version>1.0.0</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <AcadDir Condition="'$(AcadDir)' == ''"></AcadDir>
-    <AcadVersion Condition="'$(AcadVersion)' == ''">2026</AcadVersion>
+    <AcadVersion Condition="'$(AcadVersion)' == ''">2027</AcadVersion>
     <OutputPath>bin\$(AcadVersion)\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateDependencyFile>false</GenerateDependencyFile>
   </PropertyGroup>
 
   <Target Name="NeedAcadDir" BeforeTargets="BeforeBuild;ResolveAssemblyReferences" Condition="'$(AcadDir)' == ''">
-    <Error Text="AcadDir is empty. Pass the AutoCAD install folder, for example: -p:AcadDir=&quot;D:/Autodesk/AutoCAD 2026&quot; -p:AcadVersion=2026" />
+    <Error Text="AcadDir is empty. Pass the AutoCAD install folder, for example: -p:AcadDir=&quot;C:/Program Files/Autodesk/AutoCAD 2027&quot; -p:AcadVersion=2027" />
   </Target>
 
   <ItemGroup>
