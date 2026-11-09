@@ -117,3 +117,26 @@ def test_word_matched_circuit_column_no_two_column_split(cfg):
     )
     nums = [c.number for p in parsed.panels for c in p.circuits]
     assert "see E-101" not in nums
+
+
+def test_two_column_each_half_judged_on_its_own(cfg):
+    head = ["Ckt", "Description", "Breaker", "Ckt", "Description", "Breaker"]
+    rows = [
+        ["Panel", "LP-1"],
+        head,
+        ["1", "a", "20", "2", "b", "20"],
+        ["3", "c", "20", "TOTAL", "d", "1700"],
+        ["5", "e", "20", "4 (spare)", "f", "20"],
+    ]
+    out = rows_to_panels(
+        rows, cfg, file="t.csv", method=Method.CSV, locate=lambda i: f"row={i + 1}"
+    )
+    (panel,) = out.panels
+    assert sorted(c.number for c in panel.circuits) == ["1", "2", "3", "5"]
+    got = [(u.raw, u.reason) for u in out.unparsed if u.kind == "row"]
+    assert got == [
+        ("TOTAL, d, 1700", "no circuit number"),
+        ("4 (spare), f, 20", "no circuit number"),
+    ]
+    # The second listed half may have been a circuit, so the panel is not whole.
+    assert panel.bus_rating_a.confidence is Confidence.LOW

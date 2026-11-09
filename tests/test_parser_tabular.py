@@ -1709,15 +1709,50 @@ LAYOUTS = [
     ),
     pytest.param(
         ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "2,b,20,1", ",Subtotal,40,", "3,c,20,1"],
-        [("LP-1", ["1", "2", "3"], {"bus": 100.0})],
-        [("Subtotal, 40", "total row, not a circuit")],
-        id="RV83_subtotal_mid_table_skipped",
+        # RV83 abandoned (RV85): a row without a circuit number ends the table. The rest is
+        # listed and the panel is marked.
+        [("LP-1", ["1", "2"], {"bus": 100.0, "incomplete": True})],
+        [("Subtotal, 40", "no circuit number"), ("3, c, 20, 1", "no circuit number")],
+        id="RV85_subtotal_mid_table_ends_table_rest_listed_and_marked",
     ),
     pytest.param(
         ["Panel,LP-1", "Bus,100", _H, "1,TOTAL 1,20,1", "2,b,20,1"],
         [("LP-1", ["1", "2"], {"bus": 100.0})],
         [],
         id="RV83_total_in_description_with_number_unchanged",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "7", "", "3,b,20,1"],
+        [("LP-1", ["1", "7", "3"], {"bus": 100.0})],
+        [],
+        id="RV85_empty_position_and_blank_row_keep_table",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            _H,
+            "1,a,20,1",
+            "TOTAL,,1700",
+            "1,All breakers bolt-on",
+            "2,Verify",
+        ],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("TOTAL, 1700", "no circuit number"),
+            ("1, All breakers bolt-on", "no circuit number"),
+            ("2, Verify", "no circuit number"),
+        ],
+        id="RV87_numbered_notes_after_total_listed_and_marked",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "LP-2,225A,MLO", _H, "1,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-2, 225A, MLO", "not a header block key: no alias matches"),
+            ("1, b, 20, 1", "no panel name"),
+        ],
+        id="RV86_three_cell_designation_title_between_tables",
     ),
 ]
 
@@ -2436,7 +2471,8 @@ def test_panel_key_cell_with_designation_not_named_from_next_cell(cfg):
         ]
 
 
-def test_subtotal_rows_inside_table_skipped_not_ending_table(cfg):
+def test_subtotal_row_in_combined_schedule_ends_table_later_panels_marked(cfg):
+    # RV83 is abandoned: the TOTAL row ends the table, so LP-2 is listed and LP-1 is marked.
     rows = [
         ["Panel", "Ckt", "Description", "Load VA", "Breaker", "Poles"],
         ["LP-1", "1", "a", "800", "20", "1"],
@@ -2448,13 +2484,14 @@ def test_subtotal_rows_inside_table_skipped_not_ending_table(cfg):
     ]
     parsed = parse(rows, cfg)
     assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
-        ("LP-1", ["1", "2"]),
-        ("LP-2", ["1", "2"]),
+        ("LP-1", ["1", "2"])
     ]
-    assert all(p.bus_rating_a.confidence != Confidence.LOW for p in parsed.panels)
+    assert _marked(parsed.panels[0])
     got = [(u.raw, u.reason) for u in parsed.unparsed if u.kind == "row"]
     assert got == [
-        ("TOTAL, 1600", "total row, not a circuit"),
+        ("TOTAL, 1600", "no circuit number"),
+        ("LP-2, 1, c, 800, 20, 1", "no circuit number"),
+        ("LP-2, 2, d, 800, 20, 1", "no circuit number"),
         ("TOTAL, 1600", "no circuit number"),
     ]
 
@@ -2472,3 +2509,131 @@ def test_long_circuit_cell_designation_check_is_linear(cfg):
         start = time.perf_counter()
         parse(rows, cfg)
         assert time.perf_counter() - start < 1.0
+
+
+_TOP = [["Panel", "LP-1"], ["Bus", "100"], _CKT_HEAD]
+_TWO = [["1", "a", "20", "1"], ["3", "b", "20", "1"]]
+
+
+def _listed(parsed):
+    return [(u.raw, u.reason) for u in parsed.unparsed if u.kind == "row"]
+
+
+def _by_name(parsed):
+    return {p.name: p for p in parsed.panels}
+
+
+def test_strict_circuit_row_whitelist(cfg):
+    # Circuit shapes are read, each with a filled cell beside it.
+    shapes = ["7", "7A", "2,4,6", "2/4/6", "1-3", "CB1", "CKT12", "BKR1", "SPD1", "A1", "L1"]
+    rows = _TOP + [[n, "x", "20", "1"] for n in shapes]
+    (panel,) = parse(rows, cfg).panels
+    assert [c.number for c in panel.circuits] == shapes
+    assert not _marked(panel)
+    # An empty position (a number alone) and blank rows do not end the table.
+    rows = _TOP + [["1", "a", "20", "1"], ["7"], [], [""], ["3", "b", "20", "1"], ["5A"]]
+    parsed = parse(rows, cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "7", "3", "5A"]
+    assert parsed.panels[0].circuits[1].breaker_a.confidence == Confidence.MISSING
+    assert not _marked(parsed.panels[0]) and not _listed(parsed)
+    # Anything else ends the table. The circuit-shaped rows below it are listed and mark the
+    # panel, in the last table and between tables.
+    ends = ["TOTAL,,1700", "Notes:", "Receptacles", "Page 2 of 2", "LP-2,225A,MLO", "1600 VA"]
+    below = [["5", "c", "20", "1"], ["7", "d", "20", "1"]]
+    for end in ends:
+        line = end.split(",")
+        raw = ", ".join(c for c in line if c)
+        parsed = parse(_TOP + _TWO + [line] + below, cfg)
+        assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], end
+        assert _marked(parsed.panels[0]), end
+        assert _listed(parsed) == [
+            (raw, "no circuit number"),
+            ("5, c, 20, 1", "no circuit number"),
+            ("7, d, 20, 1", "no circuit number"),
+        ], end
+        tail = [[], ["Panel", "LP-2"], _CKT_HEAD, ["1", "z", "20", "1"]]
+        by = _by_name(parse(_TOP + _TWO + [line] + below + tail, cfg))
+        assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], end
+        assert _marked(by["LP-1"]) and not _marked(by["LP-2"]), end
+        assert [c.number for c in by["LP-2"].circuits] == ["1"], end
+    # Lines below the table with nothing circuit-like in them list without marking the panel.
+    parsed = parse(_TOP + _TWO + [["Notes:"], ["see drawing E-101"]], cfg)
+    assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"]
+    assert not _marked(parsed.panels[0])
+    assert [r for r, _ in _listed(parsed)] == ["Notes:", "see drawing E-101"]
+
+
+def test_designation_title_with_extra_cells_between_tables_not_a_circuit(cfg):
+    for title, named in (
+        (["LP-2", "225A", "MLO"], False),
+        (["Panel LP-2", "225A", "MLO"], True),
+        (["LP-2", "120/208V", "3PH", "225A"], False),
+    ):
+        rows = _TOP + _TWO + [[], title, _CKT_HEAD, ["1", "z", "20", "1"], ["3", "y", "20", "1"]]
+        parsed = parse(rows, cfg)
+        by = _by_name(parsed)
+        assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], title
+        assert _marked(by["LP-1"]), title
+        if named:
+            # The key cell names the panel; the rest of the line is extra cells.
+            assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+                ("LP-1", ["1", "3"]),
+                ("LP-2", ["1", "3"]),
+            ], title
+            assert ("225A, MLO", "extra cells on a header block line") in _listed(parsed)
+        else:
+            assert list(by) == ["LP-1"], title
+            assert (", ".join(title), "not a header block key: no alias matches") in _listed(parsed)
+            assert ("1, z, 20, 1", "no panel name") in _listed(parsed), title
+
+
+def test_total_in_circuit_column_and_numbered_notes_after_total_not_circuits(cfg):
+    cases = (
+        [["SUBTOTAL", "", "1600"], ["5", "c", "20", "1"]],
+        [["TOTAL", "", "", "", "1700"], ["1", "All breakers bolt-on"], ["2", "Verify in field"]],
+        [["TOTAL"], ["DEMAND @ 80%", "", "2400"], ["125% CONT", "", "1250"]],
+    )
+    for tail in cases:
+        for more in ([], [[], ["Panel", "LP-2"], _CKT_HEAD, ["1", "z", "20", "1"]]):
+            parsed = parse(_TOP + _TWO + tail + more, cfg)
+            by = _by_name(parsed)
+            assert [c.number for c in by["LP-1"].circuits] == ["1", "3"], tail
+            assert _marked(by["LP-1"]), tail
+            assert ("LP-2" in by) is bool(more), tail
+            listed = [raw for raw, _ in _listed(parsed)]
+            for row in tail:
+                assert ", ".join(c for c in row if c) in listed, (tail, row)
+            if more:
+                assert [c.number for c in by["LP-2"].circuits] == ["1"], tail
+
+
+def test_panel_key_cell_name_single_token_or_listed(cfg):
+    def read(key, nxt):
+        rows = [[key, nxt], ["Voltage", "208"], _CKT_HEAD, ["1", "Lights", "20", "1"]]
+        return parse(rows, cfg)
+
+    # Alias words are removed from the key cell. One token left names the panel (MEDIUM).
+    for key, nxt in (("Panel Name LP-2", "225A"), ("Panel LP-2", "225A"), ("Panel LP-2", "MLO")):
+        parsed = read(key, nxt)
+        (panel,) = parsed.panels
+        assert panel.name == "LP-2", key
+        assert panel.source.confidence == Confidence.MEDIUM, key
+        assert [c.number for c in panel.circuits] == ["1"], key
+        assert (nxt, "extra cells on a header block line") in _listed(parsed), key
+    # More than one token left: the line is listed and no name is taken from it, not from the
+    # key cell and not from the next cell.
+    for key, nxt in (
+        ("Panel Schedule LP-2 Rev 3", "225A"),
+        ("Panel Schedule for LP-2", "225A"),
+        ("Panel Schedule Rm101", "LP-2"),
+    ):
+        parsed = read(key, nxt)
+        assert parsed.panels == [], key
+        reason = "panel key cell holds more than one name; not read"
+        assert (f"{key}, {nxt}", reason) in _listed(parsed), key
+        assert ("1, Lights, 20, 1", "no panel name") in _listed(parsed), key
+    # A rating is never a panel name. A key cell with only words keeps the next cell as the name.
+    parsed = read("Panel A", "225A")
+    assert parsed.panels == []
+    assert ("Panel A, 225A", "panel name is a rating; not read") in _listed(parsed)
+    assert read("Panel Schedule", "LP-2").panels[0].name == "LP-2"
