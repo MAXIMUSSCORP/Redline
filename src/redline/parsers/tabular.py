@@ -483,8 +483,8 @@ def _count(counts: Counter, values: Iterable[Value]) -> None:
 def _table(
     ctx: _Ctx, rows: list[list[str]], h: int, cols: list[_Col], start: int, end: int
 ) -> None:
-    u = _units_row(rows, h, end)
-    data = rows[h + 1 : end] if u is None else rows[h + 1 : u] + rows[u + 1 : end]
+    u = _units_rows(rows, h, end)
+    data = [r for i, r in enumerate(rows[h + 1 : end], h + 1) if i not in u]
     used = max((i + 1 for r in data for i, c in enumerate(r) if c.strip()), default=0)
     width = max(len(cols), used)
     cols = cols + [_Col(i, "", ctx.match("")) for i in range(len(cols), width)]
@@ -542,7 +542,7 @@ def _table(
     last_placed: Panel | None = None
     for r in range(h + 1, end):
         cells = rows[r]
-        if r == u or not any(c.strip() for c in cells):
+        if r in u or not any(c.strip() for c in cells):
             continue
         loc = ctx.locate(r)
         if circuit_missing:
@@ -681,23 +681,33 @@ _CONNECTED = re.compile(r"connected\s+load\s*:?", re.IGNORECASE)
 _SUFFIXED = re.compile(r"[0-9]+(?:\.0)?[A-Za-z]")
 _UNITS_ROW_WORDS = frozenset(
     {"va", "kva", "a", "ka", "amp", "amps", "awg", "kcmil", "mm", "mm2", "m", "ft"}
-    | {"v", "kv", "w", "kw", "%", "volts"}
+    | {"v", "kv", "w", "kw", "%", "volts", "hp", "fla", "hz", "pf"}
 )
-_UNITS_ROW_CELL = re.compile(r"[(\[]?\s*([^()\[\]\s]{1,6})\s*[)\]]?")
+_UNITS_ROW_CELL = re.compile(r"\s*([^()\[\]\s]{1,6})\s*")
+# A bracketed cell with no digit is a unit ("(HP)"); "(20A)" is not.
+_UNITS_BRACKET = re.compile(r"[(\[][^()\[\]0-9]*[^()\[\]0-9\s][^()\[\]0-9]*[)\]]")
 
 
-def _units_row(rows: list[list[str]], h: int, end: int) -> int | None:
-    """The first non-blank row under the header at h when every filled cell is a unit, in
-    brackets or bare ("(VA)", "A", "kVA", "%"): a units row is part of the header (RV96)."""
+def _is_unit(c: str) -> bool:
+    if _UNITS_BRACKET.fullmatch(c):
+        return True
+    m = _UNITS_ROW_CELL.fullmatch(c)
+    return bool(m) and m[1].lower() in _UNITS_ROW_WORDS
+
+
+def _units_rows(rows: list[list[str]], h: int, end: int) -> set[int]:
+    """The consecutive non-blank rows directly under the header at h whose filled cells are all
+    units, in brackets or bare ("(VA)", "A", "kVA", "%", "(HP)"): they are part of the header
+    (RV96, RV98)."""
+    out: set[int] = set()
     for r in range(h + 1, end):
         cells = [c.strip() for c in rows[r] if c.strip()]
         if not cells:
             continue
-        ok = all(
-            (m := _UNITS_ROW_CELL.fullmatch(c)) and m[1].lower() in _UNITS_ROW_WORDS for c in cells
-        )
-        return r if ok else None
-    return None
+        if not all(_is_unit(c) for c in cells):
+            break
+        out.add(r)
+    return out
 
 
 def _label_prefixes(row: list[str], ckt: list[int]) -> set[str]:
@@ -705,20 +715,13 @@ def _label_prefixes(row: list[str], ckt: list[int]) -> set[str]:
     return {m[1].lower() for m in cells if m}
 
 
-def _shaped_row(
-    row: list[str],
-    ckt: list[int],
-    above: list[str] | None = None,
-    final: Callable[[], bool] | None = None,
-) -> int:
+def _shaped_row(row: list[str], ckt: list[int], above: list[str] | None = None) -> int:
     """The whitelist (RV85): a circuit cell of circuit shape and another cell filled. Returns the
     number of filled cells, or 0 when the row does not pass. ckt is the circuit column indexes.
     A TOTAL-like first cell never passes (RV90). With above (the row just over this one, blank
     lines not skipped), a letter-label cell ("CB2") counts only when above holds the same letters
-    ("CB1"), so a panel title like "LP2,225A" between tables is not a circuit (RV89). Likewise a
-    row with more than one cell, a digits-plus-letter number ("2A") and final() true (the last
-    row before the next header or block line) counts only when above has a letter suffix too
-    (RV93)."""
+    ("CB1"), so a panel title like "LP2,225A" between tables is not a circuit (RV89). The
+    trailing run of letter-suffixed rows ("2A") is judged by _table_end (RV93, RV97)."""
     cells = [c.strip() for c in row if c.strip()]
     filled = len(cells)
     first = cells[0] if cells and len(cells[0]) <= _CKT_TEXT_MAX * 4 else ""
@@ -729,19 +732,20 @@ def _shaped_row(
         if not _shaped(t, filled > 1):
             continue
         m = _LABEL.fullmatch(t)
-        if m:
-            if seen is None or m[1].lower() in seen:
-                return filled
-        elif (
-            above is None
-            or filled == 1
-            or not _SUFFIXED.search(t)
-            or any(_SUFFIXED.fullmatch(x) for x in _circuit_cells(above, ckt))
-            or not final
-            or not final()
-        ):
+        if not m or seen is None or m[1].lower() in seen:
             return filled
     return 0
+
+
+def _suffix_digits(row: list[str], ckt: list[int]) -> set[str] | None:
+    """The digit groups of a row of two or more cells whose circuit cells all carry a letter
+    suffix ("2A", "41B"), else None."""
+    cells = [t for t in _circuit_cells(row, ckt) if _shaped(t, True)]
+    if sum(1 for c in row if c.strip()) < 2 or not cells:
+        return None
+    if any(_LABEL.fullmatch(t) or not _SUFFIXED.search(t) for t in cells):
+        return None
+    return {d for t in cells for d in re.findall(r"[0-9]+", t)}
 
 
 def _is_circuit_row(
@@ -868,30 +872,52 @@ def _table_end(
     row follows it."""
     ckt = _ckt_cols(keys)
     end = prev = head
-    units = _units_row(grid, head, limit + 1)
-    if units is not None:
-        end = units
-
-    def final(j: int) -> Callable[[], bool]:
-        def last() -> bool:
-            q = next((k for k in range(j + 1, limit + 1) if any(c.strip() for c in grid[k])), None)
-            return q is None or not _shaped_row(grid[q], ckt)
-
-        return last
-
+    units = _units_rows(grid, head, limit + 1)
+    if units:
+        end = max(units)
     for j in range(head + 1, limit + 1):
-        if j == units or not any(c.strip() for c in grid[j]):
+        if j in units or not any(c.strip() for c in grid[j]):
             continue
         # The nearest non-blank row above; directly under the header there is none.
-        filled = _shaped_row(grid[j], ckt, None if prev == head else grid[prev], final(j))
+        filled = _shaped_row(grid[j], ckt, None if prev == head else grid[prev])
         # A number alone is an empty position only directly under the header or a circuit row.
-        lone = filled == 1 and j - 1 not in (head, units) and not _shaped_row(grid[j - 1], ckt)
+        lone = filled == 1 and j - 1 != head and j - 1 not in units
+        lone = lone and not _shaped_row(grid[j - 1], ckt)
         if not filled or lone or _is_short_block_line(ctx, grid[j]):
             break
         prev = j
         if not _block_line(ctx, grid[j], keys, filled, _near(grid, j)):
             end = j
-    return end
+    cut = _trim_suffix_run(ctx, grid, head, end, units, keys) if end == prev else None
+    return end if cut is None else cut
+
+
+def _trim_suffix_run(
+    ctx: _Ctx, grid: list[list[str]], head: int, last: int, units: set[int], keys: list[str | None]
+) -> int | None:
+    """The new table end when the table's last rows are a run of letter-suffixed circuit rows
+    that does not belong (RV93, RV97), else None. A run after a row without suffix counts only when
+    its rows share one number ("41A", "41B") and, alone, the number of the row above."""
+    ckt = _ckt_cols(keys)
+    rows = [
+        j for j in range(head + 1, last + 1) if j not in units and any(c.strip() for c in grid[j])
+    ]
+    run: list[set[str]] = []
+    while rows and (d := _suffix_digits(grid[rows[-1]], ckt)) is not None:
+        run.append(d)
+        rows.pop()
+    if not run or not rows:
+        return None
+    shared = set().union(*run)
+    above = {d for t in _circuit_cells(grid[rows[-1]], ckt) for d in re.findall(r"[0-9]+", t)}
+    if len(shared) == 1 and (len(run) > 1 or shared <= above):
+        return None
+    while rows:
+        j = rows.pop()
+        filled = _shaped_row(grid[j], ckt)
+        if filled and not _block_line(ctx, grid[j], keys, filled, _near(grid, j)):
+            return j
+    return max(units, default=head)
 
 
 def rows_to_panels(
