@@ -1487,6 +1487,34 @@ LAYOUTS = [
         [("3, y, 20", "no panel name"), ("5, z, 20", "no panel name")],
         id="RV67_blank_panel_cells_mark_table_panels",
     ),
+    pytest.param(
+        ["Panel,MDP-1", "Bus,100", _H, "1,a,20,1", "", "LP-1 FED FROM MDP-1", _H, "1,b,20,1"],
+        [("MDP-1", ["1"], {"bus": 100.0, "incomplete": True})],
+        [
+            ("LP-1 FED FROM MDP-1", "header block key fed_from has no value"),
+            ("1, b, 20, 1", "no panel name"),
+        ],
+        id="RV68_fed_from_other_prefix_ends_inheritance",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "LP-1 continued from sheet E-401", _H]
+        + ["3,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-1", ["3"], {})],
+        [("LP-1 continued from sheet E-401", "not a header block key: no alias matches")],
+        id="RV68_sheet_reference_keeps_inheritance",
+    ),
+    pytest.param(
+        [_P, "LP-1,1,a,20", "LP-3,1,b,20", _P, ",3,c,20"],
+        [("LP-1", ["1"], {}), ("LP-3", ["1"], {"incomplete": True})],
+        [("3, c, 20", "no panel name")],
+        id="RV69_blank_rows_after_page_break_mark_panel_above",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "7A"],
+        [("LP-1", ["1", "7A"], {"bus": 100.0})],
+        [],
+        id="RV70_lone_letter_suffixed_circuit_stays_circuit",
+    ),
 ]
 
 
@@ -1503,7 +1531,9 @@ def test_layout_corpus(cfg, lines, panels, unparsed):
             "voltage": p.voltage_v.value,
         }
         got_vals = {k: v for k, v in vals.items() if v is not None}
-        if "page break" in (p.bus_rating_a.source.note or "" if p.bus_rating_a.source else ""):
+        if "could not be placed" in (
+            p.bus_rating_a.source.note or "" if p.bus_rating_a.source else ""
+        ):
             got_vals["incomplete"] = True  # bus LOW: the panel-level checks are NEEDS_REVIEW
         got.append((p.name, [c.number for c in p.circuits], got_vals))
     assert got == panels
@@ -1931,3 +1961,62 @@ def test_blank_panel_cell_rows_mark_table_panels_incomplete(cfg):
     assert [p.name for p in parsed.panels] == ["LP-1", "LP-2"]
     assert all(_marked(p) for p in parsed.panels)
     assert [u.reason for u in parsed.unparsed if u.kind == "row"] == ["no panel name"]
+
+
+def test_rule_title_other_prefix_feeder_ends_inheritance(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    ends = [
+        ("MDP-1", "LP-1 FED FROM MDP-1"),
+        ("LP-1", "SUB LP-1 FEEDER TO LP-2"),
+        ("LP-1", "LP-1A"),
+        ("LP-1", "Panel LP-1 fed from E-401"),
+    ]
+    keeps = [
+        "LP-1 continued from sheet E-401",
+        "Panel LP-1 (continued) - Page 2 of 2",
+        "Panel LP-1 208Y/120V (cont.)",
+        "LP-1 cont'd 3PH 4W",
+        "LP-1 (cont.) see dwg E-401 rev 3",
+    ]
+    cases = [(n, t, False) for n, t in ends] + [("LP-1", t, True) for t in keeps]
+    for name, title, kept in cases:
+        rows = [["Panel", name], ["Bus Rating", "100"], sub, ["1", "a", "20", "1"], [title], sub]
+        parsed = parse(rows + [["5", "c", "20", "1"]], cfg)
+        got = [(p.name, [c.number for c in p.circuits]) for p in parsed.panels]
+        if kept:
+            assert got == [(name, ["1"]), (name, ["5"])], title
+        else:
+            assert got == [(name, ["1"])], title
+            assert _marked(parsed.panels[0]), title
+            assert any(u.reason == "no panel name" for u in parsed.unparsed), title
+
+
+def test_pcol_blank_rows_after_page_break_mark_panel_above(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["LP-3", "1", "a", "1000", "20"],
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["", "3", "b", "8000", "20"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [p.name for p in parsed.panels] == ["LP-3"]
+    assert _marked(parsed.panels[0])
+    assert [u.reason for u in parsed.unparsed if u.kind == "row"] == ["no panel name"]
+    assert "blank panel cell" in parsed.panels[0].bus_rating_a.source.note
+
+
+def test_lone_letter_suffixed_circuit_number_stays_circuit(cfg):
+    sub = ["Ckt", "Description", "Breaker", "Poles"]
+    for lone, circuit in (("7A", True), ("1A", True), ("LP-2", False), ("Page 2", False)):
+        rows = [
+            ["Panel", "LP-1"],
+            ["Bus Rating", "100"],
+            sub,
+            ["1", "a", "20", "1"],
+            [lone],
+            sub,
+            ["9", "z", "20", "1"],
+        ]
+        parsed = parse(rows, cfg)
+        nums = [c.number for c in parsed.panels[0].circuits]
+        assert (lone in nums) is circuit, lone
