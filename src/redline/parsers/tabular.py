@@ -397,15 +397,25 @@ def _header_block(ctx: _Ctx, rows: list[list[str]], start: int, h: int) -> _Bloc
             val, extra = (rest[0], rest[1:]) if rest else ("", [])
         hit = ctx.block_match(key_text)
         if val and hit.key == "panel_name" and hit.conf != Confidence.HIGH:
-            # Key cell minus its alias words. A designation left in it ("Panel LP-2,225A") is the
-            # name only when it is the one token left; the next cell is then an extra cell.
+            # Key cell minus its alias words. None left: the next cell is the name. One token
+            # left is the name unless it has no digit and the next cell has one ("Panel
+            # Schedule,LP-2"). More than one: not read.
             left = [
                 t for t in key_text.split() if not set(normalize_header(t).split()) <= hit.words
             ]
-            if any(ch.isdigit() for t in left for ch in t):
-                if len(left) != 1:
-                    ctx.unp("row", raw, "panel key cell holds more than one name; not read", loc)
-                    continue
+            if len(left) > 1 or (
+                len(left) == 1
+                and not any(ch.isdigit() for ch in left[0])
+                and any(ch.isdigit() for ch in val)
+            ):
+                why = (
+                    "panel key cell holds more than one name"
+                    if len(left) > 1
+                    else "panel name is ambiguous"
+                )
+                ctx.unp("row", raw, f"{why}; not read", loc)
+                continue
+            if left:
                 extra, val = [val, *extra], left[0]
                 hit = replace(hit, note="panel name read from the key cell, after the word Panel")
             if _RATING.fullmatch(val):
@@ -787,7 +797,7 @@ def _table_end(
 ) -> int:
     """Index of the last row of the table whose header is at head. Rows are blank or pass the
     whitelist; the first other non-blank line, or a panel line ("Panel: LP-2,3"), ends the table.
-    A whitelisted row that is a block key line ("Location,3") is a circuit only when a circuit
+    A number alone must sit directly under the header or a circuit row. A whitelisted row that is a block key line ("Location,3") is a circuit only when a circuit
     row follows it."""
     ckt = _ckt_cols(keys)
     end = head
@@ -795,7 +805,9 @@ def _table_end(
         if not any(c.strip() for c in grid[j]):
             continue
         filled = _shaped_row(grid[j], ckt)
-        if not filled or _is_short_block_line(ctx, grid[j]):
+        # A number alone is an empty position only directly under the header or a circuit row.
+        lone = filled == 1 and j - 1 != head and not _shaped_row(grid[j - 1], ckt)
+        if not filled or lone or _is_short_block_line(ctx, grid[j]):
             break
         if not _block_line(ctx, grid[j], keys, filled, _near(grid, j)):
             end = j
