@@ -1663,6 +1663,62 @@ LAYOUTS = [
         ],
         id="RV80_two_cell_title_between_tables_not_a_circuit",
     ),
+    pytest.param(
+        ["Panel,LP-3", "Bus,100", _H, "CB1,a,20,1", "CB2,b,20,1", "SPD1,c,20,1"],
+        [("LP-3", ["CB1", "CB2", "SPD1"], {"bus": 100.0})],
+        [],
+        id="RV81_letter_prefixed_circuit_labels_read",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "Panel,LP-2", "Bus,100", _H, "CKT1,b,20,1"],
+        [("LP-1", ["1"], {"bus": 100.0}), ("LP-2", ["CKT1"], {"bus": 100.0})],
+        [],
+        id="RV81_ckt_label_second_table_read",
+    ),
+    pytest.param(
+        ["Panel LP-2,225A", _H, "5,Fan,20,1"],
+        [("LP-2", ["5"], {})],
+        [("225A", "extra cells on a header block line")],
+        id="RV82_panel_key_cell_designation_then_rating",
+    ),
+    pytest.param(
+        ["Panel LP-2,Fed from LP-1", _H, "5,Fan,20,1"],
+        [("LP-2", ["5"], {})],
+        [("Fed from LP-1", "extra cells on a header block line")],
+        id="RV82_panel_key_cell_designation_then_fed_from",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "", "Panel LP-2,Fed from LP-1", _H, "5,b,20,1"],
+        # The line is cut from table 1 and looks like a circuit row, so LP-1 is marked (safe side).
+        [("LP-1", ["1"], {"bus": 100.0, "incomplete": True}), ("LP-2", ["5"], {})],
+        [("Fed from LP-1", "extra cells on a header block line")],
+        id="RV82_panel_key_cell_designation_between_tables",
+    ),
+    pytest.param(
+        [
+            "Panel,LP-1",
+            "Bus,100",
+            "Description,Ckt,Breaker,Poles",
+            "a,1,20,1",
+            "Total,2,20,1",
+            "c,3,20,1",
+        ],
+        [("LP-1", ["1", "2", "3"], {"bus": 100.0})],
+        [],
+        id="RV83_total_description_with_circuit_number_kept",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "2,b,20,1", ",Subtotal,40,", "3,c,20,1"],
+        [("LP-1", ["1", "2", "3"], {"bus": 100.0})],
+        [("Subtotal, 40", "total row, not a circuit")],
+        id="RV83_subtotal_mid_table_skipped",
+    ),
+    pytest.param(
+        ["Panel,LP-1", "Bus,100", _H, "1,TOTAL 1,20,1", "2,b,20,1"],
+        [("LP-1", ["1", "2"], {"bus": 100.0})],
+        [],
+        id="RV83_total_in_description_with_number_unchanged",
+    ),
 ]
 
 
@@ -2327,3 +2383,92 @@ def test_two_cell_title_between_tables_not_a_circuit(cfg):
 
 
 _CKT_HEAD = ["Ckt", "Description", "Breaker", "Poles"]
+
+
+_FULL = (
+    "Ckt,Description,Load (VA),Load Type,Poles,Phase,Breaker,Wire Sz.,Material,Insulation,"
+    "Conductors in Raceway,Length,Voltage"
+)
+
+
+def _full_row(ckt, va):
+    return f"{ckt},x,{va},noncontinuous,1,A,20,12 AWG,Cu,75,3,10,120".split(",")
+
+
+def test_letter_prefixed_circuit_labels_read_or_mark_panel(cfg):
+    top = [["Panel", "LP-3"], ["Bus", "100"], _FULL.split(",")]
+    for labels in (["1", "2", "SPD1"], ["CB1", "CB2", "SPD1"]):
+        rows = top + [_full_row(c, 1000 * (i + 1)) for i, c in enumerate(labels)]
+        (panel,) = parse(rows, cfg).panels
+        assert [c.number for c in panel.circuits] == labels
+        assert sum(c.load_va.value for c in panel.circuits) == 6000.0
+        assert panel.bus_rating_a.confidence != Confidence.LOW
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker", "Poles"],
+        ["LP-1", "BKR1", "a", "800", "20", "1"],
+        ["LP-1", "BKR2", "b", "800", "20", "1"],
+        ["LP-2", "BKR1", "c", "800", "20", "1"],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-1", ["BKR1", "BKR2"]),
+        ("LP-2", ["BKR1"]),
+    ]
+    # A cut row with such a label still marks the panel: no result without it.
+    cut = [["Panel", "LP-1"], ["Bus", "100"], HEAD[1:], ["1", "a", "800", "20", "", "1"]]
+    cut += [[], ["Notes:"], ["CB9", "x", "800", "20", "", "1"]]
+    (panel,) = parse(cut, cfg).panels
+    assert panel.bus_rating_a.confidence == Confidence.LOW
+
+
+def test_panel_key_cell_with_designation_not_named_from_next_cell(cfg):
+    # Rule: the name is the key cell without the word Panel (MEDIUM, noted); the next cell is
+    # listed as an extra cell and never read as the name or a rating.
+    for tail in ("225A", "Fed from LP-1"):
+        rows = [["Panel LP-2", tail], _H.split(","), ["5", "Fan", "20", "1"]]
+        parsed = parse(rows, cfg)
+        (panel,) = parsed.panels
+        assert panel.name == "LP-2"
+        assert panel.source.confidence == Confidence.MEDIUM
+        assert [c.number for c in panel.circuits] == ["5"]
+        assert [(u.raw, u.reason) for u in parsed.unparsed if u.kind == "row"] == [
+            (tail, "extra cells on a header block line")
+        ]
+
+
+def test_subtotal_rows_inside_table_skipped_not_ending_table(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker", "Poles"],
+        ["LP-1", "1", "a", "800", "20", "1"],
+        ["LP-1", "2", "b", "800", "20", "1"],
+        ["TOTAL", "", "", "1600", "", ""],
+        ["LP-2", "1", "c", "800", "20", "1"],
+        ["LP-2", "2", "d", "800", "20", "1"],
+        ["TOTAL", "", "", "1600", "", ""],
+    ]
+    parsed = parse(rows, cfg)
+    assert [(p.name, [c.number for c in p.circuits]) for p in parsed.panels] == [
+        ("LP-1", ["1", "2"]),
+        ("LP-2", ["1", "2"]),
+    ]
+    assert all(p.bus_rating_a.confidence != Confidence.LOW for p in parsed.panels)
+    got = [(u.raw, u.reason) for u in parsed.unparsed if u.kind == "row"]
+    assert got == [
+        ("TOTAL, 1600", "total row, not a circuit"),
+        ("TOTAL, 1600", "no circuit number"),
+    ]
+
+
+def test_long_circuit_cell_designation_check_is_linear(cfg):
+    import time
+
+    long = "a" * 100000 + " 1"
+    top = [["Panel", "LP-1"], ["Bus", "100"], _H.split(","), ["1", "a", "20", "1"]]
+    after = top + [[], [long, "x", "20", "1"]]
+    between = (
+        top + [[long, "x", "20", "1"]] + [["Panel", "LP-2"], _H.split(","), ["1", "b", "20", "1"]]
+    )
+    for rows in (after, between):
+        start = time.perf_counter()
+        parse(rows, cfg)
+        assert time.perf_counter() - start < 1.0

@@ -392,6 +392,12 @@ def _header_block(ctx: _Ctx, rows: list[list[str]], start: int, h: int) -> _Bloc
             rest = nz[1:]
             val, extra = (rest[0], rest[1:]) if rest else ("", [])
         hit = ctx.block_match(key_text)
+        if val and hit.key == "panel_name" and hit.conf != Confidence.HIGH:
+            # "Panel LP-2,225A": a designation in the key cell is the name; the next cell is not.
+            word = [t for t in key_text.split() if ctx.block_match(t).key != "panel_name"]
+            if word and _DESIGNATION.search(key_text):
+                extra, val = [val, *extra], " ".join(word)
+                hit = replace(hit, note="panel name read from the key cell, after the word Panel")
         if hit.key is None:
             ctx.unp("row", raw, f"not a header block key: {hit.reason}", loc)
             continue
@@ -533,7 +539,10 @@ def _table(
             if not number:
                 if len(halves) > 1 and not any(span):
                     continue
-                ctx.unp("row", text, "no circuit number", loc)
+                total = bool(span) and any(_TOTAL_ROW.fullmatch(c) for c in span[:2])
+                ctx.unp(
+                    "row", text, "total row, not a circuit" if total else "no circuit number", loc
+                )
                 made = True
                 continue
             if pcol:
@@ -589,7 +598,8 @@ def _table(
 
 
 _CKT_TEXT_MAX = 12
-_DESIGNATION = re.compile(r"[A-Za-z]{2,}-?\d")
+# Possessive and anchored, so a long letter run is scanned once, not once per start.
+_DESIGNATION = re.compile(r"(?<![A-Za-z])[A-Za-z]{2,}+-?\d")
 _TOTAL_ROW = re.compile(r"(sub[\s-]*)?totals?(\s+(load|va|connected|demand))*:?", re.IGNORECASE)
 
 
@@ -622,8 +632,11 @@ def _is_circuit_row(
     ]
     if not ok:
         return False
-    if all(t[:1].isalpha() and _DESIGNATION.search(t) for t in ok):
-        return False  # "LP-2" in the circuit cell is a panel title ("LP-2,225A"), not a circuit
+    short = sum(1 for c in row if c.strip()) <= 2
+    if not any_len and short and all(t[:1].isalpha() and _DESIGNATION.search(t) for t in ok):
+        # "LP-2" in the circuit cell of a short line is a panel title ("LP-2,225A"). A longer
+        # line ("CB1,a,800,20,1") is a circuit, and a cut one still counts for the mark.
+        return False
     at = next(j for j, c in enumerate(row) if c.strip())
     first = row[at].strip()
     lone = sum(1 for c in row if c.strip()) == 1
@@ -753,22 +766,59 @@ def _last_row(
     not one. titled (the last table of a grid) also ends at a TOTAL row or a footer title.
     """
     ckt = _ckt_cols(keys)
+    memo: dict[int, bool] = {}
     for j in range(head + 1, k + 1):
         if _is_short_block_line(ctx, grid[j]) or (
-            titled and _ends_last_table(ctx, grid, head, j, keys, ckt)
+            titled and _ends_last_table(ctx, grid, head, j, k, keys, ckt, memo)
         ):
             return _walk_up(ctx, grid, head, j - 1, keys, ckt)
     return _walk_up(ctx, grid, head, k, keys, ckt)
 
 
+def _total_ends(
+    ctx: _Ctx,
+    grid: list[list[str]],
+    j: int,
+    k: int,
+    keys: list[str | None],
+    ckt: list[int],
+    memo: dict[int, bool],
+) -> bool:
+    """A TOTAL row ends the last table unless a circuit row follows it before any other text
+    (a subtotal per panel in a combined schedule). Runs of TOTAL rows share one answer."""
+    seen, ends = [j], True
+    for n in range(j + 1, k + 1):
+        if n in memo:
+            ends = memo[n]
+            break
+        cells = [c.strip() for c in grid[n] if c.strip()]
+        if not cells:
+            continue
+        if _is_circuit_row(ctx, grid[n], keys, ckt, _near(grid, n)):
+            ends = False
+            break
+        if not _TOTAL_ROW.fullmatch(cells[0]):
+            break
+        seen.append(n)
+    memo.update(dict.fromkeys(seen, ends))
+    return ends
+
+
 def _ends_last_table(
-    ctx: _Ctx, grid: list[list[str]], head: int, j: int, keys: list[str | None], ckt: list[int]
+    ctx: _Ctx,
+    grid: list[list[str]],
+    head: int,
+    j: int,
+    k: int,
+    keys: list[str | None],
+    ckt: list[int],
+    memo: dict[int, bool],
 ) -> bool:
     """A TOTAL row, or a lone text cell ("Notes:", "Page 2 of 2") that follows a blank line or a
     non-circuit line, or ends in a colon, below the last table."""
     cells = [c.strip() for c in grid[j] if c.strip()]
     if cells and _TOTAL_ROW.fullmatch(cells[0]):
-        return True
+        return _total_ends(ctx, grid, j, k, keys, ckt, memo)
     if not (
         len(cells) == 1
         and any(ch.isalpha() for ch in cells[0])
