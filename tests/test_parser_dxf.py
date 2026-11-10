@@ -2,6 +2,7 @@ import copy
 import csv
 import json
 import sys
+import time
 import types
 from dataclasses import fields, replace
 from pathlib import Path
@@ -63,7 +64,7 @@ def schedule(name="LP-9", rows=ROWS) -> list[list[str]]:
     return [["Panel", name, "", "", "", ""], HEADER, *rows]
 
 
-_n = iter(range(10_000))
+_n = iter(range(1_000_000))
 
 
 def text(s, x, y, layout="E-1", h=2.5, rot=0, kind="TEXT", **extra) -> dict:
@@ -470,3 +471,51 @@ def test_unread_table_render_block_is_still_read(test_cfg):
     out = dxf.parse_rawdrawing(d, test_cfg)
     assert _lp(out).count("LP-9") == 1
     assert "not read twice" not in out.coverage[-1].what_read
+
+
+def _seconds(d, cfg) -> float:
+    t0 = time.perf_counter()
+    dxf.parse_rawdrawing(d, cfg)
+    return time.perf_counter() - t0
+
+
+def test_loose_text_one_long_line_is_linear(test_cfg):
+    d = drawing([text(str(i), float(i), 50.0) for i in range(8000)])
+    assert _seconds(d, test_cfg) < 1.0
+
+
+def test_many_layouts_is_linear(test_cfg):
+    d = drawing([text("x", 0.0, 0.0, layout=f"L{i}") for i in range(20000)])
+    assert _seconds(d, test_cfg) < 1.0
+
+
+def test_loose_text_summary_counts_capped_values(test_cfg):
+    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg)
+    [p] = out.panels
+    n = sum(1 for c in p.circuits for v in values(c).values() if v.source)
+    entry = next(c for c in out.coverage if c.unit == "LP-9")
+    summary = dict(s.rsplit(" ", 1) for s in entry.confidence_summary.split(", "))
+    assert summary["HIGH"] == "0" and int(summary["MEDIUM"]) >= n - int(summary["LOW"]) - int(
+        summary["MISSING"]
+    )
+    assert all(int(v) >= 0 for v in summary.values())
+
+
+def test_loose_text_summary_error_keeps_cluster(test_cfg, monkeypatch):
+    real = dxf.rows_to_panels
+
+    def bad(*a, **k):
+        part = real(*a, **k)
+        part.coverage = [replace(c, confidence_summary="garbage") for c in part.coverage]
+        return part
+
+    monkeypatch.setattr(dxf, "rows_to_panels", bad)
+    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg)
+    assert [p.name for p in out.panels] == ["LP-9"]
+
+
+def test_xref_text_not_reported_as_block_definition_text(test_cfg):
+    ents = loose(layout="block:SYM", xref_path="x/plan.dwg")
+    what = dxf.parse_rawdrawing(drawing(ents), test_cfg).coverage[-1].what_read
+    assert "texts in other block definitions not read" not in what
+    assert "texts in xref x/plan.dwg not read" in what
