@@ -626,3 +626,12 @@ def test_star_t_matching_budget_distinct_tables(test_cfg):
     out = dxf.parse_rawdrawing(d, test_cfg)
     assert time.perf_counter() - t0 - base < 1.0
     assert "table render blocks not read twice" not in out.coverage[-1].what_read
+
+
+def test_star_t_budget_keeps_real_render_block_matched(test_cfg):
+    rows = [[str(i), "Lighting", "1350", "20 A", "1", "12 AWG"] for i in range(1, 50)]
+    tables = [table(schedule(f"LP-{k}", rows), handle=f"{k:X}") for k in range(20)]
+    render = loose("LP-0", rows, layout="block:*T1")
+    out = dxf.parse_rawdrawing(drawing(tables + render), test_cfg)
+    assert [p.name for p in out.panels].count("LP-0") == 1
+    assert "texts in table render blocks not read twice" in out.coverage[-1].what_read
