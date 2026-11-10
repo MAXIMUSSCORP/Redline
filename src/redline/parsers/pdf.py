@@ -87,6 +87,7 @@ def _text_of(x: Any, decode) -> str:
 
 def _dump_page(page: Any, caps: dict, decode) -> dict:
     w, h = _num(page.width), _num(page.height)
+    found: list[dict] = []  # drawn tables, filled below
     d: dict[str, Any] = {
         "n": int(page.page_number),
         "width": round(w, 2),
@@ -95,7 +96,7 @@ def _dump_page(page: Any, caps: dict, decode) -> dict:
         "chars": len(page.chars),
         "paths": len(page.lines) + len(page.rects) + len(page.curves),
         "words": [],
-        "tables": [],
+        "tables": found,
         "annots": [],
     }
     area = 0.0
@@ -143,7 +144,7 @@ def _dump_page(page: Any, caps: dict, decode) -> dict:
         )
     if d["chars"]:  # a page with no text layer has no drawn table of words to find
         for t in page.find_tables():
-            d["tables"].append(
+            found.append(
                 {"bbox": [round(v, 2) for v in t.bbox], "rows": t.extract()},
             )
     return d
@@ -677,7 +678,7 @@ def _annotation_path(pg: _Page, annots: list[_Annot], words: list[_Word]) -> boo
         pg.unp("table", ", ".join(c for c in first if c), why, f"{loc}; y={-ys[0]:g}")
         return False
     pg.take(part, (ANNOT_NOTE, Method.PDF_ANNOT))
-    return bool(part.panels)
+    return any(p.circuits for p in part.panels)
 
 
 def _read_page(raw: dict, cfg: Config, file: str) -> Parsed:
