@@ -82,31 +82,44 @@ def _field_text(db: Any, handle: Any, depth: int = 0) -> str:
     return own or "".join(_field_text(db, t.value, depth + 1) for t in tags if t.code == 360)
 
 
-def _field_cells(e: Any, cols: int) -> dict[tuple[int, int], str]:
-    """Cells that hold a FIELD (code 344), as {(row, col): cached text}. Each cell opens with 171."""
+def _cell_texts(e: Any, cols: int) -> tuple[dict[tuple[int, int], str], dict[tuple[int, int], str]]:
+    """Per cell of the AcDbTable tags (each cell opens with 171): FIELD cached text (code 344)
+    and plain code 1 text. Long text comes as code 3 chunks, then code 1 last."""
     tags = _probe(lambda: list(e.xtags.get_subclass("AcDbTable")))
     if not tags or cols <= 0:
-        return {}
-    out: dict[tuple[int, int], str] = {}
-    n = -1
+        return {}, {}
+    fields: dict[tuple[int, int], str] = {}
+    plain: dict[tuple[int, int], str] = {}
+    n, chunks = -1, ""
     for t in tags:
         if t.code == 171:
-            n += 1
-        elif t.code == 344 and n >= 0:
-            out[divmod(n, cols)] = _field_text(e.doc.entitydb, t.value)
-    return out
+            n, chunks = n + 1, ""
+        elif n < 0:
+            continue
+        elif t.code == 344:
+            fields[divmod(n, cols)] = _field_text(e.doc.entitydb, t.value)
+        elif t.code == 3:
+            chunks += str(t.value)
+        elif t.code == 1:
+            plain[divmod(n, cols)] = chunks + str(t.value)
+            chunks = ""
+    return fields, plain
 
 
 def _table(e: Any, what: str, notes: list[str], acad_table: Any) -> dict[str, Any]:
+    from ezdxf.tools.text import plain_mtext
+
     values = acad_table.read_acad_table_content(e)
     counts = _table_counts(e)
     # ezdxf reads a FIELD cell's own text, which is empty. The drawing shows the cached value.
-    fields = _field_cells(e, counts[1]) if counts else {}
+    fields, plain = _cell_texts(e, counts[1]) if counts else ({}, {})
     cells = []
     for r, row in enumerate(values):
         for c, text in enumerate(row):
             # Every fallback cell is not evaluated until the FIELD tag check is shown right (D4).
-            text = fields.get((r, c), text)
+            # Code 1 holds the text of many cells while code 302, which ezdxf reads, is empty.
+            text = fields.get((r, c), text or plain.get((r, c), ""))
+            text = plain_mtext(text, split=False).replace(chr(10), " ")
             cells.append({"r": r, "c": c, "text": _cut(text, what, notes), "evaluated": False})
     if len(cells) > rawdrawing.MAX_TABLE_CELLS:
         raise ExtractError(
