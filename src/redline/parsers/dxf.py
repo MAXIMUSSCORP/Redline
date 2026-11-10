@@ -217,6 +217,7 @@ class _Tally:
     table_render_text: int = 0
     read_tables: list[set[str]] = field(default_factory=list)
     mleaders: int = 0
+    declared: int = 0
 
 
 def _where(e: dict) -> str:
@@ -330,6 +331,12 @@ def _table(e, cfg, file, min_cells, out, tally, add, unp) -> None:
             why = f"table is {rows} rows by {cols} columns, over the cell cap, so it is not read"
             unp("table", clip(", ".join(s.strip() for s in filled)), why, loc, Method.DXF_TABLE)
             return
+        if tally.declared + rows * cols > rawdrawing.MAX_DRAWING_CELLS:
+            tally.tables_listed += 1
+            why = "declared table sizes of this drawing are over the drawing cell cap, so this table is not read"
+            unp("table", clip(", ".join(s.strip() for s in filled)), why, loc, Method.DXF_TABLE)
+            return
+        tally.declared += rows * cols
         if len(filled) < min_cells:
             tally.tables_listed += 1
             unp(

@@ -554,3 +554,22 @@ def test_loose_text_repeated_panel_coverage_counts_own_panel(test_cfg):
         got = dict(s.rsplit(" ", 1) for s in c.confidence_summary.split(", "))
         assert sum(int(v) for v in got.values()) == n(p)
     assert cov[0].confidence_summary != cov[1].confidence_summary
+
+
+def test_declared_cells_capped_per_drawing_parse(test_cfg):
+    def big(i):
+        cells = [{"r": r, "c": 0, "text": "x", "evaluated": True} for r in range(4)]
+        t = {"rows": 100_000, "cols": 1, "cells": cells}
+        return {
+            "id": f"b{i}",
+            "type": "ACAD_TABLE",
+            "layout": "E-1",
+            "handle": f"{i:X}",
+            "table": t,
+        }
+
+    t0 = time.perf_counter()
+    out = dxf.parse_rawdrawing(drawing([big(i) for i in range(100)]), test_cfg)
+    assert time.perf_counter() - t0 < 3.0
+    capped = [u for u in out.unparsed if "cell cap" in u.reason and "drawing" in u.reason]
+    assert len(capped) >= 90
