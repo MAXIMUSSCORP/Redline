@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import statistics
+from bisect import bisect_left
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, fields, replace
@@ -78,8 +79,8 @@ def parse_file(path: Path, cfg: Config) -> Parsed:
 # ---- source walking: extractor stamp and confidence caps ----
 
 
-def _apply(panel: Panel, fn: Callable[[Source], Source], moves: Counter | None = None) -> None:
-    """Replace every Source under a panel with fn(Source); count Value confidence moves."""
+def _apply(panel: Panel, fn: Callable[[Source], Source]) -> None:
+    """Replace every Source under a panel with fn(Source)."""
     panel.source = fn(panel.source)
     for unit in (panel, *panel.circuits):
         if unit is not panel:
@@ -87,10 +88,7 @@ def _apply(panel: Panel, fn: Callable[[Source], Source], moves: Counter | None =
         for f in fields(unit):
             v = getattr(unit, f.name)
             if isinstance(v, Value) and v.source is not None:
-                new = fn(v.source)
-                if moves is not None and new.confidence != v.source.confidence:
-                    moves[(v.source.confidence, new.confidence)] += 1
-                setattr(unit, f.name, replace(v, source=new))
+                setattr(unit, f.name, replace(v, source=fn(v.source)))
 
 
 def _cap_medium(src: Source) -> Source:
@@ -100,12 +98,15 @@ def _cap_medium(src: Source) -> Source:
     return replace(src, confidence=Confidence.MEDIUM, note=note)
 
 
-def _shift_summary(summary: str, moves: Counter) -> str:
-    counts = {k: int(v) for k, v in (p.rsplit(" ", 1) for p in summary.split(", "))}
-    for (old, new), n in moves.items():
-        counts[old.name] -= n
-        counts[new.name] += n
-    return ", ".join(f"{c.name} {counts[c.name]}" for c in sorted(Confidence, reverse=True))
+def _summary(panel: Panel) -> str:
+    """Confidence counts of the panel and circuit values, as the tabular parser counts them."""
+    n: Counter = Counter(
+        v.confidence
+        for u in (panel, *panel.circuits)
+        for f in fields(u)
+        if isinstance((v := getattr(u, f.name)), Value) and v.source is not None
+    )
+    return ", ".join(f"{c.name} {n[c]}" for c in sorted(Confidence, reverse=True))
 
 
 # ---- loose text ----
@@ -141,6 +142,14 @@ def _items(entities: list[dict]) -> tuple[list[_Item], int]:
     return items, skipped
 
 
+def _nearest(xs: list[float], x: float) -> int:
+    """Index of the closest of ascending xs; ties and equal xs go to the lowest index."""
+    i = bisect_left(xs, x)
+    near = [j for j in (i - 1, i) if 0 <= j < len(xs)]
+    best = min(near, key=lambda j: abs(xs[j] - x))
+    return bisect_left(xs, xs[best])
+
+
 def _grid(
     items: list[_Item], row_tol: float, gap: float
 ) -> tuple[list[list[str]], list[float], int]:
@@ -148,11 +157,14 @@ def _grid(
     number of cells that shared a column with another cell of their row."""
     med = statistics.median(i.h for i in items)
     rows: list[list[_Item]] = []
+    total = 0.0  # running sum of y in the current row
     for it in sorted(items, key=lambda i: (-i.y, i.x)):
-        if rows and abs(it.y - statistics.fmean(r.y for r in rows[-1])) <= row_tol * med:
+        if rows and abs(it.y - total / len(rows[-1])) <= row_tol * med:
             rows[-1].append(it)
+            total += it.y
         else:
             rows.append([it])
+            total = it.y
     cells: list[list[_Item]] = []
     for r in rows:
         merged: list[_Item] = []
@@ -170,7 +182,7 @@ def _grid(
     for n, r in enumerate(cells):
         line = [""] * len(xs)
         for c in r:
-            k = min(range(len(xs)), key=lambda j: abs(xs[j] - c.x))
+            k = _nearest(xs, c.x)
             shared += bool(line[k])
             line[k] = f"{line[k]} {c.text}".strip()
         text = line[0]
@@ -198,6 +210,7 @@ class _Tally:
     unplaced_text: int = 0
     shared_columns: int = 0
     other_block_text: int = 0
+    xref_text: Counter = field(default_factory=Counter)
     table_render_text: int = 0
     read_tables: list[set[str]] = field(default_factory=list)
     mleaders: int = 0
@@ -228,16 +241,13 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
 
     def add(part: Parsed, loose: bool) -> None:
         if loose:
-            moves: list[Counter] = []
             for p in part.panels:
-                m: Counter = Counter()
-                _apply(p, _cap_medium, m)
-                moves.append(m)
-            if len(part.coverage) == len(part.panels):
-                part.coverage = [
-                    replace(c, confidence_summary=_shift_summary(c.confidence_summary, m))
-                    for c, m in zip(part.coverage, moves, strict=True)
-                ]
+                _apply(p, _cap_medium)
+            by_name = {p.name: p for p in part.panels}
+            part.coverage = [
+                replace(c, confidence_summary=_summary(by_name[c.unit])) if c.unit in by_name else c
+                for c in part.coverage
+            ]
         out.panels += part.panels
         out.unparsed += part.unparsed
         out.coverage += part.coverage
@@ -257,7 +267,7 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
         elif t in ("TEXT", "MTEXT"):
             texts.setdefault((layout, e.get("xref_path")), []).append(e)
     star_t = [k for k in texts if k[0].upper().startswith("BLOCK:*T")]
-    skipped_t = []
+    skipped_t = set()
     for k in star_t:
         # The RawDrawing does not link a table to its *T block, so match by content: a *T group
         # is a table's rendering when over half of its texts are cell texts of one table read.
@@ -266,12 +276,17 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
             2 * sum(c in cells for c in cleaned) > len(cleaned) for cells in tally.read_tables
         ):
             tally.table_render_text += len(cleaned)
-            skipped_t.append(k)
+            skipped_t.add(k)
     star_t = [k for k in star_t if k not in skipped_t]
     loose = [k for k in texts if not k[0].upper().startswith("BLOCK:")]
+    read_keys = {*star_t, *loose, *skipped_t}
     for k, group in texts.items():
-        if k not in star_t and k not in loose and k not in skipped_t:
-            tally.other_block_text += sum(1 for e in group if _clean(e.get("text")))
+        if k not in read_keys:
+            n = sum(1 for e in group if _clean(e.get("text")))
+            if k[1]:
+                tally.xref_text[k[1]] += n
+            else:
+                tally.other_block_text += n
     for k in star_t + loose:
         try:
             _cluster(texts[k], k, cfg, parsing, file, out, tally, add, unp)
@@ -419,6 +434,9 @@ def _drawing_entry(data: dict, file: str, t: _Tally, out: Parsed) -> CoverageEnt
         parts.append(f"{t.shared_columns} loose-text cells shared a column with another cell")
     if t.other_block_text:
         parts.append(f"{t.other_block_text} texts in other block definitions not read")
+    for xp, n in t.xref_text.items():
+        if n:
+            parts.append(f"{n} texts in xref {clip(xp)} not read")
     if t.table_render_text:
         parts.append(f"{t.table_render_text} texts in table render blocks not read twice")
     if t.mleaders:
