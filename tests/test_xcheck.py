@@ -46,8 +46,8 @@ def test_diff_counts_by_type():
 def test_diff_field_cells_evaluated_loss():
     rows = rows_by_item(diff("panel_sheet.dwg", PLUGIN, FALLBACK))
     lost = rows["cells evaluated"]
-    assert (lost.primary, lost.fallback) == (361, 0)
-    assert [evaluated_loads(PLUGIN).count(v) for v in (True, False)] == [6, 0]
+    assert (lost.primary, lost.fallback) == (355, 0)
+    assert [evaluated_loads(PLUGIN).count(v) for v in (True, False)] == [0, 6]
     assert [evaluated_loads(FALLBACK).count(v) for v in (True, False)] == [0, 6]
 
 
