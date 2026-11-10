@@ -78,3 +78,21 @@ def test_dxf_parsing_keys_match():
     for key in keys[:6]:
         assert real[key] == test[key], key
     assert all(test[k] is None for k in keys[6:])
+
+
+def test_pdf_parsing_keys_match():
+    keys = (
+        "pdf_text_page_min_chars",
+        "pdf_scanned_image_area_fraction",
+        "pdf_row_tolerance_word_heights",
+        "pdf_column_gap_fraction",
+        "pdf_region_gap_word_heights",
+        "pdf_title_block_width_fraction",
+        "pdf_title_block_height_fraction",
+        "pdf_timeout_s",
+    )
+    real, test = (yaml.safe_load(p.read_text(encoding="utf-8")) for p in (REAL, TEST))
+    for key in keys:
+        assert key in real["parsing"] and key in test["parsing"], key
+        assert real["parsing"][key] == test["parsing"][key], key
+    assert real["title_block"] == test["title_block"]
