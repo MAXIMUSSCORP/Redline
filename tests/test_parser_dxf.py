@@ -605,3 +605,24 @@ def test_loose_text_merge_is_linear(test_cfg):
     t0 = time.perf_counter()
     dxf.parse_rawdrawing(drawing(ents), test_cfg)
     assert time.perf_counter() - t0 < 5.0
+
+
+def test_star_t_matching_budget_distinct_tables(test_cfg):
+    n = 6000
+    head = ["Ckt", "Breaker", "Poles", "Wire Sz."]
+    tables = [
+        table([["Panel", f"LP-{i}"], head, ["1", "20 A", "1", "12 AWG"]], handle=f"{i:X}")
+        for i in range(n)
+    ]
+    shared = ["1", "20 A", *head]
+    stars = [
+        text(s, 0.0, 0.0, layout=f"block:*T{j}", rot=90)
+        for j in range(n)
+        for s in (*shared, f"q{j}")
+    ]
+    base = _seconds(drawing(tables), test_cfg)
+    d = drawing(tables + stars)
+    t0 = time.perf_counter()
+    out = dxf.parse_rawdrawing(d, test_cfg)
+    assert time.perf_counter() - t0 - base < 1.0
+    assert "table render blocks not read twice" not in out.coverage[-1].what_read

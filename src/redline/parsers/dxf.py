@@ -33,6 +33,9 @@ LOOSE_NOTE = "read from loose text"
 ROTATION_TOLERANCE_DEG = 1.0
 _NO_COUNTS = "table has no row and column counts, so its cells cannot be placed"
 _WD_UNMAPPED = "WD_M attribute not mapped (aecad_project.wd_m_attribute_map)"
+# Most table references one *T group may walk. A group over it is not matched, so its text stays
+# listed and is never skipped; this bounds the work when many tables share cell texts.
+_STAR_T_BUDGET = 5000
 _NO_SUMMARY = "HIGH 0, MEDIUM 0, LOW 0, MISSING 0"
 
 
@@ -298,8 +301,9 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
         key = tuple(sorted(cleaned))
         if key not in memo:
             hits: Counter = Counter()
-            for c in cleaned:
-                hits.update(index.get(c, ()))
+            if sum(len(index.get(c, ())) for c in cleaned) <= _STAR_T_BUDGET:
+                for c in cleaned:
+                    hits.update(index.get(c, ()))
             memo[key] = any(2 * n > len(cleaned) for n in hits.values())
         if cleaned and memo[key]:
             tally.table_render_text += len(cleaned)
