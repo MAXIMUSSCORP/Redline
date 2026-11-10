@@ -225,6 +225,7 @@ def _check_ai(ai: dict[str, Any]) -> None:
 
 # A Windows wait of about 4294967 s wraps its 32-bit millisecond count.
 _MAX_TIMEOUT_S = 86400
+_MAX_PDF_TITLE_CHARS = 64
 _MAX_PDF_TEXT_PAGE_MIN_CHARS = 10000
 
 
@@ -285,6 +286,12 @@ def _check_pdf_parsing(parsing: dict[str, Any]) -> None:
         x = parsing.get(key)
         if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 < x < math.inf:
             raise ConfigError(f"column_maps.yaml: parsing.{key} must be a number above zero")
+    for key in ("pdf_title_revision_max_chars", "pdf_title_sheet_max_chars_without_digit"):
+        x = parsing.get(key)
+        if not isinstance(x, int) or isinstance(x, bool) or not 1 <= x <= _MAX_PDF_TITLE_CHARS:
+            raise ConfigError(
+                f"column_maps.yaml: parsing.{key} must be an integer from 1 to {_MAX_PDF_TITLE_CHARS}"
+            )
     _check_timeout_cap(parsing, "pdf_timeout_s")
 
 

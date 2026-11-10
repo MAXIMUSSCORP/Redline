@@ -89,6 +89,8 @@ def test_pdf_parsing_keys_match():
         "pdf_region_gap_word_heights",
         "pdf_title_block_width_fraction",
         "pdf_title_block_height_fraction",
+        "pdf_title_revision_max_chars",
+        "pdf_title_sheet_max_chars_without_digit",
         "pdf_timeout_s",
     )
     real, test = (yaml.safe_load(p.read_text(encoding="utf-8")) for p in (REAL, TEST))

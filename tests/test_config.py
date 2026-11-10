@@ -715,3 +715,13 @@ def test_title_block_map_shape_checked(tmp_path):
     assert load_config(_cm(tmp_path, put({}))).column_maps["title_block"] == {}
     ok = {"sheet_number": ["sheet"]}
     assert load_config(_cm(tmp_path, put(ok))).column_maps["title_block"] == ok
+
+
+def test_pdf_title_shape_keys_validated(tmp_path):
+    for key in ("pdf_title_revision_max_chars", "pdf_title_sheet_max_chars_without_digit"):
+        for bad in (True, 0, -1, 2.5, 65, "4", None):
+            _rejects(tmp_path, _parsing(**{key: bad}), key)
+        _rejects(tmp_path, lambda c, k=key: c["parsing"].pop(k), key)
+        for ok in (1, 4, 64):
+            d = _cm(tmp_path, _parsing(**{key: ok}))
+            assert load_config(d).column_maps["parsing"][key] == ok
