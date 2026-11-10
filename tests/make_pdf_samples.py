@@ -139,7 +139,7 @@ def build_pdf(content: bytes, annots=(), image=None) -> bytes:
         f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {W} {H}] /Contents 4 0 R "
         f"/Resources << {res} >>{ann} >>"
     ).encode("latin-1")
-    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\x00\n")  # NUL keeps git from text-converting
     offs = {}
     for k in sorted(objs):
         offs[k] = len(out)
