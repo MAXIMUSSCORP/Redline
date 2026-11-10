@@ -1,0 +1,815 @@
+"""Reads a PDF into panels. Text pages go to the table finder, SHX pages with annotation text to
+the annotation path, and scanned, stroke-only and skipped pages are listed, never guessed.
+
+pdfplumber is imported only inside the child dump function, so importing this module loads no
+PDF library."""
+
+from __future__ import annotations
+
+import json
+import math
+import shutil
+import statistics
+import sys
+import tempfile
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
+
+import redline as redline_pkg
+from redline import rawdrawing
+from redline.config import Config
+from redline.extract import ExtractError, run_tool, sha256_of
+from redline.model import Confidence, CoverageEntry, Method, Source, Unparsed, clip
+from redline.parsers.csv_xlsx import InputError
+from redline.parsers.dxf import TextItem, _apply, _summary, text_grid
+from redline.parsers.tabular import Parsed, normalize_header, rows_to_panels
+
+SUFFIXES = (".pdf",)
+# Design limits, not code values.
+MAX_PDF_BYTES = 256 * 2**20
+MAX_PAGES = 1000
+MAX_WORDS_PER_PAGE = 100_000
+MAX_ANNOTS_PER_PAGE = 10_000
+_CAPS = ("MAX_PDF_BYTES", "MAX_PAGES", "MAX_WORDS_PER_PAGE", "MAX_ANNOTS_PER_PAGE")
+_MAX_WORD_TEXT = 1000
+
+TEXT, VECTOR_NO_TEXT, SCANNED = "TEXT", "VECTOR_NO_TEXT", "SCANNED"
+SCANNED_NOTE = "scanned page (a full-page image), needs OCR or vision"
+OCR_LAYER_NOTE = (
+    "scanned page with a text layer that is likely OCR; the text is not trusted, "
+    "needs OCR or vision"
+)
+SHX_NOTE = (
+    "scanned or SHX page with no text layer, needs OCR or vision; "
+    "or re-plot with TrueType substitution"
+)
+ANNOT_NOTE = "read from PDF annotation text"
+WORDS_NOTE = "read from PDF words, no drawn grid"
+DISAGREE_NOTE = "annotation text and page text disagree"
+_NO_SUMMARY = "HIGH 0, MEDIUM 0, LOW 0, MISSING 0"
+_REASON_LIMIT = 199  # clip() keeps limit + 1 characters, so a reason is at most 200
+_TITLE_LABELS = {"sheet_number": ("sheet", "sheet number"), "revision": ("revision", "revision")}
+
+
+# ---- numbers and shapes of a dump that is not trusted ----
+
+
+def _num(x: Any, default: float = 0.0) -> float:
+    if isinstance(x, bool) or not isinstance(x, int | float) or not math.isfinite(x):
+        return default
+    return float(x)
+
+
+def _str(x: Any) -> str:
+    return " ".join(x.split()) if isinstance(x, str) else ""
+
+
+def _list(x: Any) -> list:
+    return x if isinstance(x, list) else []
+
+
+def _reason(text: str) -> str:
+    return clip(text, _REASON_LIMIT)
+
+
+# ---- the child: the only place a PDF library is named ----
+
+
+def _text_of(x: Any, decode) -> str:
+    if isinstance(x, bytes):
+        try:
+            x = decode(x)
+        except Exception:  # noqa: BLE001
+            return ""
+    return x.replace("﻿", "") if isinstance(x, str) else ""
+
+
+def _dump_page(page: Any, caps: dict, decode) -> dict:
+    w, h = _num(page.width), _num(page.height)
+    d: dict[str, Any] = {
+        "n": int(page.page_number),
+        "width": round(w, 2),
+        "height": round(h, 2),
+        "rotation": int(page.rotation or 0),
+        "chars": len(page.chars),
+        "paths": len(page.lines) + len(page.rects) + len(page.curves),
+        "words": [],
+        "tables": [],
+        "annots": [],
+    }
+    area = 0.0
+    for im in page.images:
+        iw = min(_num(im.get("x1")), w) - max(_num(im.get("x0")), 0.0)
+        ih = min(_num(im.get("bottom")), h) - max(_num(im.get("top")), 0.0)
+        area += max(iw, 0.0) * max(ih, 0.0)
+    d["image_area_fraction"] = round(min(area / (w * h), 1.0), 4) if w * h > 0 else 0.0
+    annots = page.annots
+    if len(annots) > caps["MAX_ANNOTS_PER_PAGE"]:
+        d["skipped"] = (
+            f"page has {len(annots)} annotations, over MAX_ANNOTS_PER_PAGE "
+            f"({caps['MAX_ANNOTS_PER_PAGE']}), so it is not read"
+        )
+        return d
+    words = page.extract_words()
+    if len(words) > caps["MAX_WORDS_PER_PAGE"]:
+        d["skipped"] = (
+            f"page has {len(words)} words, over MAX_WORDS_PER_PAGE "
+            f"({caps['MAX_WORDS_PER_PAGE']}), so it is not read"
+        )
+        return d
+    d["words"] = [
+        {
+            "text": str(w["text"])[:_MAX_WORD_TEXT],
+            "x0": round(w["x0"], 2),
+            "x1": round(w["x1"], 2),
+            "top": round(w["top"], 2),
+            "bottom": round(w["bottom"], 2),
+            "upright": bool(w.get("upright", True)),
+        }
+        for w in words
+    ]
+    for a in annots:
+        sub = (a.get("data") or {}).get("Subtype")
+        d["annots"].append(
+            {
+                "subtype": getattr(sub, "name", None),
+                "contents": _text_of(a.get("contents"), decode)[:_MAX_WORD_TEXT],
+                "x0": round(a["x0"], 2),
+                "x1": round(a["x1"], 2),
+                "top": round(a["top"], 2),
+                "bottom": round(a["bottom"], 2),
+            }
+        )
+    if d["chars"]:  # a page with no text layer has no drawn table of words to find
+        for t in page.find_tables():
+            d["tables"].append(
+                {"bbox": [round(v, 2) for v in t.bbox], "rows": t.extract()},
+            )
+    return d
+
+
+def _dump(job: dict) -> dict:
+    """Open the PDF and dump every page. Raises InputError with a plain reason."""
+    name = Path(job["path"]).name
+    try:
+        import pdfminer
+        import pdfplumber
+        from pdfminer.pdfdocument import PDFPasswordIncorrect
+        from pdfminer.utils import decode_text
+    except ImportError as e:
+        raise InputError("pdfplumber not installed: pip install redline[pdf]") from e
+    caps = job["caps"]
+    try:
+        pdf = pdfplumber.open(job["path"])
+    except PDFPasswordIncorrect as e:
+        raise InputError(f"{name} is password protected, so it is not read") from e
+    except Exception as e:
+        raise InputError(f"{name} cannot be read as a PDF ({type(e).__name__})") from e
+    pages: list[dict] = []
+    try:
+        with pdf:
+            total = len(pdf.pages)
+            for page in pdf.pages[: caps["MAX_PAGES"]]:
+                try:
+                    pages.append(_dump_page(page, caps, decode_text))
+                except Exception as e:  # noqa: BLE001
+                    pages.append(
+                        {
+                            "n": page.page_number,
+                            "skipped": f"page cannot be read ({type(e).__name__})",
+                        }
+                    )
+                finally:
+                    page.close()
+    except InputError:
+        raise
+    except Exception as e:
+        raise InputError(f"{name} cannot be read as a PDF ({type(e).__name__})") from e
+    if total > caps["MAX_PAGES"]:
+        pages.append(
+            {
+                "n": caps["MAX_PAGES"] + 1,
+                "skipped": f"{total - caps['MAX_PAGES']} pages past MAX_PAGES "
+                f"({caps['MAX_PAGES']}) are not read",
+            }
+        )
+    return {
+        "pdfplumber": str(pdfplumber.__version__),
+        "pdfminer": str(pdfminer.__version__),
+        "sha256": job["sha256"],
+        "pages_total": total,
+        "pages": pages,
+    }
+
+
+# The child imports the parent's own redline package, not whatever an editable install points at.
+_CHILD = (
+    "import sys; sys.path.insert(0, sys.argv[1]); "
+    "from redline.parsers.pdf import child_main; child_main(sys.argv[2])"
+)
+
+
+def child_main(job_file: str) -> None:
+    """Entry point of the child process: write the dump, or the plain reason it failed."""
+    job = json.loads(Path(job_file).read_text(encoding="utf-8"))
+    tmp = Path(job["tmp"])
+    try:
+        (tmp / "out.json").write_text(json.dumps(_dump(job), allow_nan=False), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        msg = str(e) if isinstance(e, InputError) else f"PDF reader failed ({type(e).__name__})"
+        (tmp / "err.txt").write_text(msg, encoding="utf-8")
+
+
+def read_pages(path: Path, cfg: Config, *, isolated: bool = True) -> dict:
+    """The page dump. Raises InputError only. The read runs in a child process under
+    pdf_timeout_s, since pdfminer parses untrusted input in pure Python."""
+    path = Path(path)
+    if not path.is_file():
+        raise InputError(f"{path.name} was not found")
+    if path.stat().st_size > MAX_PDF_BYTES:
+        raise InputError(f"{path.name} is over MAX_PDF_BYTES ({MAX_PDF_BYTES} bytes)")
+    try:
+        sha = sha256_of(path)
+    except ExtractError as e:
+        raise InputError(str(e)) from e
+    job: dict[str, Any] = {
+        "path": str(path.absolute()),
+        "sha256": sha,
+        "caps": {k: globals()[k] for k in _CAPS},
+    }
+    if not isolated:
+        return _dump(job)
+    timeout = cfg.column_maps["parsing"]["pdf_timeout_s"]
+    tmp = Path(tempfile.mkdtemp(prefix="redline-pdf-", dir=tempfile.gettempdir()))
+    try:
+        job["tmp"] = str(tmp)
+        (tmp / "job.json").write_text(json.dumps(job), encoding="utf-8")
+        pkg = str(Path(redline_pkg.__file__).resolve().parents[1])
+        try:
+            run_tool(path.name, [sys.executable, "-I", "-c", _CHILD, pkg, str(tmp / "job.json")],
+                     timeout, tmp)  # fmt: skip
+        except ExtractError as e:
+            raise InputError(str(e)) from e
+        if (tmp / "err.txt").is_file():
+            raise InputError((tmp / "err.txt").read_text(encoding="utf-8", errors="replace")[:2000])
+        if not (tmp / "out.json").is_file():
+            raise InputError(f"{path.name} was not read: the PDF reader wrote no output")
+        try:
+            dump = rawdrawing.read(tmp / "out.json")
+        except (ValueError, OSError) as e:
+            raise InputError(f"{path.name} was not read: the PDF reader output is bad ({e})") from e
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if not isinstance(dump, dict):
+        raise InputError(f"{path.name} was not read: the PDF reader output is bad")
+    return dump
+
+
+# ---- classification ----
+
+
+def classify(page: dict, parsing: dict) -> str:
+    """An image that fills the page wins over a text layer, which is then likely OCR (D4)."""
+    if _num(page.get("image_area_fraction")) >= parsing["pdf_scanned_image_area_fraction"]:
+        return SCANNED
+    if _num(page.get("chars")) >= parsing["pdf_text_page_min_chars"]:
+        return TEXT
+    return VECTOR_NO_TEXT
+
+
+def provenance(dump: dict) -> str:
+    return (
+        f"pdfplumber {_str(dump.get('pdfplumber'))}, pdfminer.six {_str(dump.get('pdfminer'))}, "
+        f"SHA-256 {_str(dump.get('sha256'))}"
+    )
+
+
+# ---- one page ----
+
+
+@dataclass(frozen=True)
+class _Word:
+    text: str
+    x0: float
+    x1: float
+    top: float
+    bottom: float
+    upright: bool
+
+    @property
+    def h(self) -> float:
+        return self.bottom - self.top
+
+    def centre(self) -> tuple[float, float]:
+        return (self.x0 + self.x1) / 2, (self.top + self.bottom) / 2
+
+    def item(self) -> TextItem:
+        return TextItem(self.x0, -self.top, self.h, self.text, self.x1)
+
+
+@dataclass(frozen=True)
+class _Annot:
+    subtype: str
+    text: str
+    x0: float
+    x1: float
+    top: float
+    bottom: float
+
+    def centre(self) -> tuple[float, float]:
+        return (self.x0 + self.x1) / 2, (self.top + self.bottom) / 2
+
+
+def _box(d: dict) -> tuple[float, float, float, float] | None:
+    x0, x1, top, bottom = (_num(d.get(k), math.nan) for k in ("x0", "x1", "top", "bottom"))
+    if math.isnan(x0 + x1 + top + bottom) or x1 < x0 or bottom < top:
+        return None
+    return x0, x1, top, bottom
+
+
+def _words(raw: Any) -> tuple[list[_Word], int]:
+    """Words with a usable box, and how many words have none."""
+    out, bad = [], 0
+    for w in _list(raw):
+        if not isinstance(w, dict) or not _str(w.get("text")):
+            continue
+        b = _box(w)
+        if b is None or b[3] <= b[2]:
+            bad += 1
+            continue
+        out.append(_Word(_str(w["text"]), b[0], b[1], b[2], b[3], w.get("upright") is not False))
+    return out, bad
+
+
+def _annots(raw: Any) -> tuple[list[_Annot], int]:
+    """Annotations with text and a usable box, and how many have text but no box."""
+    out, bad = [], 0
+    for a in _list(raw):
+        if not isinstance(a, dict) or not _str(a.get("contents")):
+            continue
+        b = _box(a)
+        if b is None or b[3] <= b[2]:
+            bad += 1
+            continue
+        sub = a.get("subtype")
+        out.append(
+            _Annot(sub if isinstance(sub, str) and sub else "unknown", _str(a["contents"]), *b)
+        )
+    return out, bad
+
+
+class _Crop:
+    """The title block corner, from the configured fractions; None when the page is rotated."""
+
+    def __init__(self, page: dict, parsing: dict) -> None:
+        w, h = _num(page.get("width")), _num(page.get("height"))
+        self.rotation = int(_num(page.get("rotation")))
+        self.usable = self.rotation == 0 and w > 0 and h > 0
+        self.x = w * (1 - parsing["pdf_title_block_width_fraction"])
+        self.y = h * (1 - parsing["pdf_title_block_height_fraction"])
+
+    def holds(self, centre: tuple[float, float]) -> bool:
+        return self.usable and centre[0] >= self.x and centre[1] >= self.y
+
+
+def _fold(s: str) -> str:
+    return " ".join(s.split()).casefold()
+
+
+def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict, str, str]:
+    """Value per key (None when missing or ambiguous), the sheet number, and the coverage text."""
+    grid: list[list[str]] = []
+    if words:
+        built = text_grid(
+            [w.item() for w in words],
+            parsing["pdf_row_tolerance_word_heights"],
+            parsing["pdf_column_gap_fraction"],
+        )
+        grid = built[0] if built else []
+    wanted = {normalize_header(a): key for key, names in aliases.items() for a in _list(names)}
+    wanted.pop("", None)
+    found: dict[str, list[str]] = {k: [] for k in aliases}
+    for r, row in enumerate(grid):
+        for c, cell in enumerate(row):
+            key = wanted.get(normalize_header(cell))
+            if key is None:
+                continue
+            value = next((x for x in row[c + 1 :] if x.strip()), "")
+            if not value and r + 1 < len(grid):
+                value = grid[r + 1][c]
+            if value.strip():
+                found[key].append(value.strip())
+    values, got, missing = {}, [], []
+    for key, vs in found.items():
+        short, long = _TITLE_LABELS.get(key, (key.replace("_", " "),) * 2)
+        distinct = sorted(set(vs))
+        values[key] = distinct[0] if len(distinct) == 1 else None
+        if len(distinct) == 1:
+            got.append(f"{short} {distinct[0]}")
+        elif distinct:
+            missing.append(
+                f"{long} has more than one value ({', '.join(distinct)}), so none is taken"
+            )
+        else:
+            missing.append(f"{long} not found in the title block")
+    parts = [", ".join(got) + ", from the title block"] if got else []
+    text = "; ".join(parts + missing) or "no title block labels are configured"
+    return values, _str(values.get("sheet_number")), text
+
+
+def _median_h(words: list[_Word]) -> float:
+    return statistics.median(w.h for w in words) if words else 0.0
+
+
+def _regions(words: list[_Word], gap_h: float) -> list[list[_Word]]:
+    """Split words where the blank gap between lines is taller than gap_h word heights."""
+    limit = gap_h * _median_h(words)
+    regions: list[list[_Word]] = []
+    bottom = 0.0
+    for w in sorted(words, key=lambda w: (w.top, w.x0)):
+        if regions and w.top - bottom <= limit:
+            regions[-1].append(w)
+            bottom = max(bottom, w.bottom)
+        else:
+            regions.append([w])
+            bottom = w.bottom
+    return regions
+
+
+class _Page:
+    """Everything one page adds to the result."""
+
+    def __init__(self, raw: dict, cfg: Config, file: str) -> None:
+        self.cfg, self.file, self.out = cfg, file, Parsed()
+        self.parsing = cfg.column_maps["parsing"]
+        self.n = int(_num(raw.get("n")))
+        self.raw = raw
+        self.parts: list[str] = []  # coverage text
+        self.pg = f"page={self.n}"
+        self.method = Method.PDF_TEXT
+
+    def unp(self, kind: str, raw: str, reason: str, locator: str, method: Method | None = None):
+        src = Source(self.file, locator, method or self.method, Confidence.LOW)
+        self.out.unparsed.append(Unparsed(kind, clip(raw), _reason(reason), src))
+
+    def take(self, part: Parsed, cap: tuple[str, Method] | None) -> None:
+        """Add a table result, capping every panel at MEDIUM when it has no drawn grid."""
+        if cap:
+            for p in part.panels:
+                _apply(p, _cap(cap[0]))
+            if len(part.coverage) == len(part.panels):  # one entry per panel, in panel order
+                part.coverage = [
+                    replace(c, confidence_summary=_summary(p))
+                    for c, p in zip(part.coverage, part.panels, strict=True)
+                ]
+        self.out.panels += part.panels
+        self.out.unparsed += part.unparsed
+        self.out.coverage += part.coverage
+
+    def entry(self) -> CoverageEntry:
+        text = f"page {self.n}: " + "; ".join(self.parts)
+        return CoverageEntry(self.file, f"page {self.n}", text, self.method.value, _NO_SUMMARY)
+
+
+def _cap(note: str):
+    def fn(src: Source) -> Source:
+        if src.confidence <= Confidence.MEDIUM:
+            return src
+        return replace(
+            src,
+            confidence=Confidence.MEDIUM,
+            note=f"{src.note}; {note}" if src.note else note,
+        )
+
+    return fn
+
+
+def _lead(words: list[_Word]) -> str:
+    return " ".join(w.text for w in words[:12])
+
+
+def _route(pg: _Page, cls: str, chars: float, words: list[_Word], note: str) -> None:
+    """One page item for a page that is listed and not read. M4 takes these by class."""
+    p, img = pg.raw.get("paths"), _num(pg.raw.get("image_area_fraction"))
+    loc = f"page={pg.n}; class={cls}; chars={int(chars)}; paths={int(_num(p))}; image={img:.2f}"
+    pg.unp("page", _lead(words), note, loc)
+
+
+def _title(pg: _Page, words: list[_Word], crop: _Crop, aliases: dict) -> list[_Word]:
+    """Read the title block and return the words that are left for the table finder."""
+    if not crop.usable:
+        why = (
+            f"page is rotated {crop.rotation} degrees"
+            if crop.rotation
+            else "page size is not usable"
+        )
+        pg.parts.append(f"{why}; title block not read")
+        return words
+    inside = [w for w in words if crop.holds(w.centre())]
+    _, sheet, text = _read_title(inside, pg.parsing, aliases)
+    pg.parts.append(text)
+    if sheet:
+        pg.pg += f"; sheet={sheet}"
+    gone = {id(w) for w in inside}
+    return [w for w in words if id(w) not in gone]
+
+
+def _band_rows(pg: _Page, bbox: list[float], free: list[_Word]) -> list[list[str]]:
+    """Rows of the words just above a ruled table, which may hold its panel name."""
+    x0, top, x1 = bbox[0], bbox[1], bbox[2]
+    reach = pg.parsing["pdf_region_gap_word_heights"] * _median_h(free)
+    band = [
+        w
+        for w in free
+        if w.upright and x0 <= w.centre()[0] <= x1 and top - reach <= w.top and w.bottom <= top + 1
+    ]
+    if not band:
+        return []
+    built = text_grid(
+        [w.item() for w in band],
+        pg.parsing["pdf_row_tolerance_word_heights"],
+        pg.parsing["pdf_column_gap_fraction"],
+    )
+    rows = []
+    for row in built[0] if built else []:
+        # A lone title line ("Panel LP-24") holds a key and its value.
+        cells = [c for c in row if c]
+        if len(cells) == 1 and " " in cells[0] and any(ch.isdigit() for ch in cells[0]):
+            key, _, value = cells[0].rpartition(" ")
+            cells = [key, value]
+        rows.append(cells)
+    return rows
+
+
+def _ruled(pg: _Page, tables: list[tuple[int, dict]], free: list[_Word]) -> tuple[int, int]:
+    read = listed = 0
+    for k, t in tables:
+        rows = [[_str(c) for c in r] for r in _list(t.get("rows")) if isinstance(r, list)]
+        loc = f"{pg.pg}; table={k}"
+        if sum(len(r) for r in rows) > rawdrawing.MAX_TABLE_CELLS:
+            pg.unp("table", "", "ruled table is over the cell cap, so it is not read", loc)
+            listed += 1
+            continue
+        part = rows_to_panels(
+            rows,
+            pg.cfg,
+            file=pg.file,
+            method=Method.PDF_TEXT,
+            locate=lambda i, loc=loc: f"{loc}; r={i}",
+        )
+        if not part.panels and any(u.reason == "no panel name" for u in part.unparsed):
+            bbox = [_num(v) for v in _list(t.get("bbox"))]
+            above = _band_rows(pg, bbox, free) if len(bbox) == 4 else []
+            if above:
+                width = max(len(r) for r in rows) if rows else 0
+                head = [[*r, *[""] * (width - len(r))] for r in above]
+                shift = len(head)
+                part = rows_to_panels(
+                    [*head, *rows],
+                    pg.cfg,
+                    file=pg.file,
+                    method=Method.PDF_TEXT,
+                    locate=lambda i, loc=loc, shift=shift: f"{loc}; r={i - shift}",
+                )
+        if part.panels:
+            read += 1
+        else:
+            listed += 1
+        pg.take(part, None)
+    return read, listed
+
+
+def _no_header(part: Parsed) -> bool:
+    return not part.panels and all(u.kind in ("table", "column") for u in part.unparsed)
+
+
+def _clusters(pg: _Page, free: list[_Word]) -> tuple[int, int]:
+    read = listed = 0
+    for k, region in enumerate(_regions(free, pg.parsing["pdf_region_gap_word_heights"])):
+        loc = f"{pg.pg}; region={k}"
+        built = text_grid(
+            [w.item() for w in region],
+            pg.parsing["pdf_row_tolerance_word_heights"],
+            pg.parsing["pdf_column_gap_fraction"],
+        )
+        if built is None:
+            pg.unp(
+                "table",
+                "",
+                f"words of {len(region)} texts would make a grid over the cell cap, so they are not read",
+                loc,
+            )
+            listed += 1
+            continue
+        grid, ys, _ = built
+        part = rows_to_panels(
+            grid,
+            pg.cfg,
+            file=pg.file,
+            method=Method.PDF_TEXT,
+            locate=lambda i, loc=loc, ys=ys: f"{loc}; y={-ys[i]:g}",
+        )
+        if _no_header(part):
+            first = next((r for r in grid if any(r)), [])
+            why = f"text has no panel schedule header, so its {len(region)} words are not read"
+            pg.unp("table", ", ".join(c for c in first if c), why, f"{loc}; y={-ys[0]:g}")
+            listed += 1
+            continue
+        read += 1
+        pg.take(part, (WORDS_NOTE, Method.PDF_TEXT))
+    return read, listed
+
+
+def _overlap(w: _Word, a: _Annot) -> bool:
+    return w.x0 < a.x1 and a.x0 < w.x1 and w.top < a.bottom and a.top < w.bottom
+
+
+def _annotation_path(pg: _Page, annots: list[_Annot], words: list[_Word]) -> bool:
+    """Read annotation text as a table. Returns True when it gave a panel."""
+    pg.method = Method.PDF_ANNOT
+    items = [TextItem(a.x0, -a.top, a.bottom - a.top, a.text, a.x1) for a in annots]
+    loc = f"{pg.pg}; annots"
+    built = text_grid(
+        items, pg.parsing["pdf_row_tolerance_word_heights"], pg.parsing["pdf_column_gap_fraction"]
+    )
+    if built is None:
+        why = f"annotation text of {len(items)} texts would make a grid over the cell cap, so it is not read"
+        pg.unp("table", "", why, loc)
+        pg.parts.append(f"annotation table listed, not read ({len(items)} texts)")
+        return False
+    grid, ys, _ = built
+    low, unplaced = set(), 0
+    for a in annots:
+        near = [w for w in words if _overlap(w, a)]
+        seen = _fold(" ".join(w.text for w in sorted(near, key=lambda w: (round(w.top), w.x0))))
+        if not near or seen == _fold(a.text):
+            continue
+        r = min(range(len(ys)), key=lambda i: abs(ys[i] + a.top))
+        want = _fold(a.text)
+        cells = [(c, _fold(cell)) for c, cell in enumerate(grid[r]) if cell]
+        # the cell that equals the text; a cell that only holds it is used when none equals it
+        cols = [c for c, t in cells if t == want] or [c for c, t in cells if want in t]
+        low |= {(r, c) for c in cols}
+        unplaced += not cols
+    part = rows_to_panels(
+        grid,
+        pg.cfg,
+        file=pg.file,
+        method=Method.PDF_ANNOT,
+        locate=lambda i: f"{loc}; y={-ys[i]:g}",
+        low_cells=low,
+        low_note=DISAGREE_NOTE,
+    )
+    if low:
+        pg.parts.append(
+            f"{len(low)} cells where annotation text and page text disagree, marked LOW"
+        )
+    if unplaced:
+        pg.parts.append(
+            f"{unplaced} annotations disagree with page text and are not placed in a cell"
+        )
+    if _no_header(part):
+        first = next((r for r in grid if any(r)), [])
+        why = (
+            f"annotation text has no panel schedule header, so its {len(items)} texts are not read"
+        )
+        pg.unp("table", ", ".join(c for c in first if c), why, f"{loc}; y={-ys[0]:g}")
+        return False
+    pg.take(part, (ANNOT_NOTE, Method.PDF_ANNOT))
+    return bool(part.panels)
+
+
+def _read_page(raw: dict, cfg: Config, file: str) -> Parsed:
+    pg = _Page(raw, cfg, file)
+    parsing = pg.parsing
+    if raw.get("skipped"):
+        why = _str(raw.get("skipped"))
+        pg.unp("page", "", why, pg.pg)
+        pg.parts.append(f"not read: {why}")
+        pg.out.coverage.append(pg.entry())
+        return pg.out
+    cls = classify(raw, parsing)
+    chars = _num(raw.get("chars"))
+    words, bad = _words(raw.get("words"))
+    annots, bad_annots = _annots(raw.get("annots"))
+    pg.parts.append(f"class {cls}, {int(chars)} chars, {int(_num(raw.get('paths')))} paths")
+    if cls == SCANNED:
+        _route(pg, cls, chars, words, OCR_LAYER_NOTE if chars > 0 else SCANNED_NOTE)
+        pg.parts.append("routed to manual check, nothing read")
+        pg.out.coverage.append(pg.entry())
+        return pg.out
+    crop = _Crop(raw, parsing)
+    aliases = cfg.column_maps["title_block"]
+    free = _title(pg, words, crop, aliases)
+    if cls == TEXT:
+        _text_page(pg, raw, crop, free, annots, bad, bad_annots)
+    else:
+        _vector_page(pg, cls, crop, words, free, annots, bad_annots)
+    pg.out.coverage.append(pg.entry())
+    return pg.out
+
+
+def _text_page(pg, raw, crop, free, annots, bad, bad_annots) -> None:
+    tables = [
+        (k, t)
+        for k, t in enumerate(_list(raw.get("tables")))
+        if isinstance(t, dict) and len(_list(t.get("bbox"))) == 4
+    ]
+    kept, centres = [], []
+    for k, t in tables:
+        x0, top, x1, bottom = (_num(v) for v in t["bbox"])
+        c = ((x0 + x1) / 2, (top + bottom) / 2)
+        if not crop.holds(c):
+            kept.append((k, t))
+            centres.append((x0, top, x1, bottom))
+    outside = [
+        w
+        for w in free
+        if not any(
+            x0 <= w.centre()[0] <= x1 and t <= w.centre()[1] <= b for x0, t, x1, b in centres
+        )
+    ]
+    read_t, listed_t = _ruled(pg, kept, outside)
+    upright = [w for w in outside if w.upright]
+    read_c, listed_c = _clusters(pg, upright) if upright else (0, 0)
+    pg.parts.append(f"{read_t} ruled tables read, {listed_t} listed")
+    pg.parts.append(f"{read_c} word clusters read, {listed_c} listed")
+    if n := len(outside) - len(upright):
+        pg.parts.append(f"{n} rotated words not clustered")
+    if bad:
+        pg.parts.append(f"{bad} words with no usable position not read")
+    if annots or bad_annots:
+        pg.parts.append(f"{len(annots) + bad_annots} annotations not read")
+
+
+def _vector_page(pg, cls, crop, words, free, annots, bad_annots) -> None:
+    usable = [a for a in annots if not crop.holds(a.centre())]
+    in_crop = len(annots) - len(usable)
+    if usable:
+        subs: dict[str, int] = {}
+        for a in usable:
+            subs[a.subtype] = subs.get(a.subtype, 0) + 1
+        pg.parts.append(
+            f"{len(usable)} annotations read ("
+            + ", ".join(f"{k} {v}" for k, v in sorted(subs.items()))
+            + ")"
+        )
+        read = _annotation_path(pg, usable, words)
+    else:
+        read = False
+        pg.parts.append("no annotation text on the page")
+    if in_crop:
+        pg.parts.append(f"{in_crop} annotations in the title block area not read")
+    if bad_annots:
+        pg.parts.append(f"{bad_annots} annotations with no usable position not read")
+    if not read:
+        pg.method = Method.PDF_TEXT
+        _route(pg, cls, _num(pg.raw.get("chars")), words, SHX_NOTE)
+
+
+def parse_pages(dump: dict, cfg: Config, file: str) -> Parsed:
+    """Never raises on content. A page that fails is listed, and adds nothing else."""
+    out = Parsed()
+    pages = _list(dump.get("pages")) if isinstance(dump, dict) else []
+    if not pages:
+        src = Source(file, "page=0", Method.PDF_TEXT, Confidence.LOW)
+        out.unparsed.append(Unparsed("page", "", "the PDF holds no readable pages", src))
+        return out
+    for i, raw in enumerate(pages, 1):
+        raw = raw if isinstance(raw, dict) else {}
+        try:
+            part = _read_page(raw, cfg, file)
+        except Exception as e:  # noqa: BLE001  a hostile dump must not stop the run; the page is listed
+            n = int(_num(raw.get("n"), i))
+            src = Source(file, f"page={n}", Method.PDF_TEXT, Confidence.LOW)
+            why = _reason(f"page could not be read ({type(e).__name__})")
+            part = Parsed(unparsed=[Unparsed("page", "", why, src)])
+            part.coverage.append(
+                CoverageEntry(
+                    file, f"page {n}", f"page {n}: not read: {why}", "pdf_text", _NO_SUMMARY
+                )
+            )
+        out.panels += part.panels
+        out.unparsed += part.unparsed
+        out.coverage += part.coverage
+    return out
+
+
+def parse_file(path: Path, cfg: Config) -> Parsed:
+    path = Path(path)
+    dump = read_pages(path, cfg)
+    out = parse_pages(dump, cfg, path.name)
+    out.provenance = {path.name: provenance(dump)}
+    return out
+
+
+__all__ = [
+    "SUFFIXES",
+    "child_main",
+    "classify",
+    "parse_file",
+    "parse_pages",
+    "provenance",
+    "read_pages",
+]
