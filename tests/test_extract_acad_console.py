@@ -257,3 +257,13 @@ def test_live_acad_console_dumps_sample():
         raise
     assert data["extractor"] == "acad_plugin"
     assert data["entities"]
+
+
+def test_non_ascii_temp_path_is_unavailable(env, monkeypatch):
+    root = env.tmp / "tmp_\u00e9\u00e8"
+    root.mkdir()
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(root))
+    st = fake_console(monkeypatch, write_valid)
+    with pytest.raises(Unavailable, match="ASCII"):
+        acad_console.extract(env.drawing, env.cfg)
+    assert st.calls == 0 and list(root.iterdir()) == []
