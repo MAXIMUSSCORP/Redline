@@ -33,8 +33,8 @@ LOOSE_NOTE = "read from loose text"
 ROTATION_TOLERANCE_DEG = 1.0
 _NO_COUNTS = "table has no row and column counts, so its cells cannot be placed"
 _WD_UNMAPPED = "WD_M attribute not mapped (aecad_project.wd_m_attribute_map)"
-# Most read tables one text of a *T group may be found in, on average. A group over it is not
-# matched, so its text stays listed and is never skipped; the work stays linear in the texts.
+# A text found in more read tables than this does not pick candidate tables for a *T group, and
+# at most this many candidate tables are checked per group. A group with no match stays listed.
 _STAR_T_TABLES_PER_TEXT = 64
 _NO_SUMMARY = "HIGH 0, MEDIUM 0, LOW 0, MISSING 0"
 
@@ -224,6 +224,7 @@ class _Tally:
     read_tables: list[set[str]] = field(default_factory=list)
     mleaders: int = 0
     declared: int = 0
+    star_t_unmatched: int = 0
 
 
 def _where(e: dict) -> str:
@@ -300,16 +301,20 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
         cleaned = [c for c in (_clean(e.get("text")) for e in texts[k]) if c]
         key = tuple(sorted(cleaned))
         if key not in memo:
-            hits: Counter = Counter()
-            if sum(len(index.get(c, ())) for c in cleaned) <= _STAR_T_TABLES_PER_TEXT * len(
-                cleaned
-            ):
-                for c in cleaned:
-                    hits.update(index.get(c, ()))
-            memo[key] = any(2 * n > len(cleaned) for n in hits.values())
+            # Candidates come from rare texts only (the panel name points to its own table); the
+            # busiest few are checked, each by set lookup, so the work stays linear in the texts.
+            near: Counter = Counter()
+            for c in set(cleaned):
+                tabs = index.get(c, ())
+                if len(tabs) <= _STAR_T_TABLES_PER_TEXT:
+                    near.update(tabs)
+            top = [t for t, _ in near.most_common(_STAR_T_TABLES_PER_TEXT)]
+            memo[key] = any(2 * sum(c in uniq[t] for c in cleaned) > len(cleaned) for t in top)
         if cleaned and memo[key]:
             tally.table_render_text += len(cleaned)
             skipped_t.add(k)
+        elif cleaned and uniq:
+            tally.star_t_unmatched += len(cleaned)
     star_t = [k for k in star_t if k not in skipped_t]
     loose = [k for k in texts if not k[0].upper().startswith("BLOCK:")]
     read_keys = {*star_t, *loose, *skipped_t}
@@ -482,6 +487,8 @@ def _drawing_entry(data: dict, file: str, t: _Tally, out: Parsed) -> CoverageEnt
     for xp, n in t.xref_text.items():
         if n:
             parts.append(f"{n} texts in xref {clip(xp)} not read")
+    if t.star_t_unmatched:
+        parts.append(f"{t.star_t_unmatched} texts in table render blocks not matched to a table")
     if t.table_render_text:
         parts.append(f"{t.table_render_text} texts in table render blocks not read twice")
     if t.mleaders:
