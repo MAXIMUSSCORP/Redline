@@ -30,7 +30,7 @@ from redline.extract import (
 VERSION = "0.1.0"
 ODA = "ODA File Converter"
 _AUDIT_LIMIT = 20
-_FIELD_VISITS = 64  # FIELD handles read per table
+_FIELD_VISITS = 64  # FIELD handles read per cell
 _FLD_IDX = re.compile(r"%<\\_FldIdx (\d+)>%")
 
 
@@ -83,7 +83,14 @@ def _table_counts(e: Any) -> tuple[int, int] | None:
 def _budget(cache: dict[Any, Any] | None = None) -> dict[str, Any]:
     """One per table: FIELD handles read so far, whether the current cell lost a part, notes
     given, and the drawing's cache of FIELD texts (a FIELD's tags are read once per drawing)."""
-    return {"n": 0, "cut": False, "said": set(), "cache": {} if cache is None else cache}
+    return {
+        "n": 0,
+        "cut": False,
+        "hard": False,
+        "soft": False,
+        "said": set(),
+        "cache": {} if cache is None else cache,
+    }
 
 
 def _say(budget: dict[str, Any], notes: list[str], msg: str) -> None:
@@ -92,24 +99,49 @@ def _say(budget: dict[str, Any], notes: list[str], msg: str) -> None:
         notes.append(msg)
 
 
+def _stopped(budget: dict[str, Any], notes: list[str], what: str) -> str:
+    budget["cut"] = budget["soft"] = True
+    _say(budget, notes, f"{what}: FIELD reading stopped after {_FIELD_VISITS} fields")
+    return ""
+
+
 def _field_text(
     db: Any, handle: Any, budget: dict[str, Any], notes: list[str], what: str, path: tuple = ()
 ) -> str:
+    """Text of one FIELD handle, cached for the drawing as (text, cut, need). A cut caused by a
+    cycle or length is final (need 0). A cut caused by the budget only says the read needs at
+    least `need` visits, so a cell with more room reads the handle again. A handle skipped
+    because the budget was already spent is not cached."""
+    if handle in path:
+        budget["cut"] = budget["hard"] = True
+        return ""
     cache = budget["cache"]
     key = (id(db), handle)
-    if key in cache:
-        _, text, was_cut = cache[key]
-        budget["cut"] = budget["cut"] or was_cut
-        return text
-    before, budget["cut"] = budget["cut"], False
+    hit = cache.get(key)
+    if hit is not None:
+        _, text, was_cut, need = hit
+        if not was_cut:
+            return text
+        if need == 0 or budget["n"] + need > _FIELD_VISITS:
+            budget["cut"] = True
+            budget["hard"] = budget["hard"] or need == 0
+            budget["soft"] = budget["soft"] or need > 0
+            return ""
+    if budget["n"] >= _FIELD_VISITS:
+        return _stopped(budget, notes, what)
+    start = budget["n"]
+    outer = (budget["cut"], budget["hard"], budget["soft"])
+    budget["cut"] = budget["hard"] = budget["soft"] = False
     text = _read_field(db, handle, budget, notes, what, path)
-    cache[key] = (db, text, budget["cut"])  # db is kept so its id cannot be reused
-    budget["cut"] = budget["cut"] or before
+    own = (budget["cut"], budget["hard"], budget["soft"])
+    need = 0 if budget["hard"] else _FIELD_VISITS - start + 1
+    cache[key] = (db, text, budget["cut"], need)  # db is kept so its id cannot be reused
+    budget["cut"], budget["hard"], budget["soft"] = (a or b for a, b in zip(outer, own))
     return text
 
 
 def _too_long(budget: dict[str, Any], notes: list[str], what: str) -> str:
-    budget["cut"] = True
+    budget["cut"] = budget["hard"] = True
     _say(budget, notes, f"{what}: FIELD text passes MAX_TEXT ({rawdrawing.MAX_TEXT} characters)")
     return ""
 
@@ -125,29 +157,24 @@ def _read_field(
 ) -> str:
     """Cached text of a FIELD: its own value (code 301), else its field code (codes 2 and 3)
     with each child's text (code 360) put in at its FldIdx place. A handle on the current path
-    is a cycle. A table reads at most _FIELD_VISITS handles in all. A part lost to a cycle or
+    is a cycle. A cell reads at most _FIELD_VISITS handles in all. A part lost to a cycle or
     the budget sets budget["cut"], and the caller then drops the whole cell text."""
-    if handle in path:
-        budget["cut"] = True
-        return ""
-    if budget["n"] >= _FIELD_VISITS:
-        budget["cut"] = True
-        _say(budget, notes, f"{what}: FIELD reading stopped after {_FIELD_VISITS} fields")
-        return ""
     budget["n"] += 1
     f = db.get(handle)
     if f is None or f.dxftype() != "FIELD":
         return ""
     tags = [t for sub in f.xtags.subclasses for t in sub]
     own = "".join(str(t.value) for t in tags if t.code == 301)
+    if len(own) > rawdrawing.MAX_TEXT:  # before plain_mtext runs on it
+        _say(budget, notes, f"{what}: FIELD text was cut at MAX_TEXT ({rawdrawing.MAX_TEXT})")
+        own = own[: rawdrawing.MAX_TEXT]
     if own:
         return own
     kids = []
     for t in tags:
         if t.code == 360:
             if budget["n"] >= _FIELD_VISITS:  # spent: do not walk the rest of the children
-                budget["cut"] = True
-                _say(budget, notes, f"{what}: FIELD reading stopped after {_FIELD_VISITS} fields")
+                _stopped(budget, notes, what)
                 break
             kids.append(_field_text(db, t.value, budget, notes, what, (*path, handle)))
     if budget["cut"]:
