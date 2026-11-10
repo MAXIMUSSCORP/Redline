@@ -454,13 +454,15 @@ def test_field_self_reference_fanout_is_bounded():
     db = {"S": _field([(1, "_text"), (301, "")], ["S"] * 30)}
     notes = []
     start = time.monotonic()
-    got = oda_ezdxf._field_text(_field_db(db), "S", [], notes, "table 2F01 cell (0, 0)")
+    got = oda_ezdxf._field_text(
+        _field_db(db), "S", oda_ezdxf._budget(), notes, "table 2F01 cell (0, 0)"
+    )
     assert got == "" and time.monotonic() - start < 1
     # many distinct children hit the visit cap and say so
     db = {f"K{i}": _field([(1, "_text"), (301, "")], [f"K{i + 1}"]) for i in range(500)}
-    seen = []
-    oda_ezdxf._field_text(_field_db(db), "K0", seen, notes, "table 2F01 cell (0, 0)")
-    assert len(seen) <= 64
+    seen = oda_ezdxf._budget()
+    oda_ezdxf._field_text(_field_db(db), "K0", oda_ezdxf._budget(), notes, "table 2F01 cell (0, 0)")
+    assert seen["n"] <= 64
     assert any("2F01" in n and "(0, 0)" in n for n in notes)
 
 
@@ -473,8 +475,8 @@ def test_field_multi_child_fills_parent_code():
         "C": _field([(1, "AcVar"), (301, "12")]),
     }
     d = _field_db(db)
-    assert oda_ezdxf._field_text(d, "P", [], [], "w") == "120/208"
-    assert oda_ezdxf._field_text(d, "Q", [], [], "w") == "LP-12"
+    assert oda_ezdxf._field_text(d, "P", oda_ezdxf._budget(), [], "w") == "120/208"
+    assert oda_ezdxf._field_text(d, "Q", oda_ezdxf._budget(), [], "w") == "LP-12"
 
 
 def test_field_missing_child_is_not_joined():
@@ -483,7 +485,10 @@ def test_field_missing_child_is_not_joined():
         "A": _field([(1, "AcVar"), (301, "120")]),
     }
     notes = []
-    assert oda_ezdxf._field_text(_field_db(db), "P", [], notes, "table T cell (1, 1)") == ""
+    assert (
+        oda_ezdxf._field_text(_field_db(db), "P", oda_ezdxf._budget(), notes, "table T cell (1, 1)")
+        == ""
+    )
     assert any("T cell (1, 1)" in n for n in notes)
 
 
@@ -625,7 +630,7 @@ def test_field_same_child_twice_reads_both():
         "P": _field([(1, "_text"), (2, code), (301, "")], ["A", "A"]),
         "A": _field([(1, "AcVar"), (301, "120")]),
     }
-    assert oda_ezdxf._field_text(_field_db(db), "P", [], [], "w") == "120/120"
+    assert oda_ezdxf._field_text(_field_db(db), "P", oda_ezdxf._budget(), [], "w") == "120/120"
 
 
 def test_field_children_without_code_not_joined():
@@ -636,9 +641,12 @@ def test_field_children_without_code_not_joined():
         "B": _field([(1, "AcVar"), (301, "208")]),
     }
     notes = []
-    assert oda_ezdxf._field_text(_field_db(db), "P", [], notes, "table T cell (0, 0)") == ""
+    assert (
+        oda_ezdxf._field_text(_field_db(db), "P", oda_ezdxf._budget(), notes, "table T cell (0, 0)")
+        == ""
+    )
     assert any("T cell (0, 0)" in n for n in notes)
-    assert oda_ezdxf._field_text(_field_db(db), "Q", [], [], "w") == "120"
+    assert oda_ezdxf._field_text(_field_db(db), "Q", oda_ezdxf._budget(), [], "w") == "120"
 
 
 def test_nested_xref_rolled_back_is_unresolved(tmp_path, test_cfg, monkeypatch):
@@ -660,3 +668,57 @@ def test_nested_xref_rolled_back_is_unresolved(tmp_path, test_cfg, monkeypatch):
     got = {x["name"]: x["resolved"] for x in data["document"]["xrefs"]}
     assert got == {"INNER": False, "OUTER": False}
     assert any("INNER was not read" in n for n in data["document"]["warnings"])
+
+
+def _table_with_tags(db, pairs, rows=1, cols=1):
+    ent = FakeEntity(rows, cols)
+    ent.doc = SimpleNamespace(entitydb=SimpleNamespace(get=db.get))
+    tags = [SimpleNamespace(code=c, value=v) for c, v in pairs]
+
+    class Sub(list):
+        get_first_value = staticmethod(
+            lambda code, default=None: {91: rows, 92: cols}.get(code, default)
+        )
+
+    ent.xtags = SimpleNamespace(get_subclass=lambda name: Sub(tags))
+    return ent
+
+
+def test_field_budget_is_per_table():
+    import time
+
+    db = {"P": _field([(1, "_text"), (301, "")], [f"K{i}" for i in range(2000)])}
+    db.update({f"K{i}": _field([(1, "AcVar"), (301, "1")]) for i in range(2000)})
+    ent = _table_with_tags(db, [(171, 1), (344, "P")] * 6400)
+    notes = []
+    start = time.monotonic()
+    item = oda_ezdxf.convert(ent, "L", None, notes, fake_acad_table([[""]]))
+    assert time.monotonic() - start < 1
+    assert item["table"]["cells"][0]["text"] == ""
+    assert len(notes) < 10
+
+
+def test_field_cut_child_gives_no_partial_text():
+    code = r"%<\_FldIdx 0>%/%<\_FldIdx 1>%"
+    db = {
+        "P": _field([(1, "_text"), (2, code), (301, "")], ["A", "S"]),
+        "A": _field([(1, "AcVar"), (301, "120")]),
+        "S": _field([(1, "_text"), (301, "")], ["S"]),
+    }
+    notes = []
+    got = oda_ezdxf._field_text(_field_db(db), "P", oda_ezdxf._budget(), notes, "w")
+    assert got == ""
+    ent = _table_with_tags(db, [(171, 1), (344, "P"), (1, "K12")])
+    item = oda_ezdxf.convert(ent, "L", None, notes, fake_acad_table([["K12"]]))
+    assert item["table"]["cells"][0]["text"] == ""
+    assert any("cell (0, 0)" in n for n in notes)
+
+
+def test_long_xref_name_and_path_are_cut(tmp_path, test_cfg):
+    doc = new_doc()
+    doc.add_xref_def("p" * 20000 + ".dxf", "N" * 20000)
+    data = oda_ezdxf.extract(save(doc, tmp_path / "host.dxf"), test_cfg)
+    x = data["document"]["xrefs"][0]
+    assert len(x["name"]) <= rawdrawing.MAX_TEXT and len(x["path"]) <= rawdrawing.MAX_TEXT
+    assert x["resolved"] is False
+    assert rawdrawing.validate(data).ok
