@@ -44,7 +44,7 @@ REDLINE_DUMP
 
 ## Evaluated FIELD text
 
-The plugin reads each table cell with `Table.TextString(row, col, FormatOption.IgnoreMtextFormat)` and sets `evaluated` true when that call succeeds, false when it throws. Whether this member returns the evaluated FIELD value, not a stale cached string, is UNVERIFIED until L2.7 checks it on the owner's FIELD table.
+A cell is `evaluated: true` only when `Table.TextString(row, col, FormatOption.IgnoreMtextFormat)` succeeds and the cell holds no field (`GetFieldId`), formula (`HasFormula`) or data link (`GetDataLink`). A cell with any of these, or whose read or check throws, is `evaluated: false`; a failed read also adds a warning naming table handle, row, column and exception type. Whether `TextString` returns the evaluated FIELD value is UNVERIFIED until L2.7.
 
 
 ## Load test
@@ -63,3 +63,6 @@ REDLINE_DUMP
 ```
 
 Outcome: LOADED. The first run on 2026-11-09 was refused: NETLOAD printed `Unable to load <path> assembly.` because `SECURELOAD` is 1 and `TRUSTEDPATHS` was empty (a one-line .lsp loaded from the same kind of folder gave `File load canceled`). The owner then added `C:/Users/Zaidz/redline/plugin` to TRUSTEDPATHS in AutoCAD 2027 (D10); SECURELOAD stays 1. Loaded from that folder, `REDLINE_DUMP` wrote 949 entities from the ETSU copy, and the dumps of the ETSU copy and of DEMO01.DWG validate (leaf-L2.1 G1.7 to G1.9). Install the DLL in the trusted folder; a copy anywhere else is refused.
+## Xrefs
+
+The plugin reads no xref content. Every xref is listed in `document.xrefs` with `resolved: false`, and a document warning names it.
