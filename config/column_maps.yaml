@@ -41,7 +41,7 @@ parsing:                      # lengths relative to text height, never absolute 
   dxf_table_min_cells: 4
   dxf_stale_field_policy: "low"        # cells with evaluated=false are LOW
   dxf_prefer_extractor: "acad_plugin"  # or "oda_ezdxf"
-  dxf_extractor_timeout_s: 120         # placeholder until measured
+  dxf_extractor_timeout_s: 120         # measured: plugin 2.17 s max, ODA 1.32 s max; owner accepted (G7.11)
   pdf_text_page_min_chars: 200         # below this: VECTOR_NO_TEXT or SCANNED (tune on real sheets)
   pdf_scanned_image_area_fraction: 0.8
   render_dpi: 250
