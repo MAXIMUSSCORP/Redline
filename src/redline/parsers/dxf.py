@@ -82,7 +82,7 @@ def parse_file(path: Path, cfg: Config) -> Parsed:
 # ---- source walking: extractor stamp and confidence caps ----
 
 
-def _apply(panel: Panel, fn: Callable[[Source], Source]) -> None:
+def apply_to_sources(panel: Panel, fn: Callable[[Source], Source]) -> None:
     """Replace every Source under a panel with fn(Source)."""
     panel.source = fn(panel.source)
     for unit in (panel, *panel.circuits):
@@ -94,14 +94,22 @@ def _apply(panel: Panel, fn: Callable[[Source], Source]) -> None:
                 setattr(unit, f.name, replace(v, source=fn(v.source)))
 
 
-def _cap_medium(src: Source) -> Source:
-    if src.confidence <= Confidence.MEDIUM:
-        return src
-    note = f"{src.note}; {LOOSE_NOTE}" if src.note else LOOSE_NOTE
-    return replace(src, confidence=Confidence.MEDIUM, note=note)
+def medium_cap(note: str) -> Callable[[Source], Source]:
+    """A Source mapper that caps confidence at MEDIUM and adds the note once per Source."""
+
+    def fn(src: Source) -> Source:
+        if src.confidence <= Confidence.MEDIUM:
+            return src
+        return replace(
+            src,
+            confidence=Confidence.MEDIUM,
+            note=f"{src.note}; {note}" if src.note else note,
+        )
+
+    return fn
 
 
-def _summary(panel: Panel) -> str:
+def confidence_summary(panel: Panel) -> str:
     """Confidence counts of the panel and circuit values, as the tabular parser counts them."""
     n: Counter = Counter(
         v.confidence
@@ -116,7 +124,7 @@ def _summary(panel: Panel) -> str:
 
 
 @dataclass
-class _Item:
+class TextItem:
     x: float
     y: float
     h: float
@@ -128,7 +136,7 @@ def _clean(text: Any) -> str:
     return " ".join(str(text or "").split())
 
 
-def _items(entities: list[dict]) -> tuple[list[_Item], int]:
+def _items(entities: list[dict]) -> tuple[list[TextItem], int]:
     """Placed text, and how many non-empty texts cannot be placed in a row."""
     items, skipped = [], 0
     for e in entities:
@@ -141,7 +149,7 @@ def _items(entities: list[dict]) -> tuple[list[_Item], int]:
             skipped += 1
             continue
         bbox = e.get("bbox")
-        items.append(_Item(p[0], p[1], h, text, bbox[2] if bbox else None))
+        items.append(TextItem(p[0], p[1], h, text, bbox[2] if bbox else None))
     return items, skipped
 
 
@@ -153,14 +161,14 @@ def _nearest(xs: list[float], x: float) -> int:
     return bisect_left(xs, xs[best])
 
 
-def _grid(
-    items: list[_Item], row_tol: float, gap: float
+def text_grid(
+    items: list[TextItem], row_tol: float, gap: float
 ) -> tuple[list[list[str]], list[float], int] | None:
     """Rows by y, cells by x, columns aligned to the header row. Returns grid, y per row, and the
     number of cells that shared a column with another cell of their row. None when the grid
     would be over the cell cap."""
     med = statistics.median(i.h for i in items)
-    rows: list[list[_Item]] = []
+    rows: list[list[TextItem]] = []
     total = 0.0  # running sum of y in the current row
     for it in sorted(items, key=lambda i: (-i.y, i.x)):
         if rows and abs(it.y - total / len(rows[-1])) <= row_tol * med:
@@ -169,9 +177,9 @@ def _grid(
         else:
             rows.append([it])
             total = it.y
-    cells: list[list[_Item]] = []
+    cells: list[list[TextItem]] = []
     for r in rows:
-        merged: list[_Item] = []
+        merged: list[TextItem] = []
         parts: list[list[str]] = []
         for it in sorted(r, key=lambda i: i.x):
             prev = merged[-1] if merged else None
@@ -253,10 +261,10 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
     def add(part: Parsed, loose: bool) -> None:
         if loose:
             for p in part.panels:
-                _apply(p, _cap_medium)
+                apply_to_sources(p, medium_cap(LOOSE_NOTE))
             if len(part.coverage) == len(part.panels):  # one entry per panel, in panel order
                 part.coverage = [
-                    replace(c, confidence_summary=_summary(p))
+                    replace(c, confidence_summary=confidence_summary(p))
                     for c, p in zip(part.coverage, part.panels, strict=True)
                 ]
         out.panels += part.panels
@@ -333,7 +341,7 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
             unp("table", "", reason, _where(texts[k][0]), Method.DXF_TEXT)
 
     for p in out.panels:
-        _apply(p, lambda s: replace(s, extractor=stamp))
+        apply_to_sources(p, lambda s: replace(s, extractor=stamp))
     out.unparsed = [replace(u, source=replace(u.source, extractor=stamp)) for u in out.unparsed]
     out.coverage.append(_drawing_entry(data, file, tally, out))
     return out
@@ -433,7 +441,7 @@ def _cluster(group, key, cfg, parsing, file, out, tally, add, unp) -> None:
     if len(items) < parsing.get("dxf_table_min_cells", 1):
         tally.unplaced_text += len(items)
         return
-    built = _grid(items, parsing["row_tolerance_text_heights"], parsing["column_gap_fraction"])
+    built = text_grid(items, parsing["row_tolerance_text_heights"], parsing["column_gap_fraction"])
     if built is None:
         why = f"loose text of {len(items)} texts would make a grid over the cell cap, so it is not read"
         out.unparsed.append(
@@ -496,6 +504,16 @@ def _drawing_entry(data: dict, file: str, t: _Tally, out: Parsed) -> CoverageEnt
     return CoverageEntry(file, "drawing", "; ".join(parts), Method.DXF_TABLE.value, _NO_SUMMARY)
 
 
-TextItem = _Item
-text_grid = _grid
-__all__ = ["JSON_SUFFIX", "SUFFIXES", "TextItem", "accepts", "parse_file", "parse_rawdrawing", "provenance", "text_grid"]  # fmt: skip
+__all__ = [
+    "JSON_SUFFIX",
+    "SUFFIXES",
+    "TextItem",
+    "accepts",
+    "apply_to_sources",
+    "confidence_summary",
+    "medium_cap",
+    "parse_file",
+    "parse_rawdrawing",
+    "provenance",
+    "text_grid",
+]
