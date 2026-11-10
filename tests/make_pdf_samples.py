@@ -101,44 +101,66 @@ def ruled_grid(p, rows, x0, top, size, rowh, pad):
                 p.text(xs[c] + pad, top + i * rowh + size + 3, s, size)
 
 
-def title_block(p, sheet, rev, put=None):
-    rows = [["SHEET NO.", sheet], ["REV", rev], ["PROJECT", "SAMPLE ONLY"]]
-    for i, cells in enumerate(rows):
+def title_block(p, sheet, put=None):
+    for i, cells in enumerate(TITLE_CELLS[sheet]):
         for x, w, s in ((960, 90, cells[0]), (1050, 150, cells[1])):
             p.rect(x, 700 + i * 20, w, 20)
             (put or p.text)(x + 6, 700 + i * 20 + 14, s, 8)
 
 
-def build_pdf(content: bytes, annots=(), image=None) -> bytes:
+def build_pdf(pages: list[dict]) -> bytes:
+    """One PDF from page specs.
+
+    A spec is a dict: content (bytes, required), annots (list of
+    (x, top, w, h, text)), image (Flate gray bytes, sized image_size,
+    default W x H), size ((w, h), default W x H), rotate (int, optional).
+    """
     objs = {
         1: b"<< /Type /Catalog /Pages 2 0 R >>",
-        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        4: b"<< /Length %d >>\nstream\n" % len(content) + content + b"endstream",
         5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     }
-    res = "/Font << /F1 5 0 R >>"
     n = 6
-    if image is not None:
-        objs[n] = (
-            b"<< /Type /XObject /Subtype /Image /Width %d /Height %d "
-            b"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode "
-            b"/Length %d >>\nstream\n" % (W, H, len(image)) + image + b"\nendstream"
-        )
-        res += f" /XObject << /Im0 {n} 0 R >>"
-        n += 1
-    refs = []
-    for x, top, w, h, s in annots:
-        objs[n] = (
-            f"<< /Type /Annot /Subtype /Text /Rect [{x:g} {H - top - h:g} "
-            f"{x + w:g} {H - top:g}] /Contents ({esc(s)}) /F 28 >>"
+    kids = []
+    for i, spec in enumerate(pages):
+        content = spec["content"]
+        pw, ph = spec.get("size", (W, H))
+        if i == 0:
+            pid, cid = 3, 4
+        else:
+            pid, cid, n = n, n + 1, n + 2
+        kids.append(f"{pid} 0 R")
+        objs[cid] = b"<< /Length %d >>
+stream
+" % len(content) + content + b"endstream"
+        res = "/Font << /F1 5 0 R >>"
+        image = spec.get("image")
+        if image is not None:
+            iw, ih = spec.get("image_size", (W, H))
+            objs[n] = (
+                b"<< /Type /XObject /Subtype /Image /Width %d /Height %d "
+                b"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode "
+                b"/Length %d >>
+stream
+" % (iw, ih, len(image)) + image + b"
+endstream"
+            )
+            res += f" /XObject << /Im0 {n} 0 R >>"
+            n += 1
+        refs = []
+        for x, top, w, h, s in spec.get("annots", ()):
+            objs[n] = (
+                f"<< /Type /Annot /Subtype /Text /Rect [{x:g} {ph - top - h:g} "
+                f"{x + w:g} {ph - top:g}] /Contents ({esc(s)}) /F 28 >>"
+            ).encode("latin-1")
+            refs.append(f"{n} 0 R")
+            n += 1
+        ann = f" /Annots [{' '.join(refs)}]" if refs else ""
+        rot = f" /Rotate {spec['rotate']}" if "rotate" in spec else ""
+        objs[pid] = (
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {pw} {ph}] /Contents {cid} 0 R "
+            f"/Resources << {res} >>{ann}{rot} >>"
         ).encode("latin-1")
-        refs.append(f"{n} 0 R")
-        n += 1
-    ann = f" /Annots [{' '.join(refs)}]" if refs else ""
-    objs[3] = (
-        f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {W} {H}] /Contents 4 0 R "
-        f"/Resources << {res} >>{ann} >>"
-    ).encode("latin-1")
+    objs[2] = f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(kids)} >>".encode()
     out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\x00\n")  # NUL keeps git from text-converting
     offs = {}
     for k in sorted(objs):
@@ -152,21 +174,34 @@ def build_pdf(content: bytes, annots=(), image=None) -> bytes:
     return bytes(out)
 
 
+LP21_CELLS = [HEADER14, *full_rows()]
+LP22_CELLS = [["Panel", "LP-22"], HEADER6, *short_rows()]
+LP23_CELLS = [["Panel", "LP-23"], HEADER6, *short_rows()]
+# the Helvetica word planted over the LP-23 ckt 4 Breaker annotation, and its row
+LP23_DISAGREEMENT = {"ckt": "4", "column": "Breaker", "annotation": "15", "word": "20"}
+TITLE_CELLS = {
+    "E-501": [["SHEET NO.", "E-501"], ["REV", "2"], ["PROJECT", "SAMPLE ONLY"]],
+    "E-503": [["SHEET NO.", "E-503"], ["REV", "1"], ["PROJECT", "SAMPLE ONLY"]],
+}
+NOTES_CELLS = ["GENERAL NOTES", "1. SAMPLE ONLY, NOT FOR CONSTRUCTION."]
+ROTATED_WORD = "NORTH"
+
+
 def lp21(put):
     """LP-21: a panel line and the unruled 14-column table."""
     put(30, 40, "Panel LP-21", 9)
-    return put_table(put, [HEADER14, *full_rows()], 30, 52, 6.5, 11, 14)
+    return put_table(put, LP21_CELLS, 30, 52, 6.5, 11, 14)
 
 
 def panel_text() -> bytes:
     p = Page()
     lp21(lambda x, t, s, z=7: p.text(x, t, s, z))
-    ruled_grid(p, [["Panel", "LP-22"], HEADER6, *short_rows()], 30, 330, 7, 15, 6)
-    p.text(30, 500, "GENERAL NOTES", 9)
-    p.text(30, 514, "1. SAMPLE ONLY, NOT FOR CONSTRUCTION.", 8)
-    p.text(1190, 200, "NORTH", 9, rot=True)
-    title_block(p, "E-501", "2")
-    return build_pdf(p.data())
+    ruled_grid(p, LP22_CELLS, 30, 330, 7, 15, 6)
+    p.text(30, 500, NOTES_CELLS[0], 9)
+    p.text(30, 514, NOTES_CELLS[1], 8)
+    p.text(1190, 200, ROTATED_WORD, 9, rot=True)
+    title_block(p, "E-501")
+    return build_pdf([{"content": p.data()}])
 
 
 def shx_strokes() -> bytes:
@@ -177,13 +212,13 @@ def shx_strokes() -> bytes:
         p.line(24, 52 + i * 11, xs[-1] + 80, 52 + i * 11)
     for x in xs:
         p.line(x - 6, 52, x - 6, bottom)
-    title_block(p, "E-501", "2", put=lambda x, t, s, z: p.strokes(x, t, s, z))
-    return build_pdf(p.data())
+    title_block(p, "E-501", put=lambda x, t, s, z: p.strokes(x, t, s, z))
+    return build_pdf([{"content": p.data()}])
 
 
 def shx_annot() -> bytes:
     p = Page()
-    rows = [["Panel", "LP-23"], HEADER6, *short_rows()]
+    rows = LP23_CELLS
     xs, end = col_xs(rows[1:], 40, 7, 30)
     xs = xs + [end]
     top, rowh = 60, 18
@@ -195,9 +230,9 @@ def shx_annot() -> bytes:
             p.rect(xs[j] - 4, t, w, rowh)
             notes.append((xs[j], t + 3, w - 8, rowh - 6, s))
     # planted disagreement: a Helvetica word over the ckt 4 Breaker annotation
-    p.text(xs[3], top + 4 * rowh + 12, "20", 7)
-    title_block(p, "E-503", "1")
-    return build_pdf(p.data(), annots=notes)
+    p.text(xs[3], top + 4 * rowh + 12, LP23_DISAGREEMENT["word"], 7)
+    title_block(p, "E-503")
+    return build_pdf([{"content": p.data(), "annots": notes}])
 
 
 def scanned_panel() -> bytes:
