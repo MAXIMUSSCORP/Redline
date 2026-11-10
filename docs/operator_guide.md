@@ -57,6 +57,24 @@ For a `.dwg` the ODA step and the child each get the full time, so one drawing c
 Each drawing pays the cost of starting a child process. It was about 1.5 seconds per drawing over a corpus of 616 gold drawings (review-M2 round 6).
 The child needs ezdxf in the same venv as Redline. ezdxf that sits only in a user site folder or on `PYTHONPATH` is not seen.
 
+## Check a PDF
+
+    redline check samples/pdf --config tests/test_config/ --out report.html
+
+Redline reads `.pdf` sheets and schedules. It needs the `[pdf]` extra: `pip install -e ".[pdf]"`. Without it a PDF is listed in "Needs manual check" with "pip install redline[pdf]", and the other files are still read. A password protected PDF is listed as not read.
+Each page is put in one of three classes, and the class is shown in the page's coverage entry:
+
+- TEXT: the page has a text layer. Redline reads a title block, then ruled tables, then text laid out as a table. Values are never above MEDIUM.
+- VECTOR_NO_TEXT: the page has no text layer, only strokes. This is how AutoCAD plots SHX fonts. If the page has annotation text, Redline reads a table from the annotations. Otherwise the page is listed in "Needs manual check" with a note to re-plot with TrueType substitution, or to use OCR or vision.
+- SCANNED: a full-page image covers the page. The page is listed as needing OCR or vision. A scan that carries an OCR text layer is classed the same way, and its text is not read, because an OCR layer is not a stored value.
+
+Ask for TrueType re-plots of SHX sheets. In AutoCAD, plot with TrueType substitution so the text stays text in the PDF. A page that is listed as VECTOR_NO_TEXT is never read as empty; it is listed as not checked.
+A PDF that opens counts as read, even when every page is listed. The run still exits 0.
+The title block is read from a crop at the bottom right of each page. The crop size is `pdf_title_block_width_fraction` and `pdf_title_block_height_fraction` under `parsing:` in `config/column_maps.yaml`. The title block keys (`sheet_number` and `revision` in the shipped config) are the aliases under `title_block:` in the same file; add the labels your sheets use. A label that is not an alias is not read.
+The report footer names each PDF's reader, its pdfplumber and pdfminer.six versions and the full SHA-256 of the file.
+The reader runs in a child process, as the DXF fallback does, so a crafted PDF can be stopped. The child has `pdf_timeout_s` seconds under `parsing:` in `config/column_maps.yaml`, 300 in the shipped config, a placeholder until measured on real sheets. On timeout the file is listed with the reason. A PDF over 256 MiB, or pages past 1000, are not read.
+The `samples/pdf/acad/` sub-folder holds real AutoCAD plots for developers. A folder run lists a sub-folder and does not read it.
+
 ## Compare the two extractors
 
     redline xcheck plan.dwg --config config/
