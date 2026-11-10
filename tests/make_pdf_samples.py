@@ -129,9 +129,7 @@ def build_pdf(pages: list[dict]) -> bytes:
         else:
             pid, cid, n = n, n + 1, n + 2
         kids.append(f"{pid} 0 R")
-        objs[cid] = b"<< /Length %d >>
-stream
-" % len(content) + content + b"endstream"
+        objs[cid] = b"<< /Length %d >>\nstream\n" % len(content) + content + b"endstream"
         res = "/Font << /F1 5 0 R >>"
         image = spec.get("image")
         if image is not None:
@@ -139,10 +137,7 @@ stream
             objs[n] = (
                 b"<< /Type /XObject /Subtype /Image /Width %d /Height %d "
                 b"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode "
-                b"/Length %d >>
-stream
-" % (iw, ih, len(image)) + image + b"
-endstream"
+                b"/Length %d >>\nstream\n" % (iw, ih, len(image)) + image + b"\nendstream"
             )
             res += f" /XObject << /Im0 {n} 0 R >>"
             n += 1
@@ -252,7 +247,8 @@ def scanned_panel() -> bytes:
                         s, n = x0 + c * cw + 12, 30 + (r * 7 + c * 11) % 50
                         row[s : s + n] = b"\x00" * n
         raw += row
-    return build_pdf(b"q 1224 0 0 792 0 0 cm /Im0 Do Q\n", image=zlib.compress(bytes(raw), 9))
+    image = zlib.compress(bytes(raw), 9)
+    return build_pdf([{"content": b"q 1224 0 0 792 0 0 cm /Im0 Do Q\n", "image": image}])
 
 
 def main(out_dir: str) -> None:
