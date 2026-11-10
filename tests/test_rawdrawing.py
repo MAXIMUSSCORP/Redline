@@ -329,3 +329,22 @@ def test_dwg_fixtures_shape():
         assert {"LINE", "POLYLINE"} <= {e["type"] for e in ents}
     a, b = _fixtures().values()
     assert _cell_texts(a) == _cell_texts(b)
+
+
+def test_validate_caps_names_and_lists():
+    over = "x" * (rawdrawing.MAX_TEXT + 1)
+    assert not validate(_valid()).errors
+    for edit in (
+        lambda d: d["entities"][0].update(id=over),
+        lambda d: d["entities"][0].update(layout=over),
+        lambda d: d["entities"][0].update(handle=over),
+        lambda d: d["document"]["xrefs"][0].update(name=over),
+        lambda d: d["document"]["xrefs"][0].update(path=over),
+    ):
+        d = _valid()
+        edit(d)
+        assert validate(d).errors
+    for k in ("layouts", "warnings"):
+        d = _valid()
+        d["document"][k] = [""] * (rawdrawing.MAX_ENTITIES + 1)
+        assert validate(d).errors

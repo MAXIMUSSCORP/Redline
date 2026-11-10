@@ -1,5 +1,7 @@
+import io
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -132,3 +134,13 @@ def test_dwg_suffix_case_is_routed(tmp_path, monkeypatch, name):
     _no_extractor(monkeypatch)
     rc, html = _check(tmp_path, _dwg(tmp_path, name), CSV)
     assert rc == 0 and "file not read" in html and "unsupported file type" not in html
+
+
+def test_check_prints_non_cp1252_name(tmp_path, monkeypatch):
+    bad = tmp_path / "ф"
+    bad.mkdir()
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stderr", io.TextIOWrapper(raw, encoding="cp1252"))
+    rc = main(["check", str(CSV), "--config", CFG, "--out", str(bad)])
+    sys.stderr.flush()
+    assert rc == 2 and b"must be a new report file" in raw.getvalue()
