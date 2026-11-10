@@ -19,7 +19,10 @@
         "resolved": false
       }
     ],
-    "warnings": []
+    "warnings": [
+      "skipped 2 VIEWPORT",
+      "xref not read: A-BASE (the plugin path reads no xref content)"
+    ]
   },
   "entities": [
     {
@@ -2003,7 +2006,7 @@
             "r": 2,
             "c": 2,
             "text": "1350",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 2,
@@ -2039,7 +2042,7 @@
             "r": 3,
             "c": 2,
             "text": "1500",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 3,
@@ -2075,7 +2078,7 @@
             "r": 4,
             "c": 2,
             "text": "1800",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 4,
@@ -2111,7 +2114,7 @@
             "r": 5,
             "c": 2,
             "text": "2100",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 5,
@@ -2147,7 +2150,7 @@
             "r": 6,
             "c": 2,
             "text": "2400",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 6,
@@ -2183,7 +2186,7 @@
             "r": 7,
             "c": 2,
             "text": "2700",
-            "evaluated": true
+            "evaluated": false
           },
           {
             "r": 7,
