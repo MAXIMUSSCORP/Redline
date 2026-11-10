@@ -32,12 +32,12 @@ def _list(x: Any) -> list:
     return x if isinstance(x, list) else []
 
 
-def _tables(d: dict) -> dict[str, dict]:
+def _tables(d: dict) -> dict[tuple[str, str], dict]:
     out = {}
     for e in _list(d.get("entities")):
         t = e.get("table") if isinstance(e, dict) else None
         if isinstance(t, dict) and e.get("handle") is not None:
-            out[str(e["handle"])] = t
+            out[(str(e.get("xref_path") or ""), str(e["handle"]))] = t
     return out
 
 
@@ -61,15 +61,18 @@ def _counts(d: dict) -> dict[str, int]:
     return dict(n)
 
 
-def _text_differences(a: dict, b: dict) -> int:
+def _text_differences(a: dict, b: dict) -> tuple[int, list[tuple[str, str]]]:
+    """The count of cells whose text differs, and the tables whose size differs."""
     ta, tb = _tables(a), _tables(b)
     n = 0
-    for h in ta.keys() & tb.keys():
+    resized = []
+    for h in sorted(ta.keys() & tb.keys()):
         if (ta[h].get("rows"), ta[h].get("cols")) != (tb[h].get("rows"), tb[h].get("cols")):
+            resized.append(h)
             continue
         ca, cb = _cells(ta[h]), _cells(tb[h])
         n += sum(1 for k in ca.keys() & cb.keys() if ca[k].get("text") != cb[k].get("text"))
-    return n
+    return n, resized
 
 
 def diff(file: str, primary: dict | None, fallback: dict | None) -> list[LossRow]:
@@ -85,8 +88,11 @@ def diff(file: str, primary: dict | None, fallback: dict | None) -> list[LossRow
         for i in items
     ]
     if primary is not None and fallback is not None:
-        n = _text_differences(primary, fallback)
+        n, resized = _text_differences(primary, fallback)
         rows.append(LossRow(file, "cell text differs", n, n))
+        for xref, handle in resized:
+            name = f"{xref}:{handle}" if xref else handle
+            rows.append(LossRow(file, f"table {name} size differs, cells not compared", 1, 1))
     return rows
 
 
