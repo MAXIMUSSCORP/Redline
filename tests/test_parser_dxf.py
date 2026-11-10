@@ -620,11 +620,11 @@ def test_star_t_matching_budget_distinct_tables(test_cfg):
         for j in range(n)
         for s in (*shared, f"q{j}")
     ]
-    base = _seconds(drawing(tables), test_cfg)
     d = drawing(tables + stars)
-    t0 = time.perf_counter()
+    base = min(_seconds(drawing(tables), test_cfg) for _ in range(2))  # best of two, against noise
+    with_stars = min(_seconds(d, test_cfg) for _ in range(2))
+    assert with_stars - base < 1.0
     out = dxf.parse_rawdrawing(d, test_cfg)
-    assert time.perf_counter() - t0 - base < 1.0
     assert "table render blocks not read twice" not in out.coverage[-1].what_read
 
 
