@@ -49,7 +49,7 @@ namespace Redline
             catch (System.Exception ex)
             {
                 try { if (tmp != null) File.Delete(tmp); } catch (System.Exception) { }
-                ed.WriteMessage("\nREDLINE_DUMP failed: " + ex.GetType().Name + "\n");
+                ed.WriteMessage("\nREDLINE_DUMP failed: " + ex.GetType().Name + ": " + ex.Message + "\n");
             }
         }
 
@@ -249,7 +249,7 @@ namespace Redline
                     // A field, formula or data link means the text may be a cached value: not evaluated.
                     try
                     {
-                        if (ok && (!t.GetFieldId(r, c).IsNull || t.HasFormula(r, c, 0) || !t.GetDataLink(r, c).IsNull)) ok = false;
+                        if (ok && (!t.GetFieldId(r, c, 0).IsNull || t.HasFormula(r, c, 0) || !t.GetDataLink(r, c).IsNull)) ok = false;
                     }
                     catch (System.Exception) { ok = false; }
                     w.WriteStartObject();
