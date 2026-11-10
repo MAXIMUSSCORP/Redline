@@ -17,6 +17,7 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, fields, replace
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,7 @@ WORDS_NOTE = "read from PDF words, no drawn grid"
 DISAGREE_NOTE = "annotation text and page text disagree"
 _NO_SUMMARY = "HIGH 0, MEDIUM 0, LOW 0, MISSING 0"
 _REASON_LIMIT = 199  # clip() keeps limit + 1 characters, so a reason is at most 200
+MAX_LISTED_PER_PAGE = 50  # annotation disagreements listed per page; the rest are only counted
 _TITLE_SHOWN = 3  # values named in the "more than one value" text
 _TITLE_LABELS = {"sheet_number": ("sheet", "sheet number"), "revision": ("revision", "revision")}
 
@@ -128,7 +130,7 @@ class _BoundedArrays:
     release that renames one makes the read fail loudly, and the annotation tests fail with it."""
 
     def __init__(self, name: str) -> None:
-        self.error = _ArrayTooLong(
+        self.message = (
             f"{name} has an array of more than {MAX_ARRAY_ITEMS} entries in the file or its page "
             "tree, so it is not read"
         )
@@ -148,19 +150,19 @@ class _BoundedArrays:
             ]
         ]
         failed: set = set()
-        error = self.error
+        message = self.message  # a fresh exception per raise: a shared one grows its traceback
         push = PDFParser.push
 
         def bounded_push(parser, *objs):
             push(parser, *objs)
             if len(parser.curstack) > MAX_ARRAY_ITEMS:
-                raise error
+                raise _ArrayTooLong(message)
 
         def remembered(method, key):
             def wrapper(doc, *args):
                 k = (method.__name__, key(*args))
                 if k in failed:
-                    raise error
+                    raise _ArrayTooLong(message)
                 try:
                     return method(doc, *args)
                 except _ArrayTooLong:
@@ -625,27 +627,66 @@ def _read_title(
     labels.discard("")
     found: dict[str, list[str]] = {k: [] for k in keys}
     used: set[tuple[int, int]] = set()
+    # One pass over the grid: which cells are labels, so no loop below normalises a cell twice.
+    is_label = [[normalize_header(x) in labels for x in row] for row in grid]
+
+    def cell(i: int, c: int) -> str:
+        return grid[i][c].strip() if i < len(grid) and c < len(grid[i]) else ""
+
+    def value(i: int, c: int) -> str:
+        x = cell(i, c)
+        return "" if x and is_label[i][c] else x
+
+    def has_digit(x: str) -> bool:
+        return any(ch.isdigit() for ch in x)
+
+    header = [sum(flags) >= 2 for flags in is_label]  # two or more labels: a block header
+    full: dict[tuple[int, int], bool] = {}
+
+    def full_row(h: int, i: int) -> bool:
+        """Row i has a value under at least two of the label columns of header row h."""
+        if (h, i) not in full:
+            hits = 0
+            for c, x in enumerate(grid[i]):
+                if x.strip() and not is_label[i][c] and c < len(is_label[h]) and is_label[h][c]:
+                    hits += 1
+            full[h, i] = hits >= 2
+        return full[h, i]
+
     for r, row in enumerate(grid):
-        for c, cell in enumerate(row):
-            key = wanted.get(normalize_header(cell))
+        for c, text in enumerate(row):
+            key = wanted.get(normalize_header(text))
             if key is None:
                 continue
-            beside = next((x for x in row[c + 1 :] if x.strip()), "")
-            if beside.strip() and normalize_header(beside) not in labels:
-                found[key].append(beside.strip())
-                used |= {(r, c), (r, row.index(beside, c + 1))}
+            j = c + 1
+            while j < len(row) and not row[j].strip():
+                j += 1
+            beside = row[j].strip() if j < len(row) else ""
+            below = cell(r + 1, c)
+            # Beside is a value unless it is a label, or a word with no digit over a value
+            # (a header row of boxes whose label is missing from the aliases).
+            if (
+                beside
+                and not is_label[r][j]
+                and (has_digit(beside) or not has_digit(below) or is_label[r + 1][c])
+            ):
+                found[key].append(beside)
+                used |= {(r, c), (r, j)}
                 continue
-            # A label beside a label is a header row: the values are in the column below.
-            below = []
-            for i in range(r + 1, len(grid)):
-                x = grid[i][c] if c < len(grid[i]) else ""
-                if not x.strip() or normalize_header(x) in labels:
-                    break
-                below.append((i, x.strip()))
-            if below:
-                used.add((r, c))
-                used |= {(i, c) for i, _ in below}
-                found[key] += [x for _, x in below]
+            # Otherwise the value is in the column below. Several values only in a revision table:
+            # the label's row is a header of a block and the rows below are full rows of it.
+            first = value(r + 1, c)
+            if not first:
+                continue
+            got_below = [(r + 1, first)]
+            if header[r]:
+                i = r + 2
+                while i < len(grid) and full_row(r, i) and value(i, c):
+                    got_below.append((i, value(i, c)))
+                    i += 1
+            used.add((r, c))
+            used |= {(i, c) for i, _ in got_below}
+            found[key] += [x for _, x in got_below]
     values, got, missing = {}, [], []
     for key, vs in found.items():
         short, long = _TITLE_LABELS.get(key, (key.replace("_", " "),) * 2)
@@ -982,12 +1023,13 @@ def _annotation_path(pg: _Page, annots: list[_Annot], words: list[_Word]) -> boo
         for f in fields(u)
         if isinstance((v := getattr(u, f.name)), Value) and v.source is not None
     )
-    for (r, c), (text, seen) in clash.items():
+    for (r, c), (text, seen) in islice(clash.items(), MAX_LISTED_PER_PAGE):
         why = f"annotation text {text!r} and page text {seen!r} disagree"
         pg.unp("cell", text, why, f"{loc}; y={-ys[r]:g}; col={c}")
     if clash:
         pg.parts.append(
-            f"{len(clash)} cells where annotation text and page text disagree, listed; "
+            f"{len(clash)} cells where annotation text and page text disagree, "
+            f"{'listed' if len(clash) <= MAX_LISTED_PER_PAGE else f'{MAX_LISTED_PER_PAGE} listed'}; "
             f"{capped} values marked LOW"
         )
     if unplaced:
