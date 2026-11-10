@@ -1167,16 +1167,18 @@ def test_corner_table_band_name_in_crop(test_cfg):
 def test_title_block_many_label_pairs_linear(test_cfg):
     import time
 
+    # about 10 pt apart, wider than the column gap, so every word is its own cell and labels match
     words = []
     for i in range(2000):
-        x = 640.0 + i * 9.0
+        x = 640.0 + i * 40.0
         words += [
-            word("SHEET", x, 700.0, x + 4.0, 708.0),
-            word("E1", x + 4.5, 700.0, x + 7.0, 708.0),
+            word("SHEET", x, 700.0, x + 10.0, 708.0),
+            word("E1", x + 20.0, 700.0, x + 28.0, 708.0),
         ]
     start = time.perf_counter()
-    entry(parse(test_cfg, page(words=words)))
+    out = entry(parse(test_cfg, page(words=words)))
     assert time.perf_counter() - start < 2.0
+    assert "sheet E1" in out.what_read  # the labels matched, so this is the slow path
 
 
 def test_title_block_many_values_clipped(test_cfg):
@@ -1185,3 +1187,159 @@ def test_title_block_many_values_clipped(test_cfg):
     text = entry(parse(test_cfg, page(words=words))).what_read
     assert "sheet number has more than one value" in text
     assert len(text) < 1000
+
+
+def title_text(cfg, rows):
+    words = grid_words(rows, x0=940.0, top=640.0, rowh=14.0, h=8.0)
+    return entry(parse(cfg, page(words=words))).what_read
+
+
+@pytest.mark.parametrize(
+    ("rows", "expect"),
+    [
+        ([["SHEET NO.", "PROJECT NO."], ["E-501", "2026-104"]], ["sheet E-501"]),
+        ([["DWG NO.", "JOB NO.", "REV"], ["E1.01", "24-118", "C"]], ["sheet E1.01", "revision C"]),
+        ([["REV", "ISSUE DATE"], ["3", "2026-11-01"]], ["revision 3"]),
+        ([["SHEET NUMBER", "SHEET TITLE"], ["E-501", "POWER PLAN"]], ["sheet E-501"]),
+        ([["SHEET NO.", "CLIENT NAME"], ["E-501", "ACME 2"]], ["sheet E-501"]),  # label not listed
+    ],
+)
+def test_title_header_row_values_below(test_cfg, rows, expect):
+    text = title_text(test_cfg, rows)
+    for part in expect:
+        assert part in text
+    for label in ("PROJECT NO.", "JOB NO.", "ISSUE DATE", "SHEET TITLE", "CLIENT NAME"):
+        assert f"sheet {label}" not in text and f"revision {label}" not in text
+
+
+def test_title_stacked_values_beside(test_cfg):
+    assert "sheet ES" in title_text(test_cfg, [["SHEET", "ES"]])
+    assert "revision C" in title_text(test_cfg, [["REV", "C"]])
+    assert "sheet E-501" in title_text(test_cfg, [["SHEET NO.", "E-501"]])
+    both = title_text(test_cfg, [["SHEET", "ES"], ["REV", "C"]])
+    assert "sheet ES, revision C" in both
+    assert "sheet E-501" in title_text(test_cfg, [["SHEET", "E-501", "OF", "12"]])
+
+
+def test_title_round_two_shapes_unchanged(test_cfg):
+    a = title_text(test_cfg, [["DRAWING NO.", "REVISION", "SCALE"], ["E-501", "C", "AS NOTED"]])
+    assert "sheet E-501, revision C" in a
+    assert "revision B" in title_text(test_cfg, [["REV", "DATE", "BY"], ["B", "2026-11-01", "JD"]])
+    bottom = title_text(
+        test_cfg, [["B", "IFC", "2026-02-09", "JD"], ["REV", "DESCRIPTION", "DATE"]]
+    )
+    assert "revision DATE" not in bottom and "revision not found" in bottom
+    assert "sheet E-501, revision C" in title_text(test_cfg, [["SHEET NO.", "REV"], ["E-501", "C"]])
+
+
+def test_title_single_value_below_not_walked(test_cfg):
+    a = title_text(test_cfg, [["REV"], ["2"], ["ISSUED FOR CONSTRUCTION"]])
+    assert "revision 2" in a and "more than one" not in a
+    rows = [["SHEET NO.", "REV"], ["E-501", "2"], ["COPYRIGHT 2026 ACME ENGINEERING"]]
+    b = title_text(test_cfg, rows)
+    assert "sheet E-501, revision 2" in b and "more than one" not in b
+    c = title_text(test_cfg, [["SHEET NO."], ["E-501"], ["ELECTRICAL PLAN"]])
+    assert "sheet E-501" in c and "more than one" not in c
+
+
+def array_objstm_pdf(pages: int, n: int) -> bytes:
+    """pages pages, each /Annots an n-entry array in its own object stream (found by xref stream)."""
+    import struct
+    import zlib
+
+    arr = b"[" + b"5 0 R " * n + b"]"
+    kids = b" ".join(b"%d 0 R" % (10 + i) for i in range(pages))
+    direct = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [" + kids + b"] /Count %d >>" % pages,
+        5: b"<< /Type /Annot /Subtype /Text /Rect [10 10 20 20] /Contents (x) >>",
+    }
+    for i in range(pages):
+        direct[10 + i] = (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots %d 0 R >>" % (100 + i)
+        )
+    out, offs, packed = bytearray(b"%PDF-1.5\n"), {}, {}
+    for num, body in direct.items():
+        offs[num] = len(out)
+        out += b"%d 0 obj\n" % num + body + b"\nendobj\n"
+    for i in range(pages):
+        head = b"%d 0 " % (100 + i)
+        z = zlib.compress(head + arr)
+        offs[200 + i] = len(out)
+        dic = b"<< /Type /ObjStm /N 1 /First %d /Filter /FlateDecode /Length %d >>" % (
+            len(head),
+            len(z),
+        )
+        out += b"%d 0 obj\n" % (200 + i) + dic + b"\nstream\n" + z + b"\nendstream\nendobj\n"
+        packed[100 + i] = 200 + i
+    xref = 300
+    start, size = len(out), xref + 1
+    rows = b""
+    for num in range(size):
+        if num in packed:
+            rows += struct.pack(">BIH", 2, packed[num], 0)
+        elif num == xref:
+            rows += struct.pack(">BIH", 1, start, 0)
+        else:
+            rows += struct.pack(">BIH", 1 if num in offs else 0, offs.get(num, 0), 0)
+    dic = b"<< /Type /XRef /Size %d /W [1 4 2] /Root 1 0 R /Length %d >>" % (size, len(rows))
+    out += b"%d 0 obj\n" % xref + dic + b"\nstream\n" + rows + b"\nendstream\nendobj\n"
+    out += b"startxref\n%d\n%%%%EOF\n" % start
+    return bytes(out)
+
+
+def test_array_too_long_fresh_each_page(test_cfg, tmp_path, monkeypatch):
+    made = []
+
+    class Recorded(pdf._ArrayTooLong):
+        def __init__(self, *a):
+            super().__init__(*a)
+            made.append(self)
+
+    monkeypatch.setattr(pdf, "MAX_ARRAY_ITEMS", 1000)
+    monkeypatch.setattr(pdf, "_ArrayTooLong", Recorded)
+    path = tmp_path / "many_objstm.pdf"
+    path.write_bytes(array_objstm_pdf(50, 1001))
+    d = pdf.read_pages(path, test_cfg, isolated=False)
+    assert len(d["pages"]) == 50
+    assert all("holds more than" in p["skipped"] for p in d["pages"])
+
+    def depth(e):
+        n, tb = 0, e.__traceback__
+        while tb:
+            n, tb = n + 1, tb.tb_next
+        return n
+
+    assert len(made) >= 50  # one raise per page, none shared
+    assert depth(made[-1]) <= depth(made[0])
+
+
+def test_title_wide_label_row_linear(test_cfg):
+    import time
+
+    # a gap wider than the column gap, so each word is a cell of the one row
+    words = [word("SHEET", 930.0 + i * 20.0, 700.0, 938.0 + i * 20.0, 708.0) for i in range(99_999)]
+    start = time.perf_counter()
+    entry(parse(test_cfg, page(n=1, words=words)))
+    assert time.perf_counter() - start < 2.0
+
+
+def test_disagreement_listing_capped_per_page(test_cfg, monkeypatch):
+    monkeypatch.setattr(pdf, "MAX_LISTED_PER_PAGE", 20)
+
+    def case(n):
+        rows = [
+            gen.LP22_CELLS[1],
+            *[[str(2 * i + 1), "Load", "20", "1", "2", "1.0"] for i in range(n)],
+        ]
+        notes = grid_annots(rows)
+        words = [word("zz", a["x0"], a["top"] + 2, a["x1"], a["top"] + 9) for a in notes]
+        out = parse(test_cfg, page(chars=10, annots=notes, words=words))
+        return out, [u for u in out.unparsed if "disagree" in u.reason], entry(out).what_read
+
+    _, listed, text = case(12)
+    assert len(listed) == 20
+    assert "78 cells where annotation text and page text disagree, 20 listed" in text
+    _, listed, text = case(2)
+    assert len(listed) == 18
+    assert "18 cells where annotation text and page text disagree, listed" in text
