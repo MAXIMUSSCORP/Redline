@@ -47,10 +47,14 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
     before = sha256_of(path)
     tmp = Path(tempfile.mkdtemp(prefix="redline-acad-", dir=tempfile.gettempdir()))
     try:
-        # On a copy: L2.0 measured no clean in-place run. /readonly is UNVERIFIED, so not passed.
+        # On a copy: /readonly was accepted (exit 0, saved nothing), but a lock file during the run is not ruled out.
         src = tmp / "in" / path.name
         out = tmp / "out.json"
         script = tmp / "run.scr"
+        if not str(out).isascii():
+            raise Unavailable(
+                f"the temp folder path is not ASCII, so AutoCAD may misread it: {out.parent}"
+            )
         try:
             src.parent.mkdir()
             shutil.copyfile(path, src)
