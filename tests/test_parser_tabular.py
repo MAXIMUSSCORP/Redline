@@ -3119,3 +3119,30 @@ def test_units_row_long_bracket_cell_is_linear(cfg):
     for cellv, unit in (("(HP)", True), ("( )", False), ("(20A)", False), ("(SPARE)", True)):
         rows = _TOP + [["", "", cellv, ""]] + _TWO
         assert (not _listed(parse(rows, cfg))) == unit, cellv
+
+
+def test_low_cells_capped_low(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["LP-1", "1", "d", "1350", "20"],
+        ["LP-1", "2", "e", "1500", "15"],
+    ]
+    parsed = parse(rows, cfg, low_cells=[(1, 3)], low_note="stale cell")
+    c1, c2 = parsed.panels[0].circuits
+    assert c1.load_va.value == 1350.0
+    assert c1.load_va.confidence is Confidence.LOW
+    assert c1.load_va.source.note.endswith("stale cell")
+    assert c1.breaker_a.confidence is Confidence.HIGH
+    assert c2.load_va.confidence is Confidence.HIGH
+    assert "stale cell" not in c2.load_va.source.note
+
+
+def test_low_cells_default_unchanged(cfg):
+    rows = [
+        ["Panel", "Ckt", "Description", "Load VA", "Breaker"],
+        ["LP-1", "1", "d", "1350", "20"],
+    ]
+    plain = parse(rows, cfg)
+    assert parse(rows, cfg, low_cells=(), low_note="") == plain
+    assert plain.provenance == {}
+    assert plain.panels[0].circuits[0].load_va.confidence is Confidence.HIGH
