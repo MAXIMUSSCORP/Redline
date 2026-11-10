@@ -685,6 +685,26 @@ def test_pdf_min_chars_integer(tmp_path):
     assert load_config(d).column_maps["parsing"]["pdf_text_page_min_chars"] == 1
 
 
+def test_pdf_timeout_upper_bound(tmp_path):
+    d = _cm(tmp_path, _parsing(pdf_timeout_s=86400))
+    assert load_config(d).column_maps["parsing"]["pdf_timeout_s"] == 86400
+    for bad in (86401, 1e300):
+        _rejects(tmp_path, _parsing(pdf_timeout_s=bad), "pdf_timeout_s")
+
+
+def test_dxf_timeout_upper_bound(tmp_path):
+    d = _cm(tmp_path, _parsing(dxf_extractor_timeout_s=86400))
+    assert load_config(d).column_maps["parsing"]["dxf_extractor_timeout_s"] == 86400
+    for bad in (86401, 1e300):
+        _rejects(tmp_path, _parsing(dxf_extractor_timeout_s=bad), "dxf_extractor_timeout_s")
+
+
+def test_pdf_text_page_min_chars_upper_bound(tmp_path):
+    d = _cm(tmp_path, _parsing(pdf_text_page_min_chars=10000))
+    assert load_config(d).column_maps["parsing"]["pdf_text_page_min_chars"] == 10000
+    _rejects(tmp_path, _parsing(pdf_text_page_min_chars=10001), "pdf_text_page_min_chars")
+
+
 def test_title_block_map_shape_checked(tmp_path):
     def put(v):
         return lambda c: c.update({"title_block": v})
