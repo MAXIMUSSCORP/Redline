@@ -190,6 +190,9 @@ def _xcheck(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # a file name may not fit the console code page
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     args = _parser().parse_args(argv)
     if args.command == "xcheck":
         return _xcheck(args)

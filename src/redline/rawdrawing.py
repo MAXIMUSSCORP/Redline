@@ -200,6 +200,8 @@ def _doc_fields(doc: dict[str, Any], errors: list[str]) -> None:
         v = doc.get(k)
         if k in doc and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
             errors.append(f"document.{k} must be a list of strings")
+        elif k in doc and len(v) > MAX_ENTITIES:
+            errors.append(f"document.{k} has more items than MAX_ENTITIES ({MAX_ENTITIES})")
     if "xrefs" not in doc:
         return
     xr = doc["xrefs"]
@@ -215,6 +217,9 @@ def _doc_fields(doc: dict[str, Any], errors: list[str]) -> None:
         )
         if not ok:
             errors.append(f"document.xrefs[{i}] needs name, path and resolved (true or false)")
+        else:
+            for k in ("name", "path"):
+                _str(f"document.xrefs[{i}].{k}", x[k], errors)
 
 
 def validate(data: Any) -> Validation:
@@ -260,8 +265,7 @@ def validate(data: Any) -> Validation:
             errors.append(f"{w} must be an object")
             continue
         for k in ("id", "layout", "handle"):
-            if not isinstance(e.get(k), str) or not e[k]:
-                errors.append(f"{w}.{k} must be a non-empty string")
+            _str(f"{w}.{k}", e.get(k), errors, empty=False)
         if e.get("type") not in ENTITY_TYPES:
             errors.append(f"{w}.type {e.get('type')!r} is not a known entity type")
         _entity_fields(w, e, errors)

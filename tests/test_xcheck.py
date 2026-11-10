@@ -1,4 +1,5 @@
 import copy
+import io
 import os
 import subprocess
 import sys
@@ -119,3 +120,37 @@ def test_import_loads_no_extractor():
     )
     env = {**os.environ, "PYTHONPATH": str(SAMPLES.parent.parent / "src")}
     subprocess.run([sys.executable, "-c", code], check=True, env=env)
+
+
+def _tab(handle, xref, text):
+    cells = [{"r": 0, "c": 0, "text": text, "evaluated": True}]
+    e = {"type": "ACAD_TABLE", "handle": handle, "table": {"rows": 1, "cols": 1, "cells": cells}}
+    return {**e, "xref_path": xref} if xref else e
+
+
+def test_same_handle_host_and_xref_counted_apart():
+    both = {"entities": [_tab("2A", None, "x"), _tab("2A", "A.dwg", "y")]}
+    host = {"entities": [_tab("2A", None, "x")]}
+    rows = rows_by_item(diff("f", both, host))
+    assert (rows["tables"].primary, rows["tables"].fallback) == (2, 1)
+    assert rows["cell text differs"].primary == 0
+
+
+def test_table_size_mismatch_is_named():
+    a = {"entities": [_tab("2A", None, "x")]}
+    b = copy.deepcopy(a)
+    b["entities"][0]["table"]["rows"] = 3
+    rows = diff("f.dwg", a, b)
+    assert rows_by_item(rows)["cell text differs"].primary == 0
+    assert any("size differs" in r.item and "2A" in r.item for r in rows)
+
+
+def test_xcheck_prints_non_cp1252_name(monkeypatch, test_cfg):
+    from redline.cli import main
+
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252"))
+    monkeypatch.setattr(xcheck, "_default_extractors", lambda: {"a": broken("x"), "b": broken("y")})
+    rc = main(["xcheck", "ф.dwg", "--config", str(SAMPLES.parent.parent / "tests" / "test_config")])
+    sys.stdout.flush()
+    assert rc == 2 and b"read nothing" in raw.getvalue()
