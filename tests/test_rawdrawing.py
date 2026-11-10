@@ -319,7 +319,11 @@ def test_dwg_fixtures_shape():
         assert len(nocount["cells"]) == 5 and {c["r"] for c in nocount["cells"]} == {0}
         for t in sized.values():
             stale = [c for c in t["cells"] if not c["evaluated"]]
-            assert len(stale) == (0 if name == "acad_plugin" else len(t["cells"]))
+            if name == "acad_plugin":
+                want = {(r, 2) for r in range(2, 8)} if t is sized["LP-12"] else set()
+                assert {(c["r"], c["c"]) for c in stale} == want and len(stale) == len(want)
+            else:
+                assert len(stale) == len(t["cells"])
         loose = [e for e in ents if e["type"] == "TEXT"]
         assert all(e["text_height"] == 2.5 and e["rotation_deg"] == 0 for e in loose)
         assert any(e["text"] == "Panel LP-13" for e in loose)
