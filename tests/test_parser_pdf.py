@@ -1194,22 +1194,21 @@ def title_text(cfg, rows):
     return entry(parse(cfg, page(words=words))).what_read
 
 
-@pytest.mark.parametrize(
-    ("rows", "expect"),
-    [
+def test_title_header_row_values_below(test_cfg):
+    shapes = [
         ([["SHEET NO.", "PROJECT NO."], ["E-501", "2026-104"]], ["sheet E-501"]),
         ([["DWG NO.", "JOB NO.", "REV"], ["E1.01", "24-118", "C"]], ["sheet E1.01", "revision C"]),
         ([["REV", "ISSUE DATE"], ["3", "2026-11-01"]], ["revision 3"]),
         ([["SHEET NUMBER", "SHEET TITLE"], ["E-501", "POWER PLAN"]], ["sheet E-501"]),
         ([["SHEET NO.", "CLIENT NAME"], ["E-501", "ACME 2"]], ["sheet E-501"]),  # label not listed
-    ],
-)
-def test_title_header_row_values_below(test_cfg, rows, expect):
-    text = title_text(test_cfg, rows)
-    for part in expect:
-        assert part in text
-    for label in ("PROJECT NO.", "JOB NO.", "ISSUE DATE", "SHEET TITLE", "CLIENT NAME"):
-        assert f"sheet {label}" not in text and f"revision {label}" not in text
+    ]
+    for rows, expect in shapes:
+        text = title_text(test_cfg, rows)
+        for part in expect:
+            assert part in text, f"{rows[0]}: {part!r} missing from {text!r}"
+        for label in ("PROJECT NO.", "JOB NO.", "ISSUE DATE", "SHEET TITLE", "CLIENT NAME"):
+            assert f"sheet {label}" not in text, f"{rows[0]}: label read as sheet"
+            assert f"revision {label}" not in text, f"{rows[0]}: label read as revision"
 
 
 def test_title_stacked_values_beside(test_cfg):
