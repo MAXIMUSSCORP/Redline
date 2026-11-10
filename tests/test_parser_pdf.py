@@ -1034,11 +1034,12 @@ def test_word_cluster_shared_column_count(test_cfg):
 def scaled_band_page(k):
     rows = gen.LP22_CELLS[1:]
     bbox = tuple(v * k for v in (30.0, 330.0, 330.0, 450.0))
-    # the label line dips 3 pt (at 1x) into the table top, which is under 0.6 text heights
-    h = 7.0 * k
+    # The label line ends 0.5 pt (at 1x) inside the table top: within an absolute 1 pt edge at 1x,
+    # beyond it at 4x, and always under 0.6 text heights.
+    h, bottom = 7.0 * k, 330.5 * k
     band = [
-        word("Panel", 34.0 * k, 322.0 * k + 3 * k - h, 52.0 * k, 322.0 * k + 3 * k),
-        word("LP-24", 80.0 * k, 322.0 * k + 3 * k - h, 98.0 * k, 322.0 * k + 3 * k),
+        word("Panel", 34.0 * k, bottom - h, 52.0 * k, bottom),
+        word("LP-24", 80.0 * k, bottom - h, 98.0 * k, bottom),
     ]
     return page(tables=[table(rows, bbox)], words=band, width=1224.0 * k, height=792.0 * k)
 
@@ -1099,3 +1100,88 @@ def test_title_block_table_words_not_counted_as_unread(test_cfg):
     dup = grid_words([["E-501", "JD"]], x0=960.0, top=768.0, h=8.0)
     out = parse(test_cfg, page(words=[*title_words(), *dup]))
     assert "2 words in the title block area not read" in entry(out).what_read
+
+
+# ---- review round 2: RV25 to RV29, RV31 ----
+
+
+def test_many_equal_annotations_linear(test_cfg):
+    import time
+
+    n = 2000
+    notes = [annot("X", 10.0 + i * 20.0, 100.0, 15.0 + i * 20.0, 110.0) for i in range(n)]
+    glyph = word("Y", 0.0, 100.0, 50000.0, 110.0)
+    pg = page(chars=1, paths=900, annots=notes, words=[glyph])
+    start = time.perf_counter()
+    out = parse(test_cfg, pg)
+    assert time.perf_counter() - start < 2.0
+    cells = [u for u in out.unparsed if u.kind == "cell"]
+    assert 0 < len(cells) <= n
+    assert len({u.source.locator for u in cells}) == len(cells)
+
+
+def test_disagreement_marks_only_overlapping_cell(test_cfg):
+    notes = grid_annots([["Breaker", "Load", "Breaker"], ["20", "5", "20"]])
+    left = next(a for a in notes if a["contents"] == "20")
+    w = word("30", left["x0"], left["top"] + 2, left["x1"], left["top"] + 9)
+    out = parse(test_cfg, page(chars=10, annots=notes, words=[w]))
+    [u] = [u for u in out.unparsed if u.kind == "cell"]
+    assert u.source.locator.endswith("col=0")
+    assert "1 cells where annotation text and page text disagree" in entry(out).what_read
+
+
+def test_title_label_words_never_values(test_cfg):
+    def read(rows):
+        words = grid_words(rows, x0=960.0, top=640.0, rowh=20.0, h=8.0)
+        return entry(parse(test_cfg, page(words=words))).what_read
+
+    text = read([["DRAWING NO.", "REVISION", "SCALE"], ["E-501", "C", "AS NOTED"]])
+    assert "sheet E-501, revision C, from the title block" in text
+    text = read([["REV", "DATE", "BY"], ["B", "2026-11-01", "JD"]])
+    assert "revision B, from the title block" in text
+    text = read([["B", "2026-11-01", "JD"], ["REV", "DATE", "BY"]])
+    assert "revision not found" in text and "revision DATE" not in text
+
+
+def test_revision_column_with_several_values_named(test_cfg):
+    rows = [
+        ["REV", "DESCRIPTION", "DATE", "BY"],
+        ["0", "ISSUED FOR PERMIT", "2026-01-05", "JD"],
+        ["1", "REVISED PER RFI", "2026-02-09", "JD"],
+    ]
+    words = grid_words(rows, x0=960.0, top=640.0, rowh=20.0, h=8.0)
+    text = entry(parse(test_cfg, page(words=words))).what_read
+    assert "revision has more than one value (0, 1), so none is taken" in text
+    assert "revision 0" not in text
+
+
+def test_corner_table_band_name_in_crop(test_cfg):
+    rows = [gen.LP22_CELLS[1], *gen.LP22_CELLS[2:5]]
+    band = grid_words([["Panel", "LP-9"]], x0=935.0, top=650.0 - 12, h=7.0)
+    pg = page(tables=[table(rows, (930.0, 660.0, 1220.0, 780.0))], words=band)
+    out = parse(test_cfg, pg)
+    assert [(p.name, len(p.circuits)) for p in out.panels] == [("LP-9", 3)]
+    assert "words in the title block area not read" not in entry(out).what_read
+
+
+def test_title_block_many_label_pairs_linear(test_cfg):
+    import time
+
+    words = []
+    for i in range(2000):
+        x = 640.0 + i * 9.0
+        words += [
+            word("SHEET", x, 700.0, x + 4.0, 708.0),
+            word("E1", x + 4.5, 700.0, x + 7.0, 708.0),
+        ]
+    start = time.perf_counter()
+    entry(parse(test_cfg, page(words=words)))
+    assert time.perf_counter() - start < 2.0
+
+
+def test_title_block_many_values_clipped(test_cfg):
+    rows = [["SHEET", f"E-{i}"] for i in range(20000)]
+    words = grid_words(rows, x0=960.0, top=640.0, rowh=20.0, h=8.0)
+    text = entry(parse(test_cfg, page(words=words))).what_read
+    assert "sheet number has more than one value" in text
+    assert len(text) < 1000
