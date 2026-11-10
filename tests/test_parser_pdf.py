@@ -675,3 +675,6 @@ def test_acad_pdfshx_plot_annotation_page(test_cfg):
     assert "366 annotations read (Square 366)" in entry(out).what_read
     assert {v.confidence for v in every_value(out)} <= {MEDIUM, Confidence.LOW, Confidence.MISSING}
     assert all(p.source.method is Method.PDF_ANNOT for p in out.panels)
+    assert sum(len(p.circuits) for p in out.panels) == 0
+    pages = [u for u in out.unparsed if u.kind == "page"]
+    assert [u.reason for u in pages] == [pdf.SHX_NOTE]
