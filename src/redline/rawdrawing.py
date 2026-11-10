@@ -32,6 +32,7 @@ _SHA = re.compile(r"[0-9a-f]{64}")
 MAX_JSON_BYTES = 256 * 2**20
 MAX_ENTITIES = 500_000
 MAX_TABLE_CELLS = 100_000  # per table
+MAX_DRAWING_CELLS = 500_000  # declared rows x cols summed over one drawing
 MAX_TEXT = 10_000  # characters per text, cell, tag or value
 
 
