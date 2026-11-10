@@ -886,3 +886,51 @@ def test_mtext_strip_is_linear():
     item = oda_ezdxf.convert(ent, "L", None, [], fake_acad_table([]))
     assert time.monotonic() - start < 1
     assert item["text"] == ""
+
+
+def test_relative_path_reads_like_absolute(tmp_path, test_cfg, monkeypatch):
+    child = new_doc()
+    child.modelspace().add_text("from child")
+    save(child, tmp_path / "child.dxf")
+    host = new_doc()
+    host.modelspace().add_text("host")
+    host.add_xref_def("child.dxf", "CHILD")
+    save(host, tmp_path / "host.dxf")
+    monkeypatch.chdir(tmp_path)
+    rel = oda_ezdxf.extract(Path("host.dxf"), test_cfg)
+    ab = oda_ezdxf.extract(tmp_path / "host.dxf", test_cfg)
+    assert rel["document"]["xrefs"] == [{"name": "CHILD", "path": "child.dxf", "resolved": True}]
+    rel.pop("extracted_at")
+    ab.pop("extracted_at")
+    assert rel == ab
+
+
+def test_field_table_over_64_fields_reads_every_cell():
+    db = {}
+    pairs = []
+    for i in range(84):
+        db[f"F{i}"] = _field([(1, "_text"), (301, "")], [f"K{i}"])
+        db[f"K{i}"] = _field([(1, "AcVar"), (301, f"v{i}")])
+        pairs += [(171, 1), (344, f"F{i}")]
+    ent = _table_with_tags(db, pairs, rows=42, cols=2)
+    notes = []
+    item = oda_ezdxf.convert(ent, "L", None, notes, fake_acad_table([["", ""]] * 42))
+    assert [c["text"] for c in item["table"]["cells"]] == [f"v{i}" for i in range(84)]
+    assert not notes
+
+
+def test_child_output_total_capped(monkeypatch):
+    monkeypatch.setattr(rawdrawing, "MAX_JSON_BYTES", 1000)
+    rows = [["x" * 200] * 4] * 5
+    ent = FakeEntity(5, 4)
+    ctx = {}
+    with pytest.raises(ExtractError, match="MAX_JSON_BYTES"):
+        oda_ezdxf.convert(ent, "L", None, [], fake_acad_table(rows), ctx)
+    text = SimpleNamespace(
+        dxftype=lambda: "TEXT",
+        dxf=SimpleNamespace(get=lambda k, d=None: {"handle": "A", "text": "y" * 600}.get(k, d)),
+    )
+    ctx = {}
+    oda_ezdxf.convert(text, "L", None, [], fake_acad_table([]), ctx)
+    with pytest.raises(ExtractError, match="MAX_JSON_BYTES"):
+        oda_ezdxf.convert(text, "L", None, [], fake_acad_table([]), ctx)

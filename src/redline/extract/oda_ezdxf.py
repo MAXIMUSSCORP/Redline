@@ -189,7 +189,6 @@ def _cell_texts(
     fields: dict[tuple[int, int], str] = {}
     plain: dict[tuple[int, int], str] = {}
     cut: set[tuple[int, int]] = set()
-    budget = _budget(cache)
     n, chunks = -1, ""
     for t in tags:
         if t.code == 171:
@@ -199,7 +198,7 @@ def _cell_texts(
         elif t.code == 344:
             pos = divmod(n, cols)
             cell = f"table {what} cell ({pos[0]}, {pos[1]})"
-            budget["cut"] = False
+            budget = _budget(cache)  # fresh per cell: the drawing's cache bounds the total work
             txt = _field_text(e.doc.entitydb, t.value, budget, notes, cell)
             if budget["cut"]:
                 cut.add(pos)
@@ -212,6 +211,13 @@ def _cell_texts(
             plain[divmod(n, cols)] = chunks + str(t.value)
             chunks = ""
     return fields, plain, cut
+
+
+def _spend(ctx: dict[str, Any], n: int) -> None:
+    """Keep a running total of the text written, so the RawDrawing cannot pass MAX_JSON_BYTES."""
+    ctx["chars"] = ctx.get("chars", 0) + n
+    if ctx["chars"] > rawdrawing.MAX_JSON_BYTES:
+        raise ExtractError(f"text read is over MAX_JSON_BYTES ({rawdrawing.MAX_JSON_BYTES} bytes)")
 
 
 def _table(
@@ -255,7 +261,9 @@ def _table(
             # Code 1 holds the text of many cells while code 302, which ezdxf reads, is empty.
             text = "" if (r, c) in cut else fields.get((r, c)) or text or plain.get((r, c), "")
             text = plain_mtext(text, split=False).replace(chr(10), " ")
-            cells.append({"r": r, "c": c, "text": _cut(text, what, notes), "evaluated": False})
+            text = _cut(text, what, notes)
+            _spend(ctx, len(text) + 40)
+            cells.append({"r": r, "c": c, "text": text, "evaluated": False})
     if len(cells) > rawdrawing.MAX_TABLE_CELLS:
         raise ExtractError(
             f"table {what} has more cells than MAX_TABLE_CELLS ({rawdrawing.MAX_TABLE_CELLS})"
@@ -283,6 +291,7 @@ def convert(
     ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """One ezdxf entity to a RawDrawing entity without id, or None for a type not read."""
+    ctx = {} if ctx is None else ctx
     kind = e.dxftype()
     g = e.dxf.get
     handle = str(g("handle") or "0")
@@ -319,7 +328,7 @@ def convert(
         out["insertion_point"] = _pt(g("insert") or ())
         out["rotation_deg"] = _num(g("rotation", 0))
     elif kind == "ACAD_TABLE":
-        table = _table(e, handle, notes, acad_table, {} if ctx is None else ctx)
+        table = _table(e, handle, notes, acad_table, ctx)
         if table is None:
             return None
         out["table"] = table
@@ -344,7 +353,10 @@ def convert(
         out["insertion_point"] = _pt(first) if first is not None else None
     else:
         return None
-    return {k: v for k, v in out.items() if v is not None or k == "bbox"}
+    out = {k: v for k, v in out.items() if v is not None or k == "bbox"}
+    if kind != "ACAD_TABLE":  # table cells were counted as they were made
+        _spend(ctx, len(json.dumps(out)))
+    return out
 
 
 def _unexpected(path: Path, e: Exception) -> str:
@@ -569,6 +581,7 @@ def _in_child(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _extract(path: Path, cfg: Config, isolated: bool) -> dict[str, Any]:
+    path = path.absolute()  # the child runs in the temp folder; no filesystem call is made
     try:
         import ezdxf  # noqa: F401
     except ImportError as e:
