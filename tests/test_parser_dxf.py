@@ -522,3 +522,35 @@ def test_xref_text_not_reported_as_block_definition_text(test_cfg):
     what = dxf.parse_rawdrawing(drawing(ents), test_cfg).coverage[-1].what_read
     assert "texts in other block definitions not read" not in what
     assert "texts in xref x/plan.dwg not read" in what
+
+
+def test_loose_text_oversize_grid_listed_not_built(test_cfg):
+    m = 6000
+    ents = [text("h", float(i), 0.0) for i in range(m)]
+    ents += [text("r", 0.0, -10.0 * (i + 1)) for i in range(m)]
+    t0 = time.perf_counter()
+    out = dxf.parse_rawdrawing(drawing(ents), test_cfg)
+    assert time.perf_counter() - t0 < 1.0
+    assert out.panels == []
+    assert any("over the cell cap" in u.reason for u in out.unparsed)
+
+
+def test_loose_text_repeated_panel_coverage_counts_own_panel(test_cfg):
+    two = loose("LP-9", ROWS[:1]) + loose("LP-9", ROWS, y0=-200.0)
+    out = dxf.parse_rawdrawing(drawing(two), test_cfg)
+    ps = [p for p in out.panels if p.name == "LP-9"]
+    cov = [c for c in out.coverage if c.unit == "LP-9"]
+    assert len(ps) == len(cov) == 2
+
+    def n(p):
+        return sum(
+            1
+            for u in (p, *p.circuits)
+            for f in fields(u)
+            if isinstance((v := getattr(u, f.name)), Value) and v.source
+        )
+
+    for p, c in zip(ps, cov, strict=True):
+        got = dict(s.rsplit(" ", 1) for s in c.confidence_summary.split(", "))
+        assert sum(int(v) for v in got.values()) == n(p)
+    assert cov[0].confidence_summary != cov[1].confidence_summary
