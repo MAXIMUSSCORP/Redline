@@ -31,7 +31,17 @@ MAX_PDF_BYTES = 256 * 2**20
 MAX_PAGES = 1000
 MAX_WORDS_PER_PAGE = 100_000
 MAX_ANNOTS_PER_PAGE = 10_000
-_CAPS = ("MAX_PDF_BYTES", "MAX_PAGES", "MAX_WORDS_PER_PAGE", "MAX_ANNOTS_PER_PAGE")
+MAX_CHARS_PER_PAGE = 1_000_000
+# Per-process ceiling on the child. A large E-size sheet needs well under 1 GB.
+MAX_CHILD_MEMORY_MB = 4096
+_CAPS = (
+    "MAX_PDF_BYTES",
+    "MAX_PAGES",
+    "MAX_WORDS_PER_PAGE",
+    "MAX_ANNOTS_PER_PAGE",
+    "MAX_CHARS_PER_PAGE",
+    "MAX_CHILD_MEMORY_MB",
+)
 _MAX_WORD_TEXT = 1000
 
 TEXT, VECTOR_NO_TEXT, SCANNED = "TEXT", "VECTOR_NO_TEXT", "SCANNED"
@@ -85,15 +95,25 @@ def _text_of(x: Any, decode) -> str:
     return x.replace("﻿", "") if isinstance(x, str) else ""
 
 
-def _dump_page(page: Any, caps: dict, decode) -> dict:
+def _is_memory(e: BaseException | None) -> bool:
+    """pdfplumber wraps a MemoryError from pdfminer in its own exception."""
+    while e is not None:
+        if isinstance(e, MemoryError) or any(isinstance(a, MemoryError) for a in e.args):
+            return True
+        e = e.__cause__ or e.__context__
+    return False
+
+
+def _dump_page(page: Any, caps: dict, decode, resolve1) -> dict:
     w, h = _num(page.width), _num(page.height)
     found: list[dict] = []  # drawn tables, filled below
+    nchars = len(page.chars)
     d: dict[str, Any] = {
         "n": int(page.page_number),
         "width": round(w, 2),
         "height": round(h, 2),
         "rotation": int(page.rotation or 0),
-        "chars": len(page.chars),
+        "chars": nchars,
         "paths": len(page.lines) + len(page.rects) + len(page.curves),
         "words": [],
         "tables": found,
@@ -105,13 +125,21 @@ def _dump_page(page: Any, caps: dict, decode) -> dict:
         ih = min(_num(im.get("bottom")), h) - max(_num(im.get("top")), 0.0)
         area += max(iw, 0.0) * max(ih, 0.0)
     d["image_area_fraction"] = round(min(area / (w * h), 1.0), 4) if w * h > 0 else 0.0
-    annots = page.annots
-    if len(annots) > caps["MAX_ANNOTS_PER_PAGE"]:
+    raw_annots = resolve1(page.page_obj.annots)  # the raw array, before any entry is resolved
+    n_annots = len(raw_annots) if isinstance(raw_annots, list) else 0
+    if n_annots > caps["MAX_ANNOTS_PER_PAGE"]:
         d["skipped"] = (
-            f"page has {len(annots)} annotations, over MAX_ANNOTS_PER_PAGE "
+            f"page has {n_annots} annotations, over MAX_ANNOTS_PER_PAGE "
             f"({caps['MAX_ANNOTS_PER_PAGE']}), so it is not read"
         )
         return d
+    if nchars > caps["MAX_CHARS_PER_PAGE"]:
+        d["skipped"] = (
+            f"page has {nchars} characters, over MAX_CHARS_PER_PAGE "
+            f"({caps['MAX_CHARS_PER_PAGE']}), so it is not read"
+        )
+        return d
+    annots = page.annots
     words = page.extract_words()
     if len(words) > caps["MAX_WORDS_PER_PAGE"]:
         d["skipped"] = (
@@ -135,7 +163,9 @@ def _dump_page(page: Any, caps: dict, decode) -> dict:
         d["annots"].append(
             {
                 "subtype": getattr(sub, "name", None),
-                "contents": _text_of(a.get("contents"), decode)[:_MAX_WORD_TEXT],
+                "contents": _text_of((a.get("data") or {}).get("Contents"), decode)[
+                    :_MAX_WORD_TEXT
+                ],
                 "x0": round(a["x0"], 2),
                 "x1": round(a["x1"], 2),
                 "top": round(a["top"], 2),
@@ -153,48 +183,76 @@ def _dump_page(page: Any, caps: dict, decode) -> dict:
 def _dump(job: dict) -> dict:
     """Open the PDF and dump every page. Raises InputError with a plain reason."""
     name = Path(job["path"]).name
+    import itertools
+
     try:
         import pdfminer
         import pdfplumber
         from pdfminer.pdfdocument import PDFPasswordIncorrect
+        from pdfminer.pdfpage import PDFPage
+        from pdfminer.pdftypes import resolve1
         from pdfminer.utils import decode_text
+        from pdfplumber.page import Page
     except ImportError as e:
         raise InputError("pdfplumber not installed: pip install redline[pdf]") from e
     caps = job["caps"]
+    cap = caps["MAX_PAGES"]
+    no_memory = InputError(
+        f"{name} needs more memory than MAX_CHILD_MEMORY_MB ({caps['MAX_CHILD_MEMORY_MB']} MB), "
+        "so it is not read"
+    )
     try:
         pdf = pdfplumber.open(job["path"])
     except PDFPasswordIncorrect as e:
         raise InputError(f"{name} is password protected, so it is not read") from e
     except Exception as e:
+        if _is_memory(e):
+            raise no_memory from e
         raise InputError(f"{name} cannot be read as a PDF ({type(e).__name__})") from e
     pages: list[dict] = []
     try:
-        with pdf:
-            total = len(pdf.pages)
-            for page in pdf.pages[: caps["MAX_PAGES"]]:
+        # pdf.close() would build every page object, so only the stream is closed. Only the first
+        # MAX_PAGES page objects are built: a file with a million pages costs as much as MAX_PAGES.
+        with pdf.stream:
+            it = PDFPage.create_pages(pdf.doc)
+            for i, raw in enumerate(itertools.islice(it, cap), 1):
+                page = Page(pdf, raw, page_number=i)
                 try:
-                    pages.append(_dump_page(page, caps, decode_text))
-                except Exception as e:  # noqa: BLE001
-                    pages.append(
-                        {
-                            "n": page.page_number,
-                            "skipped": f"page cannot be read ({type(e).__name__})",
+                    pg = _dump_page(page, caps, decode_text, resolve1)
+                    try:
+                        json.dumps(pg, allow_nan=False)
+                    except ValueError:
+                        pg = {
+                            "n": i,
+                            "skipped": "page has a coordinate that is not finite, so it is not read",
                         }
-                    )
+                    pages.append(pg)
+                except Exception as e:
+                    if _is_memory(e):
+                        raise MemoryError from e
+                    pages.append({"n": i, "skipped": f"page cannot be read ({type(e).__name__})"})
                 finally:
                     page.close()
+            more = sum(1 for _ in itertools.islice(it, 1))
+            count = resolve1((resolve1(pdf.doc.catalog.get("Pages")) or {}).get("Count"))
     except InputError:
         raise
     except Exception as e:
+        if _is_memory(e):
+            raise no_memory from e
         raise InputError(f"{name} cannot be read as a PDF ({type(e).__name__})") from e
-    if total > caps["MAX_PAGES"]:
-        pages.append(
-            {
-                "n": caps["MAX_PAGES"] + 1,
-                "skipped": f"{total - caps['MAX_PAGES']} pages past MAX_PAGES "
-                f"({caps['MAX_PAGES']}) are not read",
-            }
+    read = len(pages)
+    total = read
+    if more:
+        # /Count is the file's own claim, so it is used only when it fits what was read.
+        total = count if isinstance(count, int) and count > read else 0
+        skipped = (
+            f"{total - read} pages past MAX_PAGES ({cap}) are not read"
+            if total
+            else f"more than {read} pages, the pages past MAX_PAGES ({cap}) are not read"
         )
+        total = total or read + 1
+        pages.append({"n": read + 1, "skipped": skipped})
     return {
         "pdfplumber": str(pdfplumber.__version__),
         "pdfminer": str(pdfminer.__version__),
@@ -211,14 +269,77 @@ _CHILD = (
 )
 
 
+def _limit_memory(mb: int) -> str | None:
+    """Put this process under a Windows Job Object with a per-process memory limit. Returns
+    why it could not, or None. It is set here, in the reading process itself: sys.executable
+    can be a launcher that starts the real python, which a job set from the parent can miss."""
+    if sys.platform != "win32":
+        return "no memory ceiling on this platform, so a hostile PDF is not bounded in memory"
+    import ctypes
+    from ctypes import wintypes
+
+    class _Basic(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class _IoCounters(ctypes.Structure):
+        _fields_ = [(n, ctypes.c_uint64) for n in ("r", "w", "o", "rb", "wb", "ob")]
+
+    class _Extended(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", _Basic),
+            ("IoInfo", _IoCounters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    k32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    job = k32.CreateJobObjectW(None, None)
+    info = _Extended()
+    info.BasicLimitInformation.LimitFlags = 0x100  # JOB_OBJECT_LIMIT_PROCESS_MEMORY
+    info.ProcessMemoryLimit = mb * 2**20
+    ok = job and k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+    ok = ok and k32.AssignProcessToJobObject(job, k32.GetCurrentProcess())
+    if not ok:
+        return f"the memory ceiling could not be set (Windows error {ctypes.get_last_error()})"
+    return None
+
+
 def child_main(job_file: str) -> None:
     """Entry point of the child process: write the dump, or the plain reason it failed."""
     job = json.loads(Path(job_file).read_text(encoding="utf-8"))
     tmp = Path(job["tmp"])
     try:
-        (tmp / "out.json").write_text(json.dumps(_dump(job), allow_nan=False), encoding="utf-8")
+        warning = _limit_memory(job["caps"]["MAX_CHILD_MEMORY_MB"])
+        dump = _dump(job)
+        if warning:
+            dump["warnings"] = [warning]
+        (tmp / "out.json").write_text(json.dumps(dump, allow_nan=False), encoding="utf-8")
     except Exception as e:  # noqa: BLE001
         msg = str(e) if isinstance(e, InputError) else f"PDF reader failed ({type(e).__name__})"
+        if _is_memory(e):
+            msg = "PDF reader needs more memory than MAX_CHILD_MEMORY_MB, so the file is not read"
         (tmp / "err.txt").write_text(msg, encoding="utf-8")
 
 
@@ -228,7 +349,11 @@ def read_pages(path: Path, cfg: Config, *, isolated: bool = True) -> dict:
     path = Path(path)
     if not path.is_file():
         raise InputError(f"{path.name} was not found")
-    if path.stat().st_size > MAX_PDF_BYTES:
+    try:
+        size = path.stat().st_size
+    except OSError as e:
+        raise InputError(f"{path.name} cannot be read ({type(e).__name__})") from e
+    if size > MAX_PDF_BYTES:
         raise InputError(f"{path.name} is over MAX_PDF_BYTES ({MAX_PDF_BYTES} bytes)")
     try:
         sha = sha256_of(path)
