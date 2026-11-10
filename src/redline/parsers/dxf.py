@@ -152,9 +152,10 @@ def _nearest(xs: list[float], x: float) -> int:
 
 def _grid(
     items: list[_Item], row_tol: float, gap: float
-) -> tuple[list[list[str]], list[float], int]:
+) -> tuple[list[list[str]], list[float], int] | None:
     """Rows by y, cells by x, columns aligned to the header row. Returns grid, y per row, and the
-    number of cells that shared a column with another cell of their row."""
+    number of cells that shared a column with another cell of their row. None when the grid
+    would be over the cell cap."""
     med = statistics.median(i.h for i in items)
     rows: list[list[_Item]] = []
     total = 0.0  # running sum of y in the current row
@@ -177,6 +178,8 @@ def _grid(
         cells.append(merged)
     header = max(cells, key=len)  # max keeps the first of equals: the topmost row
     xs = [c.x for c in header]
+    if len(cells) * len(xs) > rawdrawing.MAX_TABLE_CELLS:
+        return None
     grid, shared = [], 0
     top = cells.index(header)
     for n, r in enumerate(cells):
@@ -243,11 +246,11 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
         if loose:
             for p in part.panels:
                 _apply(p, _cap_medium)
-            by_name = {p.name: p for p in part.panels}
-            part.coverage = [
-                replace(c, confidence_summary=_summary(by_name[c.unit])) if c.unit in by_name else c
-                for c in part.coverage
-            ]
+            if len(part.coverage) == len(part.panels):  # one entry per panel, in panel order
+                part.coverage = [
+                    replace(c, confidence_summary=_summary(p))
+                    for c, p in zip(part.coverage, part.panels, strict=True)
+                ]
         out.panels += part.panels
         out.unparsed += part.unparsed
         out.coverage += part.coverage
@@ -389,9 +392,15 @@ def _cluster(group, key, cfg, parsing, file, out, tally, add, unp) -> None:
     if len(items) < parsing.get("dxf_table_min_cells", 1):
         tally.unplaced_text += len(items)
         return
-    grid, ys, shared = _grid(
-        items, parsing["row_tolerance_text_heights"], parsing["column_gap_fraction"]
-    )
+    built = _grid(items, parsing["row_tolerance_text_heights"], parsing["column_gap_fraction"])
+    if built is None:
+        why = f"loose text of {len(items)} texts would make a grid over the cell cap, so it is not read"
+        out.unparsed.append(
+            Unparsed("table", "", why, Source(file, where, Method.DXF_TEXT, Confidence.LOW))
+        )
+        tally.clusters_listed += 1
+        return
+    grid, ys, shared = built
     tally.shared_columns += shared
     part = rows_to_panels(
         grid,
