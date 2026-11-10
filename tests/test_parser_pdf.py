@@ -976,3 +976,20 @@ def test_dump_warnings_are_listed(test_cfg):
     assert u.kind == "file" and "memory ceiling not set" in u.reason and u.source.file == "t.pdf"
     assert [p.name for p in got.panels] == ["LP-22"]
     assert pdf.parse_pages({"warnings": "x"}, test_cfg, "t.pdf").unparsed[0].kind == "page"
+
+
+def test_title_block_table_words_not_counted_as_unread(test_cfg):
+    rows = [["Panel", "LP-9"], gen.LP22_CELLS[1], *gen.LP22_CELLS[2:5]]
+    bbox = (930.0, 650.0, 1224.0, 712.0)
+    inside = grid_words(rows, x0=935.0, top=655.0, cw=2.5, gap=8.0)
+    loose = grid_words([["DRAWN", "JD"]], x0=960.0, top=772.0, h=8.0)
+    label = grid_words(
+        [["SHEET NO.", "E-501"], ["REV", "2"]], x0=960.0, top=730.0, rowh=20.0, h=8.0
+    )
+    out = parse(test_cfg, page(tables=[table(rows, bbox)], words=[*inside, *loose, *label]))
+    assert [(p.name, len(p.circuits)) for p in out.panels] == [("LP-9", 3)]
+    assert "2 words in the title block area not read" in entry(out).what_read
+    # a duplicate of a used text elsewhere in the crop is still unread
+    dup = grid_words([["E-501", "JD"]], x0=960.0, top=768.0, h=8.0)
+    out = parse(test_cfg, page(words=[*title_words(), *dup]))
+    assert "2 words in the title block area not read" in entry(out).what_read

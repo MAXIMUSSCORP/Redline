@@ -517,27 +517,31 @@ def _fold(s: str) -> str:
     return " ".join(s.split()).casefold()
 
 
-def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict, str, str, int]:
+def _read_title(
+    words: list[_Word], parsing: dict, aliases: dict
+) -> tuple[dict, str, str, list[_Word]]:
     """Value per key (None when missing or ambiguous), the sheet number, the coverage text, and
-    how many of the words were not used as a label or a value."""
+    the words that were not used as a label or a value."""
     grid: list[list[str]] = []
+    ys: list[float] = []
     if words:
         built = text_grid(
             [w.item() for w in words],
             parsing["pdf_row_tolerance_word_heights"],
             parsing["pdf_column_gap_fraction"],
         )
-        grid = built[0] if built else []
+        grid, ys = (built[0], built[1]) if built else ([], [])
     wanted = {normalize_header(a): key for key, names in aliases.items() for a in _list(names)}
     wanted.pop("", None)
     found: dict[str, list[str]] = {k: [] for k in aliases}
-    used: list[str] = []
+    used: list[tuple[int, str]] = []  # (row, cell text)
     for r, row in enumerate(grid):
         for c, cell in enumerate(row):
             key = wanted.get(normalize_header(cell))
             if key is None:
                 continue
             value = next((x for x in row[c + 1 :] if x.strip()), "")
+            at = r
             below = grid[r + 1][c] if r + 1 < len(grid) and c < len(grid[r + 1]) else ""
             below_ok = bool(below.strip()) and normalize_header(below) not in wanted
             # A label beside a label is a header row. So is a word with no digit over a numbered
@@ -549,10 +553,10 @@ def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict,
             ):
                 value = ""
             if not value and below_ok:
-                value = below
+                value, at = below, r + 1
             if value.strip():
                 found[key].append(value.strip())
-                used += [cell, value]
+                used += [(r, cell), (at, value)]
     values, got, missing = {}, [], []
     for key, vs in found.items():
         short, long = _TITLE_LABELS.get(key, (key.replace("_", " "),) * 2)
@@ -568,15 +572,18 @@ def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict,
             missing.append(f"{long} not found in the title block")
     parts = [", ".join(got) + ", from the title block"] if got else []
     text = "; ".join(parts + missing) or "no title block labels are configured"
-    # Cells are made of words, so words are matched to used cells by text, one for one.
-    need = Counter(t for cell in used for t in cell.split())
-    unused = 0
-    for w in words:
-        parts = w.text.split()
-        if parts and all(need[t] > 0 for t in parts):
-            need.subtract(parts)
-        else:
-            unused += 1
+    # A used cell takes the words of its own row, so a duplicate text elsewhere is not used.
+    tol = parsing["pdf_row_tolerance_word_heights"] * _median_h(words)
+    taken: set[int] = set()
+    for r, cell in used:
+        need = Counter(cell.split())
+        for w in sorted(words, key=lambda w: w.x0):
+            parts = w.text.split()
+            near = id(w) not in taken and abs(-w.top - ys[r]) <= tol
+            if near and parts and all(need[t] > 0 for t in parts):
+                need.subtract(parts)
+                taken.add(id(w))
+    unused = [w for w in words if id(w) not in taken]
     return values, _str(values.get("sheet_number")), text, unused
 
 
@@ -653,7 +660,22 @@ def _route(pg: _Page, cls: str, chars: float, words: list[_Word], note: str) -> 
     pg.unp("page", _lead(words), note, loc)
 
 
-def _title(pg: _Page, words: list[_Word], crop: _Crop, aliases: dict) -> list[_Word]:
+def _in_box(w: _Word, b: tuple[float, float, float, float]) -> bool:
+    cx, cy = w.centre()
+    return b[0] <= cx <= b[2] and b[1] <= cy <= b[3]
+
+
+def _crop_boxes(raw: dict, crop: _Crop) -> list[tuple[float, float, float, float]]:
+    """Boxes of the ruled tables centred in the title block area: their words are theirs."""
+    out = []
+    for t in _list(raw.get("tables")):
+        bbox = [_num(v) for v in _list(t.get("bbox"))] if isinstance(t, dict) else []
+        if len(bbox) == 4 and crop.holds(((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)):
+            out.append((bbox[0], bbox[1], bbox[2], bbox[3]))
+    return out
+
+
+def _title(pg: _Page, words: list[_Word], crop: _Crop, aliases: dict, boxes: list) -> list[_Word]:
     """Read the title block and return the words that are left for the table finder."""
     if not crop.usable:
         why = (
@@ -666,8 +688,8 @@ def _title(pg: _Page, words: list[_Word], crop: _Crop, aliases: dict) -> list[_W
     inside = [w for w in words if crop.holds(w.centre())]
     _, sheet, text, unused = _read_title(inside, pg.parsing, aliases)
     pg.parts.append(text)
-    if unused:
-        pg.parts.append(f"{unused} words in the title block area not read")
+    if n := sum(1 for w in unused if not any(_in_box(w, b) for b in boxes)):
+        pg.parts.append(f"{n} words in the title block area not read")
     if sheet:
         pg.pg += f"; sheet={sheet}"
     gone = {id(w) for w in inside}
@@ -889,7 +911,7 @@ def _read_page(raw: dict, cfg: Config, file: str) -> Parsed:
         return pg.out
     crop = _Crop(raw, parsing)
     aliases = cfg.column_maps["title_block"]
-    free = _title(pg, words, crop, aliases)
+    free = _title(pg, words, crop, aliases, _crop_boxes(raw, crop))
     if cls == TEXT:
         _text_page(pg, raw, crop, free, annots, bad, bad_annots)
     else:
