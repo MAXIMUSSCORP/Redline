@@ -60,3 +60,4 @@ parsing:                      # lengths relative to text height, never absolute 
 title_block:                             # exact alias after normalize_header; owner adds from real sheets
   sheet_number: ["sheet", "sheet no", "sheet number", "dwg no", "drawing no", "drawing number"]
   revision:     ["rev", "revision", "rev no"]
+  other_labels: ["date", "scale", "by", "description", "drawn", "drawn by", "checked", "checked by", "approved", "approved by", "designed", "designed by", "project", "title", "client", "issue", "issued for"]   # labels that are never a value
