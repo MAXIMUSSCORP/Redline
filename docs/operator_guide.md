@@ -44,6 +44,8 @@ Extractor setup. All three path keys are under `parsing:` in `config/column_maps
 - `acad_plugin_dll`: the built plugin. The path must hold no space. Build it with `dotnet build extractors/acad_plugin/RedlinePlugin.csproj -c Release -p:AcadDir="D:/Autodesk/AutoCAD 2026" -p:AcadVersion=2026`.
 - `odafc_path`: `ODAFileConverter.exe`. Redline does not bundle the ODA File Converter. Install it yourself.
 
+Xrefs and untrusted drawings. On the plugin path, Redline reads no xref content and lists every xref as not read. AutoCAD itself may still try to open an xref path stored in the drawing when it opens the drawing. That path can be a network path. To keep a drawing from an untrusted source fully offline, block outbound file sharing (SMB) for `accoreconsole.exe`, or set `dxf_prefer_extractor` to `"oda_ezdxf"`.
+
 The plugin runs on the owner's workstation only, until the reseller answers on Core Console licensing (PLAN row 38). The ODA route needs the `[dxf]` extra: `pip install -e ".[dxf]"` (it adds ezdxf). Without it, a `.dxf` or `.dwg` that needs ODA is listed as not read.
 
 ## Compare the two extractors
