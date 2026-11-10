@@ -780,3 +780,40 @@ def test_declared_cells_capped_per_drawing_extract(tmp_path, test_cfg, monkeypat
     assert len(read) == fits == len(data["entities"])
     warnings = data["document"]["warnings"]
     assert sum("MAX_DRAWING_CELLS" in w for w in warnings) == 300 - fits
+
+
+def test_cut_field_cached_with_outcome():
+    import time
+
+    f = _field([(2, "x")] * 50000 + [(1, "_text")], ["F"])
+    entitydb = SimpleNamespace(get={"F": f}.get)
+    ctx = {}
+    start = time.monotonic()
+    for i in range(300):
+        notes = []
+        ent = _table_with_tags({}, [(171, 1), (344, "F"), (1, "K12")] * 64, rows=64, cols=1)
+        ent.doc = SimpleNamespace(entitydb=entitydb)
+        item = oda_ezdxf.convert(ent, "L", None, notes, fake_acad_table([["K12"]] * 64), ctx)
+        assert {c["text"] for c in item["table"]["cells"]} == {""}
+        assert any("cut short" in n for n in notes)
+    assert time.monotonic() - start < 2
+
+
+def test_negative_or_half_zero_table_size_not_read():
+    import time
+
+    def boom(e):
+        raise AssertionError("content built")
+
+    for rows, cols in ((10_000_000, -1), (-1, 5), (0, 5), (5, 0)):
+        notes = []
+        start = time.monotonic()
+        item = oda_ezdxf.convert(
+            FakeEntity(rows, cols),
+            "L",
+            None,
+            notes,
+            SimpleNamespace(read_acad_table_content=boom),
+        )
+        assert item is None and time.monotonic() - start < 1
+        assert any("was not read" in n for n in notes)
