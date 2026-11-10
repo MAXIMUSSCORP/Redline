@@ -620,11 +620,11 @@ def test_star_t_matching_budget_distinct_tables(test_cfg):
         for j in range(n)
         for s in (*shared, f"q{j}")
     ]
-    base = _seconds(drawing(tables), test_cfg)
     d = drawing(tables + stars)
-    t0 = time.perf_counter()
+    base = min(_seconds(drawing(tables), test_cfg) for _ in range(2))  # best of two, against noise
+    with_stars = min(_seconds(d, test_cfg) for _ in range(2))
+    assert with_stars - base < 1.0
     out = dxf.parse_rawdrawing(d, test_cfg)
-    assert time.perf_counter() - t0 - base < 1.0
     assert "table render blocks not read twice" not in out.coverage[-1].what_read
 
 
@@ -634,4 +634,22 @@ def test_star_t_budget_keeps_real_render_block_matched(test_cfg):
     render = loose("LP-0", rows, layout="block:*T1")
     out = dxf.parse_rawdrawing(drawing(tables + render), test_cfg)
     assert [p.name for p in out.panels].count("LP-0") == 1
+    assert "texts in table render blocks not read twice" in out.coverage[-1].what_read
+
+
+def test_star_t_many_similar_schedules_not_doubled(test_cfg):
+    rows = [[str(i), "Lighting", "1350", "20 A", "1", "12 AWG"] for i in range(1, 43)]
+    ents = []
+    for k in range(100):
+        grid = schedule(f"LP-{k}", rows)
+        ents.append(table(grid, handle=f"{k:X}"))
+        ents += [
+            text(t, 20.0 * c, -8.0 * r, layout=f"block:*T{k}")
+            for r, row in enumerate(grid)
+            for c, t in enumerate(row)
+            if t
+        ]
+    out = dxf.parse_rawdrawing(drawing(ents), test_cfg)
+    names = [p.name for p in out.panels]
+    assert len(names) == 100 and len(set(names)) == 100
     assert "texts in table render blocks not read twice" in out.coverage[-1].what_read
