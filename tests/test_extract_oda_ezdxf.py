@@ -934,3 +934,29 @@ def test_child_output_total_capped(monkeypatch):
     oda_ezdxf.convert(text, "L", None, [], fake_acad_table([]), ctx)
     with pytest.raises(ExtractError, match="MAX_JSON_BYTES"):
         oda_ezdxf.convert(text, "L", None, [], fake_acad_table([]), ctx)
+
+
+def test_budget_exhausted_handle_not_cached_as_cut():
+    idx = lambda i: r"%<\_FldIdx " + str(i) + ">%"
+    db = {}
+    for i in range(70):
+        db[f"L{i}"] = _field([(1, "AcVar"), (301, "x")])
+    db["M"] = _field([(1, "_text"), (2, idx(0) + idx(1) + idx(2)), (301, "")], ["A", "B", "C"])
+    for h in "ABC":
+        db[h] = _field([(1, "AcVar"), (301, h)])
+    db["R"] = _field(
+        [(1, "_text"), (2, "".join(idx(i) for i in range(63))), (301, "")],
+        [f"L{i}" for i in range(62)] + ["M"],
+    )
+    ent = _table_with_tags(db, [(171, 1), (344, "R"), (171, 1), (344, "M")], rows=2, cols=1)
+    item = oda_ezdxf.convert(ent, "L", None, [], fake_acad_table([[""], [""]]))
+    assert [c["text"] for c in item["table"]["cells"]] == ["", "ABC"]
+
+
+def test_field_own_text_cut_before_strip(monkeypatch):
+    monkeypatch.setattr(rawdrawing, "MAX_TEXT", 100)
+    db = {"F": _field([(1, "AcVar"), (301, "^I" * 500)])}
+    notes = []
+    got = oda_ezdxf._field_text(_field_db(db), "F", oda_ezdxf._budget(), notes, "w")
+    assert len(got) == 100
+    assert any("MAX_TEXT" in n for n in notes)
