@@ -2,22 +2,26 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
 import shutil
+import sys
 import tempfile
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
+import redline as redline_pkg
 from redline import rawdrawing
 from redline.config import Config
 from redline.extract import (
     ExtractError,
     Unavailable,
     check_unchanged,
+    read_output,
     run_tool,
     sha256_of,
     validated,
@@ -104,6 +108,18 @@ def _field_text(
     return text
 
 
+def _too_long(budget: dict[str, Any], notes: list[str], what: str) -> str:
+    budget["cut"] = True
+    _say(budget, notes, f"{what}: FIELD text passes MAX_TEXT ({rawdrawing.MAX_TEXT} characters)")
+    return ""
+
+
+def _joined(kids: list[str], budget: dict[str, Any], notes: list[str], what: str) -> str:
+    if sum(map(len, kids)) > rawdrawing.MAX_TEXT:
+        return _too_long(budget, notes, what)
+    return "".join(kids)
+
+
 def _read_field(
     db: Any, handle: Any, budget: dict[str, Any], notes: list[str], what: str, path: tuple = ()
 ) -> str:
@@ -145,7 +161,7 @@ def _read_field(
                 f"{what}: FIELD has several child fields and no place for them in its code",
             )
             return ""
-        return "".join(kids)
+        return _joined(kids, budget, notes, what)
     if any(int(i) >= len(kids) for i in _FLD_IDX.findall(code)):
         _say(
             budget,
@@ -153,6 +169,11 @@ def _read_field(
             f"{what}: FIELD code names a child field that is not there, so no text was read",
         )
         return ""
+    size = len(code) + sum(
+        len(kids[int(m.group(1))]) - len(m.group(0)) for m in _FLD_IDX.finditer(code)
+    )
+    if size > rawdrawing.MAX_TEXT:  # checked before the text is built
+        return _too_long(budget, notes, what)
     return _FLD_IDX.sub(lambda m: kids[int(m.group(1))], code)
 
 
@@ -280,7 +301,9 @@ def convert(
         out["insertion_point"] = _pt(g("insert") or ())
         out["rotation_deg"] = _num(g("rotation", 0))
     elif kind == "MTEXT":
-        out["text"] = _cut(e.plain_text(), handle, notes)
+        from ezdxf.tools.text import plain_mtext
+
+        out["text"] = _cut(plain_mtext(e.text, split=False), handle, notes)
         out["text_height"] = _pos(g("char_height"))
         out["insertion_point"] = _pt(g("insert") or ())
         out["rotation_deg"] = _num(g("rotation", 0))
@@ -368,7 +391,9 @@ def _inside(raw: str, base: Path, root: Path) -> Path | None:
     return p
 
 
-def extract(path: Path, cfg: Config) -> dict[str, Any]:
+def read_drawing(job: dict[str, Any]) -> dict[str, Any]:
+    """Read and walk one drawing with ezdxf (host and xrefs). It runs in the child process, and
+    unit tests call it directly. The job holds plain values: see _job."""
     try:
         import ezdxf
         from ezdxf import recover
@@ -376,15 +401,8 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
         from ezdxf.entities import acad_table
     except ImportError as e:
         raise Unavailable("ezdxf not installed: pip install redline[dxf]") from e
-    parsing = cfg.column_maps["parsing"]
-    suffix = path.suffix.lower()
-    if suffix not in (".dwg", ".dxf"):
-        raise ExtractError(f"{path.name} is not a .dwg or .dxf file")
-    odafc = _odafc(parsing) if suffix == ".dwg" else None
-    if not path.is_file():
-        raise ExtractError(f"{path.name} was not found")
-    timeout = parsing["dxf_extractor_timeout_s"]
-    before = sha256_of(path)
+    path, odafc, timeout = Path(job["path"]), job["odafc"], job["timeout"]
+    before, tmp = job["before"], Path(job["tmp"])
 
     entities: list[dict[str, Any]] = []
     xrefs: list[dict[str, Any]] = []
@@ -394,14 +412,13 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
     root = path.resolve().parent
     visited = {path.resolve()}
     failed: dict[Path, str] = {}
-    runs = 0
+    runs = job["runs"]
 
-    tmp = Path(tempfile.mkdtemp(prefix="redline-oda-", dir=tempfile.gettempdir()))
-
-    def load(src: Path) -> Any:
+    def load(src: Path, dxf: Path | None = None) -> Any:
         nonlocal runs
-        dxf = src
-        if src.suffix.lower() == ".dwg":
+        if dxf is None:
+            dxf = src
+        if dxf.suffix.lower() == ".dwg":
             runs += 1
             dxf = _to_dxf(odafc, src, tmp, runs, timeout)
         try:
@@ -486,7 +503,7 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
         )
 
     try:
-        doc = load(path)
+        doc = load(path, Path(job["dxf"]))
         walk(doc, root, None, None)
         units = ezunits.decode(doc.units) if doc.units else "unitless"
         layouts = [_cut(n, "layout name", notes) for n in doc.layouts.names_in_taborder()]
@@ -494,8 +511,6 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
         raise
     except Exception as e:
         raise ExtractError(_unexpected(path, e)) from e
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
     host = (
         f"{ODA} version not read + ezdxf {ezdxf.__version__}"
         if odafc
@@ -515,6 +530,84 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
         "document": {"units": units, "layouts": layouts, "xrefs": xrefs, "warnings": notes},
         "entities": entities,
     }
+    return data
+
+
+# The child imports the parent's own redline package, not whatever an editable install points at.
+_CHILD = (
+    "import sys; sys.path.insert(0, sys.argv[1]); "
+    "from redline.extract.oda_ezdxf import child_main; child_main(sys.argv[2])"
+)
+_CAPS = ("MAX_JSON_BYTES", "MAX_ENTITIES", "MAX_TABLE_CELLS", "MAX_DRAWING_CELLS", "MAX_TEXT")
+
+
+def child_main(job_file: str) -> None:
+    """Entry point of the child process: write the RawDrawing, or the plain reason it failed."""
+    job = json.loads(Path(job_file).read_text(encoding="utf-8"))
+    for k, v in job["caps"].items():
+        setattr(rawdrawing, k, v)
+    tmp = Path(job["tmp"])
+    try:
+        data = read_drawing(job)
+        (tmp / "out.json").write_text(json.dumps(data, allow_nan=False), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        msg = str(e) if isinstance(e, ExtractError) else _unexpected(Path(job["path"]), e)
+        (tmp / "err.txt").write_text(msg, encoding="utf-8")
+
+
+def _in_child(job: dict[str, Any]) -> dict[str, Any]:
+    tmp = Path(job["tmp"])
+    job["caps"] = {k: getattr(rawdrawing, k) for k in _CAPS}
+    (tmp / "job.json").write_text(json.dumps(job), encoding="utf-8")
+    pkg = str(Path(redline_pkg.__file__).resolve().parents[1])
+    args = [sys.executable, "-I", "-c", _CHILD, pkg, str(tmp / "job.json")]
+    run_tool("ezdxf", args, job["timeout"], tmp)
+    err = tmp / "err.txt"
+    if err.is_file():
+        raise ExtractError(err.read_text(encoding="utf-8")[:2000])
+    return read_output("ezdxf", tmp / "out.json")
+
+
+def _extract(path: Path, cfg: Config, isolated: bool) -> dict[str, Any]:
+    try:
+        import ezdxf  # noqa: F401
+    except ImportError as e:
+        raise Unavailable("ezdxf not installed: pip install redline[dxf]") from e
+    parsing = cfg.column_maps["parsing"]
+    suffix = path.suffix.lower()
+    if suffix not in (".dwg", ".dxf"):
+        raise ExtractError(f"{path.name} is not a .dwg or .dxf file")
+    odafc = _odafc(parsing) if suffix == ".dwg" else None
+    if not path.is_file():
+        raise ExtractError(f"{path.name} was not found")
+    timeout = parsing["dxf_extractor_timeout_s"]
+    before = sha256_of(path)
+    tmp = Path(tempfile.mkdtemp(prefix="redline-oda-", dir=tempfile.gettempdir()))
+    try:
+        dxf = _to_dxf(odafc, path, tmp, 1, timeout) if odafc else path
+        job = {
+            "path": str(path),
+            "dxf": str(dxf),
+            "odafc": odafc,
+            "timeout": timeout,
+            "before": before,
+            "tmp": str(tmp),
+            "runs": 1 if odafc else 0,
+        }
+        data = _in_child(job) if isolated else read_drawing(job)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     validated("ezdxf", data)
     check_unchanged(data, path, before)
     return data
+
+
+def extract(path: Path, cfg: Config) -> dict[str, Any]:
+    """The ezdxf read runs in a child process under dxf_extractor_timeout_s (ezdxf's own audit
+    can take exponential time on a crafted drawing)."""
+    return _extract(path, cfg, True)
+
+
+def extract_inprocess(path: Path, cfg: Config) -> dict[str, Any]:
+    """The same without the child process, for unit tests that patch ezdxf calls."""
+    return _extract(path, cfg, False)
