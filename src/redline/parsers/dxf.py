@@ -199,6 +199,7 @@ class _Tally:
     shared_columns: int = 0
     other_block_text: int = 0
     table_render_text: int = 0
+    read_tables: list[set[str]] = field(default_factory=list)
     mleaders: int = 0
 
 
@@ -256,15 +257,20 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
         elif t in ("TEXT", "MTEXT"):
             texts.setdefault((layout, e.get("xref_path")), []).append(e)
     star_t = [k for k in texts if k[0].upper().startswith("BLOCK:*T")]
-    if any(e.get("type") == "ACAD_TABLE" for e in entities):
-        # The RawDrawing does not link a table to its *T block. With any table present,
-        # *T text is the table's own rendering, already read or listed above.
-        for k in star_t:
-            tally.table_render_text += sum(1 for e in texts[k] if _clean(e.get("text")))
-        star_t = []
+    skipped_t = []
+    for k in star_t:
+        # The RawDrawing does not link a table to its *T block, so match by content: a *T group
+        # is a table's rendering when over half of its texts are cell texts of one table read.
+        cleaned = [c for c in (_clean(e.get("text")) for e in texts[k]) if c]
+        if cleaned and any(
+            2 * sum(c in cells for c in cleaned) > len(cleaned) for cells in tally.read_tables
+        ):
+            tally.table_render_text += len(cleaned)
+            skipped_t.append(k)
+    star_t = [k for k in star_t if k not in skipped_t]
     loose = [k for k in texts if not k[0].upper().startswith("BLOCK:")]
     for k, group in texts.items():
-        if k not in star_t and k not in loose and not k[0].upper().startswith("BLOCK:*T"):
+        if k not in star_t and k not in loose and k not in skipped_t:
             tally.other_block_text += sum(1 for e in group if _clean(e.get("text")))
     for k in star_t + loose:
         try:
@@ -334,6 +340,8 @@ def _table(e, cfg, file, min_cells, out, tally, add, unp) -> None:
             low_note=STALE_NOTE,
         )
         tally.tables_read += bool(part.panels)
+        if part.panels:
+            tally.read_tables.append({_clean(c) for c in filled})
         tally.tables_listed += not part.panels
         add(part, False)
     except Exception as ex:  # noqa: BLE001 - an odd drawing is listed, the rest is still read
