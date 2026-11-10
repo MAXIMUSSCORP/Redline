@@ -13,6 +13,7 @@ import shutil
 import statistics
 import sys
 import tempfile
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
@@ -41,6 +42,7 @@ MAX_WORDS_PER_PAGE = 100_000
 MAX_ANNOTS_PER_PAGE = 10_000
 _CAPS = ("MAX_PDF_BYTES", "MAX_PAGES", "MAX_WORDS_PER_PAGE", "MAX_ANNOTS_PER_PAGE")
 _MAX_WORD_TEXT = 1000
+_MAX_WARNINGS = 20
 
 TEXT, VECTOR_NO_TEXT, SCANNED = "TEXT", "VECTOR_NO_TEXT", "SCANNED"
 SCANNED_NOTE = "scanned page (a full-page image), needs OCR or vision"
@@ -390,8 +392,9 @@ def _fold(s: str) -> str:
     return " ".join(s.split()).casefold()
 
 
-def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict, str, str]:
-    """Value per key (None when missing or ambiguous), the sheet number, and the coverage text."""
+def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict, str, str, int]:
+    """Value per key (None when missing or ambiguous), the sheet number, the coverage text, and
+    how many of the words were not used as a label or a value."""
     grid: list[list[str]] = []
     if words:
         built = text_grid(
@@ -403,6 +406,7 @@ def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict,
     wanted = {normalize_header(a): key for key, names in aliases.items() for a in _list(names)}
     wanted.pop("", None)
     found: dict[str, list[str]] = {k: [] for k in aliases}
+    used: list[str] = []
     for r, row in enumerate(grid):
         for c, cell in enumerate(row):
             key = wanted.get(normalize_header(cell))
@@ -423,6 +427,7 @@ def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict,
                 value = below
             if value.strip():
                 found[key].append(value.strip())
+                used += [cell, value]
     values, got, missing = {}, [], []
     for key, vs in found.items():
         short, long = _TITLE_LABELS.get(key, (key.replace("_", " "),) * 2)
@@ -438,7 +443,16 @@ def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict,
             missing.append(f"{long} not found in the title block")
     parts = [", ".join(got) + ", from the title block"] if got else []
     text = "; ".join(parts + missing) or "no title block labels are configured"
-    return values, _str(values.get("sheet_number")), text
+    # Cells are made of words, so words are matched to used cells by text, one for one.
+    need = Counter(t for cell in used for t in cell.split())
+    unused = 0
+    for w in words:
+        parts = w.text.split()
+        if parts and all(need[t] > 0 for t in parts):
+            need.subtract(parts)
+        else:
+            unused += 1
+    return values, _str(values.get("sheet_number")), text, unused
 
 
 def _median_h(words: list[_Word]) -> float:
@@ -525,8 +539,10 @@ def _title(pg: _Page, words: list[_Word], crop: _Crop, aliases: dict) -> list[_W
         pg.parts.append(f"{why}; title block not read")
         return words
     inside = [w for w in words if crop.holds(w.centre())]
-    _, sheet, text = _read_title(inside, pg.parsing, aliases)
+    _, sheet, text, unused = _read_title(inside, pg.parsing, aliases)
     pg.parts.append(text)
+    if unused:
+        pg.parts.append(f"{unused} words in the title block area not read")
     if sheet:
         pg.pg += f"; sheet={sheet}"
     gone = {id(w) for w in inside}
@@ -757,19 +773,33 @@ def _read_page(raw: dict, cfg: Config, file: str) -> Parsed:
     return pg.out
 
 
+def _has_schedule_header(pg: _Page, t: dict) -> bool:
+    rows = [[_str(c) for c in r] for r in _list(t.get("rows")) if isinstance(r, list)]
+    if sum(len(r) for r in rows) > rawdrawing.MAX_TABLE_CELLS:
+        return True  # _ruled lists it as over the cap
+    part = rows_to_panels(
+        rows, pg.cfg, file=pg.file, method=Method.PDF_TEXT, locate=lambda i: f"r={i}"
+    )
+    return not _no_header(part)
+
+
 def _text_page(pg, raw, crop, free, annots, bad, bad_annots) -> None:
     tables = [
         (k, t)
         for k, t in enumerate(_list(raw.get("tables")))
         if isinstance(t, dict) and len(_list(t.get("bbox"))) == 4
     ]
-    kept, centres = [], []
+    kept, centres, crop_tables = [], [], 0
     for k, t in tables:
         x0, top, x1, bottom = (_num(v) for v in t["bbox"])
         c = ((x0 + x1) / 2, (top + bottom) / 2)
-        if not crop.holds(c):
+        # A table in the title block corner is read when it has a schedule header; otherwise it
+        # is almost always the title block itself, and it is counted, not listed.
+        if not crop.holds(c) or _has_schedule_header(pg, t):
             kept.append((k, t))
             centres.append((x0, top, x1, bottom))
+        else:
+            crop_tables += 1
     outside = [
         w
         for w in free
@@ -782,6 +812,8 @@ def _text_page(pg, raw, crop, free, annots, bad, bad_annots) -> None:
     upright = [w for w in outside if w.upright]
     read_c, listed_c, shared = _clusters(pg, upright) if upright else (0, 0, 0)
     pg.parts.append(f"{read_t} ruled tables read, {listed_t} listed")
+    if crop_tables:
+        pg.parts.append(f"{crop_tables} tables in the title block area not read")
     pg.parts.append(f"{read_c} word clusters read, {listed_c} listed")
     if shared:
         pg.parts.append(f"{shared} word-cluster cells shared a column with another cell")
@@ -829,6 +861,10 @@ def parse_pages(dump: dict, cfg: Config, file: str) -> Parsed:
     """Never raises on content. A page that fails is listed, and adds nothing else."""
     out = Parsed()
     pages = _list(dump.get("pages")) if isinstance(dump, dict) else []
+    for w in _list(dump.get("warnings") if isinstance(dump, dict) else None)[:_MAX_WARNINGS]:
+        if text := _str(w):
+            src = Source(file, "file", Method.PDF_TEXT, Confidence.LOW)
+            out.unparsed.append(Unparsed("file", clip(text), _reason(f"reader note: {text}"), src))
     if not pages:
         src = Source(file, "page=0", Method.PDF_TEXT, Confidence.LOW)
         out.unparsed.append(Unparsed("page", "", "the PDF holds no readable pages", src))
