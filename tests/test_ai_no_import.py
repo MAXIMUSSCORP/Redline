@@ -14,6 +14,9 @@ BLOCKED = (
     "rapidocr_onnxruntime",
     "rfdetr",
     "ezdxf",
+    "pdfplumber",
+    "pdfminer",
+    "pypdfium2",
     "socket",
     "ssl",
     "urllib.request",
@@ -88,6 +91,26 @@ def test_csv_run_imports_no_model(tmp_path):
 def test_dwg_json_run_imports_no_model(tmp_path):
     args = [
         str(ROOT / "samples/dwg/panel_sheet.acad_plugin.rawdrawing.json"),
+        str(ROOT / "tests/test_config"),
+        str(tmp_path / "r.html"),
+        json.dumps(list(BLOCKED)),
+    ]
+    env = {**__import__("os").environ, "PYTHONPATH": str(ROOT / "src")}
+    p = subprocess.run(
+        [sys.executable, "-c", _CSV_CODE, *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    out = json.loads(p.stdout.strip().splitlines()[-1])
+    assert out == {"code": 0, "seen": []}
+
+
+def test_pdf_run_imports_no_model(tmp_path):
+    # the PDF reader runs in a child process, so the parent imports none of the PDF libraries
+    args = [
+        str(ROOT / "samples/pdf"),
         str(ROOT / "tests/test_config"),
         str(tmp_path / "r.html"),
         json.dumps(list(BLOCKED)),
