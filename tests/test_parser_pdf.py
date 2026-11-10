@@ -443,10 +443,12 @@ def test_panel_name_above_ruled_table(test_cfg):
 
 
 def test_title_block_table_not_read_as_schedule(test_cfg):
-    inside = table(gen.LP22_CELLS, (940.0, 650.0, 1200.0, 780.0))
+    # a crop table without a schedule header is the title block: no panel, counted, not listed
+    inside = table([["SHEET", "E-501"], ["REV", "2"]], (940.0, 650.0, 1200.0, 780.0))
     out = parse(test_cfg, page(tables=[inside]))
     assert out.panels == [] and out.unparsed == []
     assert "0 ruled tables read, 0 listed" in entry(out).what_read
+    assert "1 tables in the title block area not read" in entry(out).what_read
     elsewhere = table(gen.LP22_CELLS, (100.0, 100.0, 400.0, 300.0))
     assert [p.name for p in parse(test_cfg, page(tables=[elsewhere])).panels] == ["LP-22"]
 
@@ -476,7 +478,8 @@ def test_pdf_sample_counts(test_cfg, tmp_path):
 
     out = read_sample(test_cfg, PDFS / "shx_annot.pdf")
     [p] = out.panels
-    assert (p.name, len(p.circuits), len(out.unparsed)) == ("LP-23", 6, 0)
+    # the one planted disagreement is listed as well as marked LOW (RV8)
+    assert (p.name, len(p.circuits), [u.kind for u in out.unparsed]) == ("LP-23", 6, ["cell"])
     confs = Counter(v.confidence for v in every_value(out))
     assert max(confs) <= MEDIUM and confs[Confidence.LOW] == 1
     text = entry(out).what_read
@@ -757,6 +760,7 @@ def test_parse_never_raises_on_odd_dump(test_cfg, monkeypatch):
     for p in odd_pages:
         out = parse(test_cfg, p)
         assert out.coverage or out.unparsed
+        assert not out.panels
     for d in (None, [], "x", {}, {"pages": None}, {"pages": "p"}, dump(*odd_pages)):
         out = pdf.parse_pages(d, test_cfg, "t.pdf")
         assert out.unparsed or out.coverage
@@ -819,3 +823,173 @@ def test_acad_pdfshx_plot_annotation_page(test_cfg):
     assert sum(len(p.circuits) for p in out.panels) == 0
     pages = [u for u in out.unparsed if u.kind == "page"]
     assert [u.reason for u in pages] == [pdf.SHX_NOTE]
+
+
+# ---- M3 review fixes (RV7 to RV12) ----
+
+
+def band_page(**kw):
+    rows = gen.LP22_CELLS[1:]
+    bbox = (30.0, 330.0, 330.0, 450.0)
+    band = grid_words([["Panel", "LP-24"], ["Bus", "225"]], x0=34.0, top=330.0 - 2.4 * 7, rowh=8.4)
+    return page(tables=[table(rows, bbox)], words=band, **kw)
+
+
+def test_band_header_values_capped_medium(test_cfg):
+    out = parse(test_cfg, band_page())
+    [p] = out.panels
+    assert p.name == "LP-24"
+    assert p.bus_rating_a.value == 225
+    assert p.bus_rating_a.confidence is MEDIUM
+    assert pdf.WORDS_NOTE in p.bus_rating_a.source.note
+    assert re.search(r"; r=-\d+", p.bus_rating_a.source.locator)
+    # the ruled rows keep their confidence: only the loose band words are capped
+    assert Confidence.HIGH in {v.confidence for c in p.circuits for v in values(c).values()}
+    assert "HIGH 0" not in out.coverage[0].confidence_summary
+
+
+def test_used_band_words_not_listed(test_cfg):
+    out = parse(test_cfg, band_page())
+    assert not any("words are not read" in u.reason for u in out.unparsed)
+    assert "0 word clusters read, 0 listed" in entry(out).what_read
+
+
+def disagree(test_cfg, annotation, page_text):
+    notes = lp23_annots()
+    t = next(a for a in notes if a["contents"] == annotation)
+    w = word(page_text, t["x0"], t["top"] + 2, t["x1"], t["top"] + 9)
+    return parse(test_cfg, page(chars=10, annots=notes, words=[w]))
+
+
+def test_disagreement_on_circuit_number_is_listed(test_cfg):
+    out = disagree(test_cfg, "4", "5")
+    [u] = [u for u in out.unparsed if u.kind == "cell"]
+    assert "'4'" in u.reason and "'5'" in u.reason and "; col=" in u.source.locator
+    text = entry(out).what_read
+    assert "1 cells where annotation text and page text disagree, listed" in text
+    assert "0 values marked LOW" in text
+
+
+def test_disagreement_on_panel_name_is_listed(test_cfg):
+    out = disagree(test_cfg, "LP-23", "LP-28")
+    [u] = [u for u in out.unparsed if u.kind == "cell"]
+    assert "'LP-23'" in u.reason and "'LP-28'" in u.reason and "; y=" in u.source.locator
+    assert "LP-28" in u.reason
+
+
+def test_vector_page_free_words_listed(test_cfg):
+    text = "NOTE: CKT 4 BREAKER CHANGED TO 30 A PER RFI 12"
+    note = grid_words([[text]], x0=600.0, top=400.0)
+    out = parse(test_cfg, page(chars=45, annots=lp23_annots(), words=note))
+    assert [p.name for p in out.panels] == ["LP-23"]
+    [u] = [u for u in out.unparsed if u.kind == "text"]
+    assert u.raw.startswith("NOTE: CKT 4") and u.source.locator.startswith("page=1")
+    assert "1 page words outside the annotations not read" in entry(out).what_read
+
+
+def test_vector_page_with_some_text_note(test_cfg):
+    out = parse(test_cfg, page(words=grid_words(gen.LP22_CELLS), chars=150))
+    [u] = out.unparsed
+    assert u.reason.startswith("page has too little text")
+    assert "no text layer" not in u.reason
+    bare = parse(test_cfg, page(chars=0, paths=900))
+    assert "no text layer" in bare.unparsed[0].reason
+
+
+def test_title_label_beside_label_not_value(test_cfg):
+    tb = grid_words([["SHEET NO.", "REV"], ["E-501", "2"]], x0=960.0, top=700.0, rowh=20.0, h=8.0)
+    text = entry(parse(test_cfg, page(words=grid_words(gen.LP22_CELLS) + tb))).what_read
+    assert "sheet E-501, revision 2, from the title block" in text
+
+
+def test_revision_table_header_not_value(test_cfg):
+    rev = grid_words(
+        [["REV", "DATE", "DESCRIPTION"], ["2", "2026-11-01", "ISSUED"]],
+        x0=960.0,
+        top=700.0,
+        rowh=20.0,
+        h=8.0,
+    )
+    text = entry(parse(test_cfg, page(words=rev))).what_read
+    assert "revision 2" in text and "DATE" not in text
+
+
+def test_word_cluster_shared_column_count(test_cfg):
+    ws = grid_words(gen.LP22_CELLS)
+    b = next(w for w in ws if w["text"] == gen.LP22_CELLS[2][3] and abs(w["top"] - 82) < 0.1)
+    extra = word("15", b["x1"] + 4, b["top"], b["x1"] + 12, b["bottom"])
+    assert "shared a column" not in entry(parse(test_cfg, page(words=ws))).what_read
+    # one word less in the row, so the header row stays the widest
+    ws = [w for w in ws if not (w["text"] == "12 AWG" and w["top"] == b["top"])]
+    text = entry(parse(test_cfg, page(words=[*ws, extra]))).what_read
+    assert "1 word-cluster cells shared a column with another cell" in text
+
+
+def scaled_band_page(k):
+    rows = gen.LP22_CELLS[1:]
+    bbox = tuple(v * k for v in (30.0, 330.0, 330.0, 450.0))
+    # the label line dips 3 pt (at 1x) into the table top, which is under 0.6 text heights
+    h = 7.0 * k
+    band = [
+        word("Panel", 34.0 * k, 322.0 * k + 3 * k - h, 52.0 * k, 322.0 * k + 3 * k),
+        word("LP-24", 80.0 * k, 322.0 * k + 3 * k - h, 98.0 * k, 322.0 * k + 3 * k),
+    ]
+    return page(tables=[table(rows, bbox)], words=band, width=1224.0 * k, height=792.0 * k)
+
+
+def test_band_rows_scale_with_text_height(test_cfg):
+    got = []
+    for k in (1, 4):
+        out = parse(test_cfg, scaled_band_page(k))
+        got.append([(p.name, len(p.circuits)) for p in out.panels])
+        assert [u.reason for u in out.unparsed] == []
+    assert got[0] == got[1] == [("LP-24", 6)]
+
+
+def test_title_block_corner_table_is_read(test_cfg):
+    rows = [["Panel", "LP-9"], gen.LP22_CELLS[1], *gen.LP22_CELLS[2:5]]
+    far = parse(test_cfg, page(tables=[table(rows, (30.0, 330.0, 330.0, 450.0))]))
+    corner = parse(test_cfg, page(tables=[table(rows, (930.0, 650.0, 1200.0, 780.0))]))
+    assert [(p.name, len(p.circuits)) for p in far.panels] == [("LP-9", 3)]
+    assert [(p.name, len(p.circuits)) for p in corner.panels] == [("LP-9", 3)]
+    assert "1 ruled tables read, 0 listed" in entry(corner).what_read
+    assert "title block area not read" not in entry(corner).what_read
+
+
+def test_title_block_unused_words_counted(test_cfg):
+    extra = grid_words([["DRAWN", "JD"]], x0=960.0, top=740.0, h=8.0)
+    out = parse(test_cfg, page(words=[*title_words(), *extra]))
+    text = entry(out).what_read
+    assert "sheet E-501, revision 2, from the title block" in text
+    assert "2 words in the title block area not read" in text
+    assert (
+        "words in the title block area"
+        not in entry(parse(test_cfg, page(words=title_words()))).what_read
+    )
+
+
+def test_dump_warnings_are_listed(test_cfg):
+    d = dump(page(1, words=grid_words(gen.LP22_CELLS)))
+    assert pdf.parse_pages(d, test_cfg, "t.pdf").unparsed == []
+    got = pdf.parse_pages(d | {"warnings": ["memory ceiling not set", 5, None]}, test_cfg, "t.pdf")
+    [u] = got.unparsed
+    assert u.kind == "file" and "memory ceiling not set" in u.reason and u.source.file == "t.pdf"
+    assert [p.name for p in got.panels] == ["LP-22"]
+    assert pdf.parse_pages({"warnings": "x"}, test_cfg, "t.pdf").unparsed[0].kind == "page"
+
+
+def test_title_block_table_words_not_counted_as_unread(test_cfg):
+    rows = [["Panel", "LP-9"], gen.LP22_CELLS[1], *gen.LP22_CELLS[2:5]]
+    bbox = (930.0, 650.0, 1224.0, 712.0)
+    inside = grid_words(rows, x0=935.0, top=655.0, cw=2.5, gap=8.0)
+    loose = grid_words([["DRAWN", "JD"]], x0=960.0, top=772.0, h=8.0)
+    label = grid_words(
+        [["SHEET NO.", "E-501"], ["REV", "2"]], x0=960.0, top=730.0, rowh=20.0, h=8.0
+    )
+    out = parse(test_cfg, page(tables=[table(rows, bbox)], words=[*inside, *loose, *label]))
+    assert [(p.name, len(p.circuits)) for p in out.panels] == [("LP-9", 3)]
+    assert "2 words in the title block area not read" in entry(out).what_read
+    # a duplicate of a used text elsewhere in the crop is still unread
+    dup = grid_words([["E-501", "JD"]], x0=960.0, top=768.0, h=8.0)
+    out = parse(test_cfg, page(words=[*title_words(), *dup]))
+    assert "2 words in the title block area not read" in entry(out).what_read

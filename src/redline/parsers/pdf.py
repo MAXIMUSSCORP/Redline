@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import shutil
 import statistics
 import sys
 import tempfile
-from dataclasses import dataclass, replace
+from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +23,15 @@ import redline as redline_pkg
 from redline import rawdrawing
 from redline.config import Config
 from redline.extract import ExtractError, run_tool, sha256_of
-from redline.model import Confidence, CoverageEntry, Method, Source, Unparsed, clip
+from redline.model import Confidence, CoverageEntry, Method, Source, Unparsed, Value, clip
 from redline.parsers.csv_xlsx import InputError
-from redline.parsers.dxf import TextItem, _apply, _summary, text_grid
+from redline.parsers.dxf import (
+    TextItem,
+    apply_to_sources,
+    confidence_summary,
+    medium_cap,
+    text_grid,
+)
 from redline.parsers.tabular import Parsed, normalize_header, rows_to_panels
 
 SUFFIXES = (".pdf",)
@@ -43,6 +52,7 @@ _CAPS = (
     "MAX_CHILD_MEMORY_MB",
 )
 _MAX_WORD_TEXT = 1000
+_MAX_WARNINGS = 20
 
 TEXT, VECTOR_NO_TEXT, SCANNED = "TEXT", "VECTOR_NO_TEXT", "SCANNED"
 SCANNED_NOTE = "scanned page (a full-page image), needs OCR or vision"
@@ -52,6 +62,10 @@ OCR_LAYER_NOTE = (
 )
 SHX_NOTE = (
     "scanned or SHX page with no text layer, needs OCR or vision; "
+    "or re-plot with TrueType substitution"
+)
+FEW_CHARS_NOTE = (
+    "page has too little text to read as a text page, needs OCR or vision; "
     "or re-plot with TrueType substitution"
 )
 ANNOT_NOTE = "read from PDF annotation text"
@@ -503,29 +517,46 @@ def _fold(s: str) -> str:
     return " ".join(s.split()).casefold()
 
 
-def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict, str, str]:
-    """Value per key (None when missing or ambiguous), the sheet number, and the coverage text."""
+def _read_title(
+    words: list[_Word], parsing: dict, aliases: dict
+) -> tuple[dict, str, str, list[_Word]]:
+    """Value per key (None when missing or ambiguous), the sheet number, the coverage text, and
+    the words that were not used as a label or a value."""
     grid: list[list[str]] = []
+    ys: list[float] = []
     if words:
         built = text_grid(
             [w.item() for w in words],
             parsing["pdf_row_tolerance_word_heights"],
             parsing["pdf_column_gap_fraction"],
         )
-        grid = built[0] if built else []
+        grid, ys = (built[0], built[1]) if built else ([], [])
     wanted = {normalize_header(a): key for key, names in aliases.items() for a in _list(names)}
     wanted.pop("", None)
     found: dict[str, list[str]] = {k: [] for k in aliases}
+    used: list[tuple[int, str]] = []  # (row, cell text)
     for r, row in enumerate(grid):
         for c, cell in enumerate(row):
             key = wanted.get(normalize_header(cell))
             if key is None:
                 continue
             value = next((x for x in row[c + 1 :] if x.strip()), "")
-            if not value and r + 1 < len(grid):
-                value = grid[r + 1][c]
+            at = r
+            below = grid[r + 1][c] if r + 1 < len(grid) and c < len(grid[r + 1]) else ""
+            below_ok = bool(below.strip()) and normalize_header(below) not in wanted
+            # A label beside a label is a header row. So is a word with no digit over a numbered
+            # value ("REV | DATE" over "2 | 2026-11-01"): the value is then the cell below.
+            if normalize_header(value) in wanted or (
+                below_ok
+                and not any(ch.isdigit() for ch in value)
+                and any(ch.isdigit() for ch in below)
+            ):
+                value = ""
+            if not value and below_ok:
+                value, at = below, r + 1
             if value.strip():
                 found[key].append(value.strip())
+                used += [(r, cell), (at, value)]
     values, got, missing = {}, [], []
     for key, vs in found.items():
         short, long = _TITLE_LABELS.get(key, (key.replace("_", " "),) * 2)
@@ -541,7 +572,19 @@ def _read_title(words: list[_Word], parsing: dict, aliases: dict) -> tuple[dict,
             missing.append(f"{long} not found in the title block")
     parts = [", ".join(got) + ", from the title block"] if got else []
     text = "; ".join(parts + missing) or "no title block labels are configured"
-    return values, _str(values.get("sheet_number")), text
+    # A used cell takes the words of its own row, so a duplicate text elsewhere is not used.
+    tol = parsing["pdf_row_tolerance_word_heights"] * _median_h(words)
+    taken: set[int] = set()
+    for r, cell in used:
+        need = Counter(cell.split())
+        for w in sorted(words, key=lambda w: w.x0):
+            parts = w.text.split()
+            near = id(w) not in taken and abs(-w.top - ys[r]) <= tol
+            if near and parts and all(need[t] > 0 for t in parts):
+                need.subtract(parts)
+                taken.add(id(w))
+    unused = [w for w in words if id(w) not in taken]
+    return values, _str(values.get("sheet_number")), text, unused
 
 
 def _median_h(words: list[_Word]) -> float:
@@ -579,14 +622,14 @@ class _Page:
         src = Source(self.file, locator, method or self.method, Confidence.LOW)
         self.out.unparsed.append(Unparsed(kind, clip(raw), _reason(reason), src))
 
-    def take(self, part: Parsed, cap: tuple[str, Method] | None) -> None:
-        """Add a table result, capping every panel at MEDIUM when it has no drawn grid."""
+    def take(self, part: Parsed, cap: Callable[[Source], Source] | None) -> None:
+        """Add a table result, capping the sources `cap` selects at MEDIUM."""
         if cap:
             for p in part.panels:
-                _apply(p, _cap(cap[0]))
+                apply_to_sources(p, cap)
             if len(part.coverage) == len(part.panels):  # one entry per panel, in panel order
                 part.coverage = [
-                    replace(c, confidence_summary=_summary(p))
+                    replace(c, confidence_summary=confidence_summary(p))
                     for c, p in zip(part.coverage, part.panels, strict=True)
                 ]
         self.out.panels += part.panels
@@ -598,17 +641,12 @@ class _Page:
         return CoverageEntry(self.file, f"page {self.n}", text, self.method.value, _NO_SUMMARY)
 
 
-def _cap(note: str):
-    def fn(src: Source) -> Source:
-        if src.confidence <= Confidence.MEDIUM:
-            return src
-        return replace(
-            src,
-            confidence=Confidence.MEDIUM,
-            note=f"{src.note}; {note}" if src.note else note,
-        )
+_WORDS_CAP = medium_cap(WORDS_NOTE)
 
-    return fn
+
+def _band_cap(src: Source) -> Source:
+    """Words above a ruled table have no drawn grid: their locator row is below 0."""
+    return _WORDS_CAP(src) if re.search(r"; r=-\d+(;|$)", src.locator) else src
 
 
 def _lead(words: list[_Word]) -> str:
@@ -622,7 +660,22 @@ def _route(pg: _Page, cls: str, chars: float, words: list[_Word], note: str) -> 
     pg.unp("page", _lead(words), note, loc)
 
 
-def _title(pg: _Page, words: list[_Word], crop: _Crop, aliases: dict) -> list[_Word]:
+def _in_box(w: _Word, b: tuple[float, float, float, float]) -> bool:
+    cx, cy = w.centre()
+    return b[0] <= cx <= b[2] and b[1] <= cy <= b[3]
+
+
+def _crop_boxes(raw: dict, crop: _Crop) -> list[tuple[float, float, float, float]]:
+    """Boxes of the ruled tables centred in the title block area: their words are theirs."""
+    out = []
+    for t in _list(raw.get("tables")):
+        bbox = [_num(v) for v in _list(t.get("bbox"))] if isinstance(t, dict) else []
+        if len(bbox) == 4 and crop.holds(((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)):
+            out.append((bbox[0], bbox[1], bbox[2], bbox[3]))
+    return out
+
+
+def _title(pg: _Page, words: list[_Word], crop: _Crop, aliases: dict, boxes: list) -> list[_Word]:
     """Read the title block and return the words that are left for the table finder."""
     if not crop.usable:
         why = (
@@ -633,25 +686,33 @@ def _title(pg: _Page, words: list[_Word], crop: _Crop, aliases: dict) -> list[_W
         pg.parts.append(f"{why}; title block not read")
         return words
     inside = [w for w in words if crop.holds(w.centre())]
-    _, sheet, text = _read_title(inside, pg.parsing, aliases)
+    _, sheet, text, unused = _read_title(inside, pg.parsing, aliases)
     pg.parts.append(text)
+    if n := sum(1 for w in unused if not any(_in_box(w, b) for b in boxes)):
+        pg.parts.append(f"{n} words in the title block area not read")
     if sheet:
         pg.pg += f"; sheet={sheet}"
     gone = {id(w) for w in inside}
     return [w for w in words if id(w) not in gone]
 
 
-def _band_rows(pg: _Page, bbox: list[float], free: list[_Word]) -> list[list[str]]:
+def _band_rows(
+    pg: _Page, bbox: list[float], free: list[_Word]
+) -> tuple[list[list[str]], list[_Word]]:
     """Rows of the words just above a ruled table, which may hold its panel name."""
     x0, top, x1 = bbox[0], bbox[1], bbox[2]
     reach = pg.parsing["pdf_region_gap_word_heights"] * _median_h(free)
+    edge = pg.parsing["pdf_row_tolerance_word_heights"]
     band = [
         w
         for w in free
-        if w.upright and x0 <= w.centre()[0] <= x1 and top - reach <= w.top and w.bottom <= top + 1
+        if w.upright
+        and x0 <= w.centre()[0] <= x1
+        and top - reach <= w.top
+        and w.bottom <= top + edge * w.h
     ]
     if not band:
-        return []
+        return [], []
     built = text_grid(
         [w.item() for w in band],
         pg.parsing["pdf_row_tolerance_word_heights"],
@@ -665,11 +726,15 @@ def _band_rows(pg: _Page, bbox: list[float], free: list[_Word]) -> list[list[str
             key, _, value = cells[0].rpartition(" ")
             cells = [key, value]
         rows.append(cells)
-    return rows
+    return rows, band
 
 
-def _ruled(pg: _Page, tables: list[tuple[int, dict]], free: list[_Word]) -> tuple[int, int]:
+def _ruled(
+    pg: _Page, tables: list[tuple[int, dict]], free: list[_Word]
+) -> tuple[int, int, set[int]]:
+    """Tables read and listed, and the ids of the band words a panel came from."""
     read = listed = 0
+    used: set[int] = set()
     for k, t in tables:
         rows = [[_str(c) for c in r] for r in _list(t.get("rows")) if isinstance(r, list)]
         loc = f"{pg.pg}; table={k}"
@@ -677,6 +742,7 @@ def _ruled(pg: _Page, tables: list[tuple[int, dict]], free: list[_Word]) -> tupl
             pg.unp("table", "", "ruled table is over the cell cap, so it is not read", loc)
             listed += 1
             continue
+        cap = None
         part = rows_to_panels(
             rows,
             pg.cfg,
@@ -686,7 +752,7 @@ def _ruled(pg: _Page, tables: list[tuple[int, dict]], free: list[_Word]) -> tupl
         )
         if not part.panels and any(u.reason == "no panel name" for u in part.unparsed):
             bbox = [_num(v) for v in _list(t.get("bbox"))]
-            above = _band_rows(pg, bbox, free) if len(bbox) == 4 else []
+            above, band = _band_rows(pg, bbox, free) if len(bbox) == 4 else ([], [])
             if above:
                 width = max(len(r) for r in rows) if rows else 0
                 head = [[*r, *[""] * (width - len(r))] for r in above]
@@ -698,20 +764,23 @@ def _ruled(pg: _Page, tables: list[tuple[int, dict]], free: list[_Word]) -> tupl
                     method=Method.PDF_TEXT,
                     locate=lambda i, loc=loc, shift=shift: f"{loc}; r={i - shift}",
                 )
+                if part.panels:
+                    used |= {id(w) for w in band}
+                    cap = _band_cap
         if part.panels:
             read += 1
         else:
             listed += 1
-        pg.take(part, None)
-    return read, listed
+        pg.take(part, cap)
+    return read, listed, used
 
 
 def _no_header(part: Parsed) -> bool:
     return not part.panels and all(u.kind in ("table", "column") for u in part.unparsed)
 
 
-def _clusters(pg: _Page, free: list[_Word]) -> tuple[int, int]:
-    read = listed = 0
+def _clusters(pg: _Page, free: list[_Word]) -> tuple[int, int, int]:
+    read = listed = shared_cells = 0
     for k, region in enumerate(_regions(free, pg.parsing["pdf_region_gap_word_heights"])):
         loc = f"{pg.pg}; region={k}"
         built = text_grid(
@@ -728,7 +797,8 @@ def _clusters(pg: _Page, free: list[_Word]) -> tuple[int, int]:
             )
             listed += 1
             continue
-        grid, ys, _ = built
+        grid, ys, shared = built
+        shared_cells += shared
         part = rows_to_panels(
             grid,
             pg.cfg,
@@ -743,8 +813,8 @@ def _clusters(pg: _Page, free: list[_Word]) -> tuple[int, int]:
             listed += 1
             continue
         read += 1
-        pg.take(part, (WORDS_NOTE, Method.PDF_TEXT))
-    return read, listed
+        pg.take(part, _WORDS_CAP)
+    return read, listed, shared_cells
 
 
 def _overlap(w: _Word, a: _Annot) -> bool:
@@ -765,10 +835,11 @@ def _annotation_path(pg: _Page, annots: list[_Annot], words: list[_Word]) -> boo
         pg.parts.append(f"annotation table listed, not read ({len(items)} texts)")
         return False
     grid, ys, _ = built
-    low, unplaced = set(), 0
+    low, unplaced, clash = set(), 0, []
     for a in annots:
         near = [w for w in words if _overlap(w, a)]
-        seen = _fold(" ".join(w.text for w in sorted(near, key=lambda w: (round(w.top), w.x0))))
+        shown = " ".join(w.text for w in sorted(near, key=lambda w: (round(w.top), w.x0)))
+        seen = _fold(shown)
         if not near or seen == _fold(a.text):
             continue
         r = min(range(len(ys)), key=lambda i: abs(ys[i] + a.top))
@@ -777,6 +848,7 @@ def _annotation_path(pg: _Page, annots: list[_Annot], words: list[_Word]) -> boo
         # the cell that equals the text; a cell that only holds it is used when none equals it
         cols = [c for c, t in cells if t == want] or [c for c, t in cells if want in t]
         low |= {(r, c) for c in cols}
+        clash += [(r, c, a.text, shown) for c in cols]
         unplaced += not cols
     part = rows_to_panels(
         grid,
@@ -787,9 +859,21 @@ def _annotation_path(pg: _Page, annots: list[_Annot], words: list[_Word]) -> boo
         low_cells=low,
         low_note=DISAGREE_NOTE,
     )
-    if low:
+    # tabular caps only the cells it reads as values; a circuit number or panel name stays as read
+    capped = sum(
+        DISAGREE_NOTE in v.source.note
+        for p in part.panels
+        for u in (p, *p.circuits)
+        for f in fields(u)
+        if isinstance((v := getattr(u, f.name)), Value) and v.source is not None
+    )
+    for r, c, text, seen in clash:
+        why = f"annotation text {text!r} and page text {seen!r} disagree"
+        pg.unp("cell", text, why, f"{loc}; y={-ys[r]:g}; col={c}")
+    if clash:
         pg.parts.append(
-            f"{len(low)} cells where annotation text and page text disagree, marked LOW"
+            f"{len(clash)} cells where annotation text and page text disagree, listed; "
+            f"{capped} values marked LOW"
         )
     if unplaced:
         pg.parts.append(
@@ -802,7 +886,7 @@ def _annotation_path(pg: _Page, annots: list[_Annot], words: list[_Word]) -> boo
         )
         pg.unp("table", ", ".join(c for c in first if c), why, f"{loc}; y={-ys[0]:g}")
         return False
-    pg.take(part, (ANNOT_NOTE, Method.PDF_ANNOT))
+    pg.take(part, medium_cap(ANNOT_NOTE))
     return any(p.circuits for p in part.panels)
 
 
@@ -827,7 +911,7 @@ def _read_page(raw: dict, cfg: Config, file: str) -> Parsed:
         return pg.out
     crop = _Crop(raw, parsing)
     aliases = cfg.column_maps["title_block"]
-    free = _title(pg, words, crop, aliases)
+    free = _title(pg, words, crop, aliases, _crop_boxes(raw, crop))
     if cls == TEXT:
         _text_page(pg, raw, crop, free, annots, bad, bad_annots)
     else:
@@ -836,19 +920,33 @@ def _read_page(raw: dict, cfg: Config, file: str) -> Parsed:
     return pg.out
 
 
+def _has_schedule_header(pg: _Page, t: dict) -> bool:
+    rows = [[_str(c) for c in r] for r in _list(t.get("rows")) if isinstance(r, list)]
+    if sum(len(r) for r in rows) > rawdrawing.MAX_TABLE_CELLS:
+        return True  # _ruled lists it as over the cap
+    part = rows_to_panels(
+        rows, pg.cfg, file=pg.file, method=Method.PDF_TEXT, locate=lambda i: f"r={i}"
+    )
+    return not _no_header(part)
+
+
 def _text_page(pg, raw, crop, free, annots, bad, bad_annots) -> None:
     tables = [
         (k, t)
         for k, t in enumerate(_list(raw.get("tables")))
         if isinstance(t, dict) and len(_list(t.get("bbox"))) == 4
     ]
-    kept, centres = [], []
+    kept, centres, crop_tables = [], [], 0
     for k, t in tables:
         x0, top, x1, bottom = (_num(v) for v in t["bbox"])
         c = ((x0 + x1) / 2, (top + bottom) / 2)
-        if not crop.holds(c):
+        # A table in the title block corner is read when it has a schedule header; otherwise it
+        # is almost always the title block itself, and it is counted, not listed.
+        if not crop.holds(c) or _has_schedule_header(pg, t):
             kept.append((k, t))
             centres.append((x0, top, x1, bottom))
+        else:
+            crop_tables += 1
     outside = [
         w
         for w in free
@@ -856,11 +954,16 @@ def _text_page(pg, raw, crop, free, annots, bad, bad_annots) -> None:
             x0 <= w.centre()[0] <= x1 and t <= w.centre()[1] <= b for x0, t, x1, b in centres
         )
     ]
-    read_t, listed_t = _ruled(pg, kept, outside)
+    read_t, listed_t, used = _ruled(pg, kept, outside)
+    outside = [w for w in outside if id(w) not in used]
     upright = [w for w in outside if w.upright]
-    read_c, listed_c = _clusters(pg, upright) if upright else (0, 0)
+    read_c, listed_c, shared = _clusters(pg, upright) if upright else (0, 0, 0)
     pg.parts.append(f"{read_t} ruled tables read, {listed_t} listed")
+    if crop_tables:
+        pg.parts.append(f"{crop_tables} tables in the title block area not read")
     pg.parts.append(f"{read_c} word clusters read, {listed_c} listed")
+    if shared:
+        pg.parts.append(f"{shared} word-cluster cells shared a column with another cell")
     if n := len(outside) - len(upright):
         pg.parts.append(f"{n} rotated words not clustered")
     if bad:
@@ -889,15 +992,26 @@ def _vector_page(pg, cls, crop, words, free, annots, bad_annots) -> None:
         pg.parts.append(f"{in_crop} annotations in the title block area not read")
     if bad_annots:
         pg.parts.append(f"{bad_annots} annotations with no usable position not read")
-    if not read:
+    if read:
+        left = [w for w in free if not any(_overlap(w, a) for a in usable)]
+        if left:
+            why = f"{len(left)} page words outside the annotations are not read"
+            pg.unp("text", _lead(sorted(left, key=lambda w: (w.top, w.x0))), why, f"{pg.pg}; words")
+            pg.parts.append(f"{len(left)} page words outside the annotations not read")
+    else:
         pg.method = Method.PDF_TEXT
-        _route(pg, cls, _num(pg.raw.get("chars")), words, SHX_NOTE)
+        chars = _num(pg.raw.get("chars"))
+        _route(pg, cls, chars, words, FEW_CHARS_NOTE if chars > 0 else SHX_NOTE)
 
 
 def parse_pages(dump: dict, cfg: Config, file: str) -> Parsed:
     """Never raises on content. A page that fails is listed, and adds nothing else."""
     out = Parsed()
     pages = _list(dump.get("pages")) if isinstance(dump, dict) else []
+    for w in _list(dump.get("warnings") if isinstance(dump, dict) else None)[:_MAX_WARNINGS]:
+        if text := _str(w):
+            src = Source(file, "file", Method.PDF_TEXT, Confidence.LOW)
+            out.unparsed.append(Unparsed("file", clip(text), _reason(f"reader note: {text}"), src))
     if not pages:
         src = Source(file, "page=0", Method.PDF_TEXT, Confidence.LOW)
         out.unparsed.append(Unparsed("page", "", "the PDF holds no readable pages", src))
