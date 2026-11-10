@@ -58,3 +58,23 @@ def test_phase_label_not_mapped():
     for path in (REAL, TEST):
         homes = [k for k, v in _csv(path).items() if "phase label" in v]
         assert homes == ["not_mapped"]
+
+
+def test_dxf_parsing_keys_match():
+    keys = (
+        "dxf_table_min_cells",
+        "dxf_stale_field_policy",
+        "dxf_prefer_extractor",
+        "dxf_extractor_timeout_s",
+        "row_tolerance_text_heights",
+        "column_gap_fraction",
+        "accoreconsole_path",
+        "acad_plugin_dll",
+        "odafc_path",
+    )
+    real, test = (yaml.safe_load(p.read_text(encoding="utf-8"))["parsing"] for p in (REAL, TEST))
+    for key in keys:
+        assert key in real and key in test, key
+    for key in keys[:6]:
+        assert real[key] == test[key], key
+    assert all(test[k] is None for k in keys[6:])

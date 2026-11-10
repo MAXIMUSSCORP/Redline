@@ -29,6 +29,44 @@ A line is read as a circuit only when its circuit cell has circuit shape, such a
 A CSV has no row limit, and memory use grows with the number of circuits.
 An XLSX sheet is listed as not read when its name is longer than 31 characters, or when it has more than 20000 rows or 200 columns. A workbook is refused when its parts unpack past 8 MiB, or when it holds more than 50000 rows in total. The 8 MiB count includes embedded media.
 
+## Check a drawing
+
+    redline check samples/dwg/panel_sheet.acad_plugin.rawdrawing.json --config tests/test_config/ --out report.html
+    redline check plan.dwg --config config/ --out report.html
+
+Redline reads `.dwg` and `.dxf` drawings and `.rawdrawing.json` files. A `.rawdrawing.json` is the dump an extractor wrote; it needs no CAD software, so a dump can be checked on any PC. A `.dwg` or `.dxf` is dumped first, by one of two extractors, then read the same way. A drawing that no extractor can read, or that times out, is listed in the report with the reason. The other files are still read.
+Panel tables are read as tables. Text that only sits in rows is read as loose text, and its values are never above MEDIUM. A table cell that is not a stored value (a field that was not evaluated) is LOW. Xrefs that were not resolved, and tables without row and column counts, are listed as not read.
+The report footer names each drawing's extractor, its version, the host version and the full SHA-256 of the drawing.
+
+Extractor setup. All three path keys are under `parsing:` in `config/column_maps.yaml`, and each is `null` until set:
+
+- `accoreconsole_path`: AutoCAD Core Console, `accoreconsole.exe`. Used with the plugin.
+- `acad_plugin_dll`: the built plugin. The path must hold no space. Build it with `dotnet build extractors/acad_plugin/RedlinePlugin.csproj -c Release -p:AcadDir="C:/Program Files/Autodesk/AutoCAD 2027" -p:AcadVersion=2027`. Only AutoCAD 2027 is built, with the .NET 10 SDK.
+- `odafc_path`: `ODAFileConverter.exe`. Redline does not bundle the ODA File Converter. Install it yourself.
+
+Xrefs and untrusted drawings. On the plugin path, Redline reads no xref content and lists every xref as not read. AutoCAD itself may still try to open an xref path stored in the drawing when it opens the drawing. That path can be a network path. To keep a drawing from an untrusted source fully offline, block outbound file sharing (SMB) for `accoreconsole.exe`, or set `dxf_prefer_extractor` to `"oda_ezdxf"`.
+
+The plugin runs on the owner's workstation only, until the reseller answers on Core Console licensing (PLAN row 38). The ODA route needs the `[dxf]` extra: `pip install -e ".[dxf]"` (it adds ezdxf). Without it, a `.dxf` or `.dwg` that needs ODA is listed as not read.
+
+### The fallback's child process
+
+The fallback extractor reads a drawing with ezdxf. That read runs in a child Python process, not in the Redline process. A crafted drawing can make ezdxf itself run for a very long time, and a child can be stopped.
+For a `.dwg`, ODA File Converter first writes a `.dxf` in a temp folder, in its own process. The child then opens that `.dxf` (or the `.dxf` you gave), reads the layouts, tables, texts and xrefs, and writes a RawDrawing JSON file back to the temp folder. The parent validates that file.
+The child has the time set by `dxf_extractor_timeout_s` under `parsing:` in `config/column_maps.yaml`, 120 seconds in the shipped config. On timeout Redline stops the child and its sub processes. The extractor then fails with "ezdxf timed out after 120 s". If the other extractor can read the drawing, that one is used, and the report notes that the first one failed. If neither can, the file is listed in "Needs manual check" with the reason. When it is the only input, the run exits 2.
+For a `.dwg` the ODA step and the child each get the full time, so one drawing can take up to twice the setting.
+Each drawing pays the cost of starting a child process. It was about 1.5 seconds per drawing over a corpus of 616 gold drawings (review-M2 round 6).
+The child needs ezdxf in the same venv as Redline. ezdxf that sits only in a user site folder or on `PYTHONPATH` is not seen.
+
+## Compare the two extractors
+
+    redline xcheck plan.dwg --config config/
+
+`xcheck` runs both extractors on each file and prints a table of what each one found (entity counts, tables, cells, evaluated cells, attributes, cells whose text differs). A file that one extractor could not read shows its reason under the table. It exits 2 only when no extractor read any file.
+
+## AutoCAD Electrical project files
+
+A `.wdp` project file is read as a list of the drawings it names. The drawings themselves are not opened, and no path inside the file is followed. `.mdb` and `.accdb` project databases are listed as "not read: unsupported file type".
+
 ## Exit codes
 
 - 0 (the run exits 0): the run completed. Findings do not change the code, because Redline screens and does not gate.

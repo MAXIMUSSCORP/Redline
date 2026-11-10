@@ -223,6 +223,29 @@ def _check_ai(ai: dict[str, Any]) -> None:
                 )
 
 
+def _check_dxf_parsing(parsing: dict[str, Any]) -> None:
+    if parsing.get("dxf_stale_field_policy") != "low":
+        raise ConfigError('column_maps.yaml: parsing.dxf_stale_field_policy must be "low"')
+    if parsing.get("dxf_prefer_extractor") not in ("acad_plugin", "oda_ezdxf"):
+        raise ConfigError(
+            'column_maps.yaml: parsing.dxf_prefer_extractor must be "acad_plugin" or "oda_ezdxf"'
+        )
+    for key in ("dxf_extractor_timeout_s", "row_tolerance_text_heights", "column_gap_fraction"):
+        x = parsing.get(key)
+        if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 < x < math.inf:
+            raise ConfigError(f"column_maps.yaml: parsing.{key} must be a number above zero")
+    n = parsing.get("dxf_table_min_cells")
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+        raise ConfigError(
+            "column_maps.yaml: parsing.dxf_table_min_cells must be an integer of 1 or more"
+        )
+    for key in ("accoreconsole_path", "acad_plugin_dll", "odafc_path"):
+        if key not in parsing or not (
+            parsing[key] is None or (isinstance(parsing[key], str) and parsing[key].strip())
+        ):
+            raise ConfigError(f"column_maps.yaml: parsing.{key} must be null or a non-empty string")
+
+
 def _check_column_maps(cm: dict[str, Any]) -> None:
     for key in ("csv_panel_schedule", "panel_header_block"):
         m = cm.get(key)
@@ -245,6 +268,18 @@ def _check_column_maps(cm: dict[str, Any]) -> None:
     if not isinstance(n, int) or isinstance(n, bool) or n < 1:
         raise ConfigError(
             "column_maps.yaml: parsing.min_header_alias_matches must be an integer of 1 or more"
+        )
+    _check_dxf_parsing(parsing)
+    wd = (cm.get("aecad_project") or {}).get("wd_m_attribute_map")
+    if not isinstance(wd, dict) or not all(
+        isinstance(k, str)
+        and isinstance(v, list)
+        and all(isinstance(a, str) and a.strip() for a in v)
+        for k, v in wd.items()
+    ):
+        raise ConfigError(
+            "column_maps.yaml: aecad_project.wd_m_attribute_map must map names to lists"
+            " of non-empty strings"
         )
 
 

@@ -590,3 +590,56 @@ def test_column_maps_two_column_flag_bool(tmp_path):
 def test_real_and_test_configs_load():
     for d in (ROOT / "config", ROOT / "tests" / "test_config"):
         assert load_config(d).column_maps["parsing"]["min_header_alias_matches"] >= 1
+
+
+def _parsing(**kw):
+    return lambda c: c["parsing"].update(kw)
+
+
+def test_dxf_parsing_keys_checked(tmp_path):
+    for key in ("dxf_extractor_timeout_s", "row_tolerance_text_heights", "column_gap_fraction"):
+        for bad in (0, -1, True, "3", None, float("inf"), float("nan")):
+            _rejects(tmp_path, _parsing(**{key: bad}), key)
+    for bad in (0, -1, True, 2.5, "4", None):
+        _rejects(tmp_path, _parsing(dxf_table_min_cells=bad), "dxf_table_min_cells")
+    d = _cm(tmp_path, _parsing(dxf_table_min_cells=1, dxf_extractor_timeout_s=0.5))
+    assert load_config(d).column_maps["parsing"]["dxf_table_min_cells"] == 1
+
+
+def test_stale_field_policy_only_low(tmp_path):
+    for bad in ("high", "Low", "medium", None, True, ""):
+        _rejects(tmp_path, _parsing(dxf_stale_field_policy=bad), "dxf_stale_field_policy")
+    _rejects(tmp_path, lambda c: c["parsing"].pop("dxf_stale_field_policy"), "stale_field")
+
+
+def test_prefer_extractor_checked(tmp_path):
+    for bad in ("acad", "ACAD_PLUGIN", None, 1, ""):
+        _rejects(tmp_path, _parsing(dxf_prefer_extractor=bad), "dxf_prefer_extractor")
+    d = _cm(tmp_path, _parsing(dxf_prefer_extractor="oda_ezdxf"))
+    assert load_config(d).column_maps["parsing"]["dxf_prefer_extractor"] == "oda_ezdxf"
+
+
+def test_extractor_paths_null_or_text(tmp_path):
+    for key in ("accoreconsole_path", "acad_plugin_dll", "odafc_path"):
+        for bad in ("", "  ", 3, True, ["a"]):
+            _rejects(tmp_path, _parsing(**{key: bad}), key)
+        _rejects(tmp_path, lambda c, k=key: c["parsing"].pop(k), key)
+        d = _cm(tmp_path, _parsing(**{key: "C:/tools/x.exe"}))
+        assert load_config(d).column_maps["parsing"][key] == "C:/tools/x.exe"
+        assert (
+            load_config(_cm(tmp_path, _parsing(**{key: None}))).column_maps["parsing"][key] is None
+        )
+
+
+def test_wd_m_map_shape_checked(tmp_path):
+    def put(v):
+        return lambda c: c["aecad_project"].update({"wd_m_attribute_map": v})
+
+    for bad in (None, [], "x", {"a": "b"}, {"a": [""]}, {"a": [1]}, {1: ["a"]}, {"a": None}):
+        _rejects(tmp_path, put(bad), "wd_m_attribute_map")
+    _rejects(tmp_path, lambda c: c.pop("aecad_project"), "wd_m_attribute_map")
+    assert load_config(_cm(tmp_path, put({}))).column_maps["aecad_project"]
+    ok = {"sheet_number": ["SHEET", "SHEETNUM"]}
+    assert (
+        load_config(_cm(tmp_path, put(ok))).column_maps["aecad_project"]["wd_m_attribute_map"] == ok
+    )
