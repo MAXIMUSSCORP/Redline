@@ -454,11 +454,11 @@ def test_field_self_reference_fanout_is_bounded():
     db = {"S": _field([(1, "_text"), (301, "")], ["S"] * 30)}
     notes = []
     start = time.monotonic()
-    got = oda_ezdxf._field_text(_field_db(db), "S", set(), notes, "table 2F01 cell (0, 0)")
+    got = oda_ezdxf._field_text(_field_db(db), "S", [], notes, "table 2F01 cell (0, 0)")
     assert got == "" and time.monotonic() - start < 1
     # many distinct children hit the visit cap and say so
     db = {f"K{i}": _field([(1, "_text"), (301, "")], [f"K{i + 1}"]) for i in range(500)}
-    seen = set()
+    seen = []
     oda_ezdxf._field_text(_field_db(db), "K0", seen, notes, "table 2F01 cell (0, 0)")
     assert len(seen) <= 64
     assert any("2F01" in n and "(0, 0)" in n for n in notes)
@@ -473,8 +473,8 @@ def test_field_multi_child_fills_parent_code():
         "C": _field([(1, "AcVar"), (301, "12")]),
     }
     d = _field_db(db)
-    assert oda_ezdxf._field_text(d, "P", set(), [], "w") == "120/208"
-    assert oda_ezdxf._field_text(d, "Q", set(), [], "w") == "LP-12"
+    assert oda_ezdxf._field_text(d, "P", [], [], "w") == "120/208"
+    assert oda_ezdxf._field_text(d, "Q", [], [], "w") == "LP-12"
 
 
 def test_field_missing_child_is_not_joined():
@@ -483,7 +483,7 @@ def test_field_missing_child_is_not_joined():
         "A": _field([(1, "AcVar"), (301, "120")]),
     }
     notes = []
-    assert oda_ezdxf._field_text(_field_db(db), "P", set(), notes, "table T cell (1, 1)") == ""
+    assert oda_ezdxf._field_text(_field_db(db), "P", [], notes, "table T cell (1, 1)") == ""
     assert any("T cell (1, 1)" in n for n in notes)
 
 
@@ -617,3 +617,46 @@ def test_long_layer_and_block_names_are_cut(tmp_path, test_cfg):
     assert all(len(e["layout"]) <= rawdrawing.MAX_TEXT for e in data["entities"])
     assert any(e["layout"].startswith("block:BBB") for e in data["entities"])
     assert rawdrawing.validate(data).ok
+
+
+def test_field_same_child_twice_reads_both():
+    code = r"%<\_FldIdx 0>%/%<\_FldIdx 1>%"
+    db = {
+        "P": _field([(1, "_text"), (2, code), (301, "")], ["A", "A"]),
+        "A": _field([(1, "AcVar"), (301, "120")]),
+    }
+    assert oda_ezdxf._field_text(_field_db(db), "P", [], [], "w") == "120/120"
+
+
+def test_field_children_without_code_not_joined():
+    db = {
+        "P": _field([(1, "_text"), (301, "")], ["A", "B"]),
+        "Q": _field([(1, "_text"), (301, "")], ["A"]),
+        "A": _field([(1, "AcVar"), (301, "120")]),
+        "B": _field([(1, "AcVar"), (301, "208")]),
+    }
+    notes = []
+    assert oda_ezdxf._field_text(_field_db(db), "P", [], notes, "table T cell (0, 0)") == ""
+    assert any("T cell (0, 0)" in n for n in notes)
+    assert oda_ezdxf._field_text(_field_db(db), "Q", [], [], "w") == "120"
+
+
+def test_nested_xref_rolled_back_is_unresolved(tmp_path, test_cfg, monkeypatch):
+    inner = new_doc()
+    inner.modelspace().add_text("INNER")
+    save(inner, tmp_path / "inner.dxf")
+    outer = new_doc()
+    outer.add_xref_def("inner.dxf", "INNER")
+    big = outer.blocks.new("BIG")  # walked after the inner xref is read
+    for i in range(5):
+        big.add_text(f"OUT{i}")
+    save(outer, tmp_path / "outer.dxf")
+    host = new_doc()
+    host.modelspace().add_text("HOST")
+    host.add_xref_def("outer.dxf", "OUTER")
+    monkeypatch.setattr(rawdrawing, "MAX_ENTITIES", 4)
+    data = oda_ezdxf.extract(save(host, tmp_path / "host.dxf"), test_cfg)
+    assert [e["text"] for e in data["entities"]] == ["HOST"]
+    got = {x["name"]: x["resolved"] for x in data["document"]["xrefs"]}
+    assert got == {"INNER": False, "OUTER": False}
+    assert any("INNER was not read" in n for n in data["document"]["warnings"])

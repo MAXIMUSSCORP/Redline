@@ -75,18 +75,20 @@ def _table_counts(e: Any) -> tuple[int, int] | None:
     return (rows, cols) if rows > 0 and cols > 0 else None
 
 
-def _field_text(db: Any, handle: Any, seen: set[Any], notes: list[str], what: str) -> str:
+def _field_text(
+    db: Any, handle: Any, seen: list[Any], notes: list[str], what: str, path: tuple = ()
+) -> str:
     """Cached text of a FIELD: its own value (code 301), else its field code (codes 2 and 3)
-    with each child's text (code 360) put in at its FldIdx place. Each handle is read
-    once per cell, and at most _FIELD_VISITS handles."""
-    if handle in seen:
+    with each child's text (code 360) put in at its FldIdx place. A handle on the current path
+    is a cycle. A cell reads at most _FIELD_VISITS handles in all (seen counts visits)."""
+    if handle in path:
         return ""
     if len(seen) >= _FIELD_VISITS:
         note = f"{what}: FIELD reading stopped after {_FIELD_VISITS} fields"
         if note not in notes:
             notes.append(note)
         return ""
-    seen.add(handle)
+    seen.append(handle)
     f = db.get(handle)
     if f is None or f.dxftype() != "FIELD":
         return ""
@@ -94,9 +96,16 @@ def _field_text(db: Any, handle: Any, seen: set[Any], notes: list[str], what: st
     own = "".join(str(t.value) for t in tags if t.code == 301)
     if own:
         return own
-    kids = [_field_text(db, t.value, seen, notes, what) for t in tags if t.code == 360]
+    kids = [
+        _field_text(db, t.value, seen, notes, what, (*path, handle)) for t in tags if t.code == 360
+    ]
     code = "".join(str(t.value) for t in tags if t.code in (2, 3))
     if not _FLD_IDX.search(code):
+        if len(kids) > 1:
+            notes.append(
+                f"{what}: FIELD has several child fields and no place for them in its code"
+            )
+            return ""
         return "".join(kids)
     if any(int(i) >= len(kids) for i in _FLD_IDX.findall(code)):
         notes.append(
@@ -125,7 +134,7 @@ def _cell_texts(
         elif t.code == 344:
             pos = divmod(n, cols)
             txt = _field_text(
-                e.doc.entitydb, t.value, set(), notes, f"table {what} cell ({pos[0]}, {pos[1]})"
+                e.doc.entitydb, t.value, [], notes, f"table {what} cell ({pos[0]}, {pos[1]})"
             )
             if txt:  # an empty field result must not hide the cell's own text
                 fields[pos] = txt
@@ -370,7 +379,9 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
                 notes.append(f"xref {name} is a DWG and odafc_path is not set, so it was not read")
             else:
                 visited.add(target)
+                before = set(visited)
                 kept, kept_skipped = len(entities), Counter(skipped)
+                kept_xrefs = len(xrefs)
                 try:
                     walk(load(target), target.parent, name, raw)
                     done = True
@@ -379,8 +390,13 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
                     del entities[kept:]  # an xref is read whole or not at all
                     skipped.clear()
                     skipped.update(kept_skipped)
-                    visited.discard(target)
-                    failed[target] = reason
+                    for t in visited - before | {target}:  # also xrefs read inside this one
+                        failed[t] = reason
+                    visited.difference_update(failed)
+                    for x in xrefs[kept_xrefs:]:
+                        if x["resolved"]:
+                            x["resolved"] = False
+                            notes.append(f"xref {x['name']} was not read: {reason}")
                     notes.append(f"xref {name} was not read: {reason}")
         xrefs.append({"name": name, "path": raw, "resolved": done})
 
