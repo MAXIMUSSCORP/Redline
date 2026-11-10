@@ -616,10 +616,10 @@ def test_demo_and_inputs_exclusive(tmp_path, capsys):
 
 def test_unsupported_file_listed(tmp_path):
     d = _input_dir(tmp_path)
-    (d / "notes.pdf").write_bytes(b"%PDF")
+    (d / "notes.docx").write_bytes(b"%PDF")
     rc, out = _csv_run(tmp_path, d)
     html = out.read_text(encoding="utf-8")
-    assert rc == 0 and "notes.pdf" in html and "not read: unsupported file type" in html
+    assert rc == 0 and "notes.docx" in html and "not read: unsupported file type" in html
 
 
 def test_no_readable_input_exits_2(tmp_path, capsys):
