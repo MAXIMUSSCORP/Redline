@@ -169,13 +169,16 @@ def _grid(
     cells: list[list[_Item]] = []
     for r in rows:
         merged: list[_Item] = []
+        parts: list[list[str]] = []
         for it in sorted(r, key=lambda i: i.x):
             prev = merged[-1] if merged else None
             if prev and prev.x_end is not None and it.x - prev.x_end <= gap * med:
-                merged[-1] = replace(prev, text=f"{prev.text} {it.text}", x_end=it.x_end)
+                parts[-1].append(it.text)
+                merged[-1] = replace(prev, x_end=it.x_end)
             else:
                 merged.append(it)
-        cells.append(merged)
+                parts.append([it.text])
+        cells.append([replace(m, text=" ".join(ps)) for m, ps in zip(merged, parts, strict=True)])
     header = max(cells, key=len)  # max keeps the first of equals: the topmost row
     xs = [c.x for c in header]
     if len(cells) * len(xs) > rawdrawing.MAX_TABLE_CELLS:
@@ -256,6 +259,15 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
         out.unparsed += part.unparsed
         out.coverage += part.coverage
 
+    for w in (data.get("document") or {}).get("warnings") or []:
+        unp(
+            "layout",
+            clip(str(w)),
+            f"extractor note: {clip(str(w))}",
+            "document.warnings",
+            Method.DXF_TABLE,
+        )
+
     min_cells = parsing.get("dxf_table_min_cells", 1)
     for e in entities:
         if e.get("type") == "ACAD_TABLE":
@@ -272,13 +284,24 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
             texts.setdefault((layout, e.get("xref_path")), []).append(e)
     star_t = [k for k in texts if k[0].upper().startswith("BLOCK:*T")]
     skipped_t = set()
+    # Identical tables collapse to one set, and a text index finds the tables a group can match.
+    uniq = list({frozenset(c) for c in tally.read_tables})
+    index: dict[str, list[int]] = {}
+    for i, cells in enumerate(uniq):
+        for c in cells:
+            index.setdefault(c, []).append(i)
+    memo: dict[tuple[str, ...], bool] = {}
     for k in star_t:
         # The RawDrawing does not link a table to its *T block, so match by content: a *T group
         # is a table's rendering when over half of its texts are cell texts of one table read.
         cleaned = [c for c in (_clean(e.get("text")) for e in texts[k]) if c]
-        if cleaned and any(
-            2 * sum(c in cells for c in cleaned) > len(cleaned) for cells in tally.read_tables
-        ):
+        key = tuple(sorted(cleaned))
+        if key not in memo:
+            hits: Counter = Counter()
+            for c in cleaned:
+                hits.update(index.get(c, ()))
+            memo[key] = any(2 * n > len(cleaned) for n in hits.values())
+        if cleaned and memo[key]:
             tally.table_render_text += len(cleaned)
             skipped_t.add(k)
     star_t = [k for k in star_t if k not in skipped_t]
