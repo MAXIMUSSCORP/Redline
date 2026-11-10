@@ -443,10 +443,12 @@ def test_panel_name_above_ruled_table(test_cfg):
 
 
 def test_title_block_table_not_read_as_schedule(test_cfg):
-    inside = table(gen.LP22_CELLS, (940.0, 650.0, 1200.0, 780.0))
+    # a crop table without a schedule header is the title block: no panel, counted, not listed
+    inside = table([["SHEET", "E-501"], ["REV", "2"]], (940.0, 650.0, 1200.0, 780.0))
     out = parse(test_cfg, page(tables=[inside]))
     assert out.panels == [] and out.unparsed == []
     assert "0 ruled tables read, 0 listed" in entry(out).what_read
+    assert "1 tables in the title block area not read" in entry(out).what_read
     elsewhere = table(gen.LP22_CELLS, (100.0, 100.0, 400.0, 300.0))
     assert [p.name for p in parse(test_cfg, page(tables=[elsewhere])).panels] == ["LP-22"]
 
@@ -801,3 +803,35 @@ def test_band_rows_scale_with_text_height(test_cfg):
         got.append([(p.name, len(p.circuits)) for p in out.panels])
         assert [u.reason for u in out.unparsed] == []
     assert got[0] == got[1] == [("LP-24", 6)]
+
+
+def test_title_block_corner_table_is_read(test_cfg):
+    rows = [["Panel", "LP-9"], gen.LP22_CELLS[1], *gen.LP22_CELLS[2:5]]
+    far = parse(test_cfg, page(tables=[table(rows, (30.0, 330.0, 330.0, 450.0))]))
+    corner = parse(test_cfg, page(tables=[table(rows, (930.0, 650.0, 1200.0, 780.0))]))
+    assert [(p.name, len(p.circuits)) for p in far.panels] == [("LP-9", 3)]
+    assert [(p.name, len(p.circuits)) for p in corner.panels] == [("LP-9", 3)]
+    assert "1 ruled tables read, 0 listed" in entry(corner).what_read
+    assert "title block area not read" not in entry(corner).what_read
+
+
+def test_title_block_unused_words_counted(test_cfg):
+    extra = grid_words([["DRAWN", "JD"]], x0=960.0, top=740.0, h=8.0)
+    out = parse(test_cfg, page(words=[*title_words(), *extra]))
+    text = entry(out).what_read
+    assert "sheet E-501, revision 2, from the title block" in text
+    assert "2 words in the title block area not read" in text
+    assert (
+        "words in the title block area"
+        not in entry(parse(test_cfg, page(words=title_words()))).what_read
+    )
+
+
+def test_dump_warnings_are_listed(test_cfg):
+    d = dump(page(1, words=grid_words(gen.LP22_CELLS)))
+    assert pdf.parse_pages(d, test_cfg, "t.pdf").unparsed == []
+    got = pdf.parse_pages(d | {"warnings": ["memory ceiling not set", 5, None]}, test_cfg, "t.pdf")
+    [u] = got.unparsed
+    assert u.kind == "file" and "memory ceiling not set" in u.reason and u.source.file == "t.pdf"
+    assert [p.name for p in got.panels] == ["LP-22"]
+    assert pdf.parse_pages({"warnings": "x"}, test_cfg, "t.pdf").unparsed[0].kind == "page"
