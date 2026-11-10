@@ -560,6 +560,147 @@ def test_timeout_is_input_error(test_cfg):
         pdf.parse_file(PDFS / "panel_text.pdf", cfg)
 
 
+def raw_pdf(objs: dict[int, bytes]) -> bytes:
+    """A PDF from numbered objects, with a correct xref. Object 1 is the catalog."""
+    out, offs = bytearray(b"%PDF-1.4\n"), {}
+    for num, body in objs.items():
+        offs[num] = len(out)
+        out += b"%d 0 obj\n" % num + body + b"\nendobj\n"
+    top, start = max(objs) + 1, len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % top
+    for num in range(1, top):
+        out += (b"%010d 00000 n \n" % offs[num]) if num in offs else b"0000000000 65535 f \n"
+    return bytes(
+        out + b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (top, start)
+    )
+
+
+def bomb_pdf(pages: int, mb: int) -> bytes:
+    import zlib
+
+    z = zlib.compress(b" " * (mb * 2**20), 1)
+    objs = {1: b"<< /Type /Catalog /Pages 2 0 R >>"}
+    for i in range(pages):
+        objs[10 + 2 * i] = (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents %d 0 R >>"
+            % (11 + 2 * i)
+        )
+        objs[11 + 2 * i] = (
+            b"<< /Filter /FlateDecode /Length %d >>\nstream\n" % len(z) + z + b"\nendstream"
+        )
+    kids = b" ".join(b"%d 0 R" % (10 + 2 * i) for i in range(pages))
+    objs[2] = b"<< /Type /Pages /Kids [" + kids + b"] /Count %d >>" % pages
+    return raw_pdf(dict(sorted(objs.items())))
+
+
+def test_child_memory_ceiling_ends_stream_bomb(test_cfg, tmp_path, monkeypatch):
+    path = tmp_path / "bomb.pdf"
+    path.write_bytes(bomb_pdf(8, 128))
+    monkeypatch.setattr(pdf, "MAX_CHILD_MEMORY_MB", 400)
+    import time
+
+    start = time.monotonic()
+    with pytest.raises(csv_xlsx.InputError, match="memory"):
+        pdf.read_pages(path, test_cfg)
+    assert time.monotonic() - start < 20
+
+
+def test_child_memory_ceiling_keeps_normal_pdf(test_cfg):
+    assert pdf.MAX_CHILD_MEMORY_MB >= 1024
+    out = pdf.parse_file(PDFS / "panel_text.pdf", test_cfg)
+    assert "LP-22" in [p.name for p in out.panels]
+
+
+def test_page_cap_before_page_objects(test_cfg, tmp_path):
+    n = 100_000
+    objs = {1: b"<< /Type /Catalog /Pages 2 0 R >>"}
+    kids = []
+    for i in range(n):
+        objs[3 + i] = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>"
+        kids.append(b"%d 0 R" % (3 + i))
+    objs[2] = b"<< /Type /Pages /Kids [" + b" ".join(kids) + b"] /Count %d >>" % n
+    path = tmp_path / "many.pdf"
+    path.write_bytes(raw_pdf(dict(sorted(objs.items()))))
+    import time
+
+    start = time.monotonic()
+    d = pdf.read_pages(path, test_cfg, isolated=False)
+    assert time.monotonic() - start < 3
+    assert d["pages_total"] == n and len(d["pages"]) == pdf.MAX_PAGES + 1
+    assert f"{n - pdf.MAX_PAGES} pages past MAX_PAGES" in d["pages"][-1]["skipped"]
+
+
+def test_annots_cap_before_resolve(test_cfg, tmp_path, monkeypatch):
+    import pdfplumber.page
+
+    def resolved(self):
+        raise AssertionError("annotations were resolved on an over-cap page")
+
+    monkeypatch.setattr(pdfplumber.page.Page, "annots", property(resolved))
+    n = 300_000
+    objs = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots 6 0 R >>",
+        5: b"<< /Type /Annot /Subtype /Text /Rect [10 10 20 20] /Contents (x) >>",
+        6: b"[" + b"5 0 R " * n + b"]",
+    }
+    path = tmp_path / "annots.pdf"
+    path.write_bytes(raw_pdf(objs))
+    import time
+
+    start = time.monotonic()
+    d = pdf.read_pages(path, test_cfg, isolated=False)
+    assert time.monotonic() - start < 10
+    assert f"page has {n} annotations, over MAX_ANNOTS_PER_PAGE" in d["pages"][0]["skipped"]
+
+
+def test_chars_cap_before_extract_words(test_cfg, monkeypatch):
+    import pdfplumber.page
+
+    def fail(*a, **k):
+        raise AssertionError("extract_words ran on an over-cap page")
+
+    monkeypatch.setattr(pdf, "MAX_CHARS_PER_PAGE", 10)
+    monkeypatch.setattr(pdfplumber.page.Page, "extract_words", fail)
+    d = pdf.read_pages(PDFS / "panel_text.pdf", test_cfg, isolated=False)
+    assert "over MAX_CHARS_PER_PAGE (10)" in d["pages"][0]["skipped"]
+
+
+def test_infinite_coordinate_costs_only_its_page(test_cfg, tmp_path):
+    p = gen.Page()
+    p.text(30, 40, "GENERAL NOTES " + "SAMPLE ONLY NOT FOR CONSTRUCTION " * 8, 8)
+    gen.ruled_grid(p, [["Panel", "LP-9"], gen.HEADER6, *gen.short_rows()[:3]], 30, 330, 7, 15, 6)
+    big = "1" + "0" * 308 + ".0"
+    bad = f"BT /F1 9 Tf {big} 0 0 1 {big} 10 Tm (X) Tj ET\n".encode()
+    path = tmp_path / "inf.pdf"
+    path.write_bytes(gen.build_pdf([{"content": p.data()}, {"content": bad}]))
+    out = pdf.parse_file(path, test_cfg)
+    assert [p.name for p in out.panels] == ["LP-9"]
+    assert any("not finite" in u.reason and u.source.locator == "page=2" for u in out.unparsed)
+
+
+def test_annotation_pdfdocencoding_decoded(test_cfg, tmp_path):
+    rect = b"/Rect [100 700 200 712] /Subtype /Text /Type /Annot /Contents "
+    objs = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1224 792] /Annots [4 0 R 5 0 R] >>",
+        4: b"<< " + rect + b"(120/208V 3\330 4W) >>",
+        5: b"<< " + rect + b"<FEFF004C0050002D0031> >>",
+    }
+    path = tmp_path / "enc.pdf"
+    path.write_bytes(raw_pdf(objs))
+    d = pdf.read_pages(path, test_cfg, isolated=False)
+    assert [a["contents"] for a in d["pages"][0]["annots"]] == ["120/208V 3\u00d8 4W", "LP-1"]
+
+
+def test_vanished_file_is_input_error(test_cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(pdf.Path, "is_file", lambda self: True)
+    with pytest.raises(csv_xlsx.InputError, match="gone.pdf cannot be read"):
+        pdf.read_pages(tmp_path / "gone.pdf", test_cfg)
+
+
 def test_pdfplumber_missing_is_input_error(test_cfg, monkeypatch):
     monkeypatch.setitem(sys.modules, "pdfplumber", None)
     with pytest.raises(csv_xlsx.InputError, match="pdfplumber not installed: pip install"):

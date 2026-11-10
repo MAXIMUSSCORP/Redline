@@ -223,6 +223,16 @@ def _check_ai(ai: dict[str, Any]) -> None:
                 )
 
 
+# A Windows wait of about 4294967 s wraps its 32-bit millisecond count.
+_MAX_TIMEOUT_S = 86400
+_MAX_PDF_TEXT_PAGE_MIN_CHARS = 10000
+
+
+def _check_timeout_cap(parsing: dict[str, Any], key: str) -> None:
+    if parsing[key] > _MAX_TIMEOUT_S:
+        raise ConfigError(f"column_maps.yaml: parsing.{key} must be at most {_MAX_TIMEOUT_S}")
+
+
 def _check_dxf_parsing(parsing: dict[str, Any]) -> None:
     if parsing.get("dxf_stale_field_policy") != "low":
         raise ConfigError('column_maps.yaml: parsing.dxf_stale_field_policy must be "low"')
@@ -234,6 +244,7 @@ def _check_dxf_parsing(parsing: dict[str, Any]) -> None:
         x = parsing.get(key)
         if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 < x < math.inf:
             raise ConfigError(f"column_maps.yaml: parsing.{key} must be a number above zero")
+    _check_timeout_cap(parsing, "dxf_extractor_timeout_s")
     n = parsing.get("dxf_table_min_cells")
     if not isinstance(n, int) or isinstance(n, bool) or n < 1:
         raise ConfigError(
@@ -252,6 +263,11 @@ def _check_pdf_parsing(parsing: dict[str, Any]) -> None:
         raise ConfigError(
             "column_maps.yaml: parsing.pdf_text_page_min_chars must be an integer of 1 or more"
         )
+    if n > _MAX_PDF_TEXT_PAGE_MIN_CHARS:
+        raise ConfigError(
+            "column_maps.yaml: parsing.pdf_text_page_min_chars must be at most "
+            f"{_MAX_PDF_TEXT_PAGE_MIN_CHARS}"
+        )
     for key in (
         "pdf_scanned_image_area_fraction",
         "pdf_title_block_width_fraction",
@@ -269,6 +285,7 @@ def _check_pdf_parsing(parsing: dict[str, Any]) -> None:
         x = parsing.get(key)
         if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 < x < math.inf:
             raise ConfigError(f"column_maps.yaml: parsing.{key} must be a number above zero")
+    _check_timeout_cap(parsing, "pdf_timeout_s")
 
 
 def _check_column_maps(cm: dict[str, Any]) -> None:
