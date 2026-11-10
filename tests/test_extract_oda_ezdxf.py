@@ -219,7 +219,7 @@ def test_oda_xref_outside_folder_not_read(tmp_path, test_cfg, monkeypatch):
     read = []
     real = recover.readfile
     monkeypatch.setattr(recover, "readfile", lambda f, *a, **k: read.append(f) or real(f, *a, **k))
-    data = oda_ezdxf.extract(path, test_cfg)
+    data = oda_ezdxf.extract_inprocess(path, test_cfg)
     assert read == [str(path)]
     assert {x["name"]: x["resolved"] for x in data["document"]["xrefs"]} == {
         "UP": False,
@@ -325,7 +325,7 @@ def test_oda_dwg_goes_through_converter_and_is_read(tmp_path, test_cfg, monkeypa
 
     st = fake_converter(monkeypatch, make)
     cfg = with_parsing(test_cfg, odafc_path=str(exe))
-    data = oda_ezdxf.extract(dwg, cfg)
+    data = oda_ezdxf.extract_inprocess(dwg, cfg)
     a = st.args
     assert a[0] == str(exe) and a[3:7] == ["ACAD2018", "DXF", "0", "1"] and a[7] == "plan.dwg"
     assert st.kw["shell"] is False
@@ -346,7 +346,7 @@ def test_oda_converter_timeout_gives_extract_error_and_cleans_up(tmp_path, test_
     st = fake_converter(monkeypatch, None, hang=True)
     cfg = with_parsing(test_cfg, odafc_path=str(exe), dxf_extractor_timeout_s=3)
     with pytest.raises(ExtractError, match="ODA File Converter timed out after 3 s"):
-        oda_ezdxf.extract(dwg, cfg)
+        oda_ezdxf.extract_inprocess(dwg, cfg)
     assert st.killed
     assert list(root.iterdir()) == []
 
@@ -358,7 +358,7 @@ def test_oda_converter_without_output_gives_extract_error(tmp_path, test_cfg, mo
     dwg.write_bytes(b"x")
     fake_converter(monkeypatch, lambda *a: None)
     with pytest.raises(ExtractError, match="wrote no DXF"):
-        oda_ezdxf.extract(dwg, with_parsing(test_cfg, odafc_path=str(exe)))
+        oda_ezdxf.extract_inprocess(dwg, with_parsing(test_cfg, odafc_path=str(exe)))
 
 
 def stub(monkeypatch, module, calls, name, outcome):
@@ -596,7 +596,7 @@ def test_dxf_over_size_cap_refused(tmp_path, test_cfg, monkeypatch):
 
     monkeypatch.setattr(recover, "readfile", boom)
     with pytest.raises(ExtractError, match="MAX_JSON_BYTES"):
-        oda_ezdxf.extract(path, test_cfg)
+        oda_ezdxf.extract_inprocess(path, test_cfg)
 
 
 def test_ezdxf_unexpected_error_becomes_extract_error(tmp_path, test_cfg, monkeypatch):
@@ -608,7 +608,7 @@ def test_ezdxf_unexpected_error_becomes_extract_error(tmp_path, test_cfg, monkey
 
     monkeypatch.setattr(oda_ezdxf, "convert", odd)
     with pytest.raises(ExtractError, match="AttributeError"):
-        oda_ezdxf.extract(save(doc, tmp_path / "a.dxf"), test_cfg)
+        oda_ezdxf.extract_inprocess(save(doc, tmp_path / "a.dxf"), test_cfg)
 
 
 def test_long_layer_and_block_names_are_cut(tmp_path, test_cfg):
@@ -774,7 +774,7 @@ def test_declared_cells_capped_per_drawing_extract(tmp_path, test_cfg, monkeypat
         acad_table, "read_acad_table_content", lambda e: read.append(1) or [["a"], ["b"]]
     )
     start = time.monotonic()
-    data = oda_ezdxf.extract(path, test_cfg)
+    data = oda_ezdxf.extract_inprocess(path, test_cfg)
     assert time.monotonic() - start < 3
     fits = rawdrawing.MAX_DRAWING_CELLS // 100_000
     assert len(read) == fits == len(data["entities"])
@@ -817,3 +817,72 @@ def test_negative_or_half_zero_table_size_not_read():
         )
         assert item is None and time.monotonic() - start < 1
         assert any("was not read" in n for n in notes)
+
+
+def test_fallback_read_times_out_in_child(tmp_path, test_cfg):
+    import time
+
+    levels = 23
+    doc = new_doc()
+    for i in range(levels, -1, -1):
+        for a in "XY":
+            b = doc.blocks.new(f"{a}{i}")
+            if i < levels:
+                b.add_blockref(f"X{i + 1}", (0, 0))
+                b.add_blockref(f"Y{i + 1}", (0, 0))
+            else:
+                b.add_text("leaf")
+    doc.modelspace().add_blockref("X0", (0, 0))
+    path = save(doc, tmp_path / "dag.dxf")
+    start = time.monotonic()
+    with pytest.raises(ExtractError, match="timed out"):
+        oda_ezdxf.extract(path, with_parsing(test_cfg, dxf_extractor_timeout_s=2))
+    assert time.monotonic() - start < 10
+
+
+def test_child_wiring_uses_this_package_and_passes_caps(tmp_path, test_cfg, monkeypatch):
+    monkeypatch.setattr(rawdrawing, "MAX_TEXT", 40)
+    doc = new_doc()
+    doc.modelspace().add_text("0123456789" * 5)
+    data = oda_ezdxf.extract(save(doc, tmp_path / "a.dxf"), test_cfg)
+    assert data["entities"][0]["text"] == "0123456789" * 4  # the child saw the parent's cap
+    with pytest.raises(ExtractError, match="MAX_ENTITIES"):
+        monkeypatch.setattr(rawdrawing, "MAX_ENTITIES", 0)
+        oda_ezdxf.extract(tmp_path / "a.dxf", test_cfg)
+
+
+def test_field_expansion_capped_before_substitution():
+    import time
+    import tracemalloc
+
+    code = r"%<\_FldIdx 0>%" * 2
+    db = {"F1": _field([(1, "AcVar"), (301, "x")])}
+    for i in range(2, 31):
+        db[f"F{i}"] = _field([(1, "AcVar"), (2, code)], [f"F{i - 1}"])
+    ent = _table_with_tags(db, [(171, 1), (344, "F30"), (1, "K12")])
+    notes = []
+    tracemalloc.start()
+    start = time.monotonic()
+    item = oda_ezdxf.convert(ent, "L", None, notes, fake_acad_table([[""]]))
+    took = time.monotonic() - start
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert took < 1 and peak < 100 * 2**20
+    assert item["table"]["cells"][0]["text"] == ""
+    assert any("cell (0, 0)" in n for n in notes)
+
+
+def test_mtext_strip_is_linear():
+    import time
+
+    text = ("\\A1;") * 50000
+    ent = SimpleNamespace(
+        dxftype=lambda: "MTEXT",
+        text=text,
+        plain_text=lambda: (_ for _ in ()).throw(AssertionError("ezdxf strip used")),
+        dxf=SimpleNamespace(get=lambda k, d=None: {"handle": "A1", "layer": "0"}.get(k, d)),
+    )
+    start = time.monotonic()
+    item = oda_ezdxf.convert(ent, "L", None, [], fake_acad_table([]))
+    assert time.monotonic() - start < 1
+    assert item["text"] == ""
