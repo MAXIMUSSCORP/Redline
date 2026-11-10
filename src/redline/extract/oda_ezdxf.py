@@ -68,11 +68,12 @@ def _probe(fn: Any) -> Any:
 
 
 def _table_counts(e: Any) -> tuple[int, int] | None:
+    """Declared rows and columns as written, or None when the table has no size tags."""
     sub = _probe(lambda: e.xtags.get_subclass("AcDbTable"))
     if sub is None:
         return None
     rows, cols = sub.get_first_value(91, 0), sub.get_first_value(92, 0)
-    return (rows, cols) if rows > 0 and cols > 0 else None
+    return rows, cols
 
 
 def _budget(cache: dict[Any, Any] | None = None) -> dict[str, Any]:
@@ -93,10 +94,13 @@ def _field_text(
     cache = budget["cache"]
     key = (id(db), handle)
     if key in cache:
-        return cache[key][1]
+        _, text, was_cut = cache[key]
+        budget["cut"] = budget["cut"] or was_cut
+        return text
+    before, budget["cut"] = budget["cut"], False
     text = _read_field(db, handle, budget, notes, what, path)
-    if not budget["cut"]:  # db is kept in the entry so its id cannot be reused
-        cache[key] = (db, text)
+    cache[key] = (db, text, budget["cut"])  # db is kept so its id cannot be reused
+    budget["cut"] = budget["cut"] or before
     return text
 
 
@@ -195,6 +199,14 @@ def _table(
     from ezdxf.tools.text import plain_mtext
 
     counts = _table_counts(e)
+    if counts and (min(counts) < 0 or (counts[0] == 0) != (counts[1] == 0)):
+        # ezdxf would still loop over the declared rows, so the content is never built.
+        notes.append(
+            f"table {what} was not read: declared size {counts[0]} by {counts[1]} is not valid"
+        )
+        return None
+    if counts == (0, 0):
+        counts = None
     if counts and counts[0] * counts[1] > rawdrawing.MAX_TABLE_CELLS:
         raise ExtractError(
             f"table {what} has more cells than MAX_TABLE_CELLS ({rawdrawing.MAX_TABLE_CELLS})"
