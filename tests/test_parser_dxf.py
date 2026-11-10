@@ -154,7 +154,10 @@ def test_field_table_plugin_vs_fallback(test_cfg):
         for k, va in values(ca).items():
             vb = values(cb)[k]
             assert (va.value, va.raw) == (vb.value, vb.raw)
-            if va.source:
+            if k == "load_va":  # field cell: both extractors write evaluated false
+                assert va.confidence == vb.confidence == Confidence.LOW
+                assert "may be stale" in va.source.note and "may be stale" in vb.source.note
+            elif va.source:
                 assert va.confidence > Confidence.LOW
                 assert vb.confidence == Confidence.LOW  # D4: every fallback cell is not evaluated
 
