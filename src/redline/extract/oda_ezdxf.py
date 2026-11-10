@@ -26,7 +26,7 @@ from redline.extract import (
 VERSION = "0.1.0"
 ODA = "ODA File Converter"
 _AUDIT_LIMIT = 20
-_FIELD_VISITS = 64  # FIELD handles read per cell
+_FIELD_VISITS = 64  # FIELD handles read per table
 _FLD_IDX = re.compile(r"%<\\_FldIdx (\d+)>%")
 
 
@@ -75,9 +75,10 @@ def _table_counts(e: Any) -> tuple[int, int] | None:
     return (rows, cols) if rows > 0 and cols > 0 else None
 
 
-def _budget() -> dict[str, Any]:
-    """One per table: FIELD handles read so far, whether the current cell lost a part, notes given."""
-    return {"n": 0, "cut": False, "said": set()}
+def _budget(cache: dict[Any, Any] | None = None) -> dict[str, Any]:
+    """One per table: FIELD handles read so far, whether the current cell lost a part, notes
+    given, and the drawing's cache of FIELD texts (a FIELD's tags are read once per drawing)."""
+    return {"n": 0, "cut": False, "said": set(), "cache": {} if cache is None else cache}
 
 
 def _say(budget: dict[str, Any], notes: list[str], msg: str) -> None:
@@ -87,6 +88,19 @@ def _say(budget: dict[str, Any], notes: list[str], msg: str) -> None:
 
 
 def _field_text(
+    db: Any, handle: Any, budget: dict[str, Any], notes: list[str], what: str, path: tuple = ()
+) -> str:
+    cache = budget["cache"]
+    key = (id(db), handle)
+    if key in cache:
+        return cache[key][1]
+    text = _read_field(db, handle, budget, notes, what, path)
+    if not budget["cut"]:  # db is kept in the entry so its id cannot be reused
+        cache[key] = (db, text)
+    return text
+
+
+def _read_field(
     db: Any, handle: Any, budget: dict[str, Any], notes: list[str], what: str, path: tuple = ()
 ) -> str:
     """Cached text of a FIELD: its own value (code 301), else its field code (codes 2 and 3)
@@ -139,7 +153,7 @@ def _field_text(
 
 
 def _cell_texts(
-    e: Any, rows: int, cols: int, what: str, notes: list[str]
+    e: Any, rows: int, cols: int, what: str, notes: list[str], cache: dict[Any, Any]
 ) -> tuple[dict[tuple[int, int], str], dict[tuple[int, int], str], set[tuple[int, int]]]:
     """Per cell of the AcDbTable tags (each cell opens with 171): FIELD cached text (code 344),
     plain code 1 text, and the cells whose field was cut short. Long text comes as code 3
@@ -150,7 +164,7 @@ def _cell_texts(
     fields: dict[tuple[int, int], str] = {}
     plain: dict[tuple[int, int], str] = {}
     cut: set[tuple[int, int]] = set()
-    budget = _budget()
+    budget = _budget(cache)
     n, chunks = -1, ""
     for t in tags:
         if t.code == 171:
@@ -175,7 +189,9 @@ def _cell_texts(
     return fields, plain, cut
 
 
-def _table(e: Any, what: str, notes: list[str], acad_table: Any) -> dict[str, Any]:
+def _table(
+    e: Any, what: str, notes: list[str], acad_table: Any, ctx: dict[str, Any]
+) -> dict[str, Any] | None:
     from ezdxf.tools.text import plain_mtext
 
     counts = _table_counts(e)
@@ -183,9 +199,22 @@ def _table(e: Any, what: str, notes: list[str], acad_table: Any) -> dict[str, An
         raise ExtractError(
             f"table {what} has more cells than MAX_TABLE_CELLS ({rawdrawing.MAX_TABLE_CELLS})"
         )
+    if counts:
+        total = ctx.get("cells", 0) + counts[0] * counts[1]
+        if total > rawdrawing.MAX_DRAWING_CELLS:
+            notes.append(
+                f"table {what} was not read: declared cells over the drawing total "
+                f"MAX_DRAWING_CELLS ({rawdrawing.MAX_DRAWING_CELLS})"
+            )
+            return None
+        ctx["cells"] = total
     values = acad_table.read_acad_table_content(e)
     # ezdxf reads a FIELD cell's own text, which is empty. The drawing shows the cached value.
-    fields, plain, cut = _cell_texts(e, *counts, what, notes) if counts else ({}, {}, set())
+    fields, plain, cut = (
+        _cell_texts(e, *counts, what, notes, ctx.setdefault("fields", {}))
+        if counts
+        else ({}, {}, set())
+    )
     cells = []
     for r, row in enumerate(values):
         for c, text in enumerate(row):
@@ -213,7 +242,12 @@ def _mleader_attribs(e: Any) -> list[dict[str, str]]:
 
 
 def convert(
-    e: Any, layout: str, xref_path: str | None, notes: list[str], acad_table: Any
+    e: Any,
+    layout: str,
+    xref_path: str | None,
+    notes: list[str],
+    acad_table: Any,
+    ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """One ezdxf entity to a RawDrawing entity without id, or None for a type not read."""
     kind = e.dxftype()
@@ -250,7 +284,10 @@ def convert(
         out["insertion_point"] = _pt(g("insert") or ())
         out["rotation_deg"] = _num(g("rotation", 0))
     elif kind == "ACAD_TABLE":
-        out["table"] = _table(e, handle, notes, acad_table)
+        table = _table(e, handle, notes, acad_table, {} if ctx is None else ctx)
+        if table is None:
+            return None
+        out["table"] = table
         ref = _probe(lambda: e.xtags.get_subclass("AcDbBlockReference").get_first_value(10, None))
         out["insertion_point"] = _pt(ref or ())
     elif kind == "MLEADER":
@@ -341,6 +378,7 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
     xrefs: list[dict[str, Any]] = []
     notes: list[str] = []
     skipped: Counter[str] = Counter()
+    ctx: dict[str, Any] = {}  # whole-drawing state: declared cells, FIELD texts
     root = path.resolve().parent
     visited = {path.resolve()}
     failed: dict[Path, str] = {}
@@ -373,7 +411,7 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
         return doc
 
     def add(e: Any, layout: str, xref_path: str | None) -> None:
-        item = convert(e, layout, xref_path, notes, acad_table)
+        item = convert(e, layout, xref_path, notes, acad_table, ctx)
         if item is None:
             skipped[e.dxftype()] += 1
             return

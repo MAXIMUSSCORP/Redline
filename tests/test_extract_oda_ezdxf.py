@@ -722,3 +722,61 @@ def test_long_xref_name_and_path_are_cut(tmp_path, test_cfg):
     assert len(x["name"]) <= rawdrawing.MAX_TEXT and len(x["path"]) <= rawdrawing.MAX_TEXT
     assert x["resolved"] is False
     assert rawdrawing.validate(data).ok
+
+
+def test_field_read_once_per_drawing():
+    import time
+
+    f = _field([(2, "x")] * 20000)
+    f.xtags.subclasses[0].append(SimpleNamespace(code=1, value="_text"))
+    reads = []
+    real = f.xtags.subclasses[0]
+
+    class Counted(list):
+        def __iter__(self):
+            reads.append(1)
+            return super().__iter__()
+
+    f.xtags.subclasses[0] = Counted(real)
+    ctx = {}
+    notes = []
+    start = time.monotonic()
+    entitydb = SimpleNamespace(get={"F": f}.get)  # one per drawing
+    for i in range(100):
+        ent = _table_with_tags({"F": f}, [(171, 1), (344, "F")] * 64, rows=64, cols=1)
+        ent.doc = SimpleNamespace(entitydb=entitydb)
+        oda_ezdxf.convert(ent, "L", None, notes, fake_acad_table([[""]] * 64), ctx)
+    assert time.monotonic() - start < 2
+    assert len(reads) == 1
+
+
+def test_declared_cells_capped_per_drawing_extract(tmp_path, test_cfg, monkeypatch):
+    import time
+
+    from ezdxf.entities import acad_table
+
+    doc = new_doc()
+    for i in range(300):
+        doc.modelspace().add_text(f"T{i}")
+    path = save(doc, tmp_path / "a.dxf")
+    real = oda_ezdxf.convert
+    read = []
+
+    def as_table(e, layout, xref, notes, acad, ctx=None):
+        ent = FakeEntity(100_000, 1)
+        ent.dxf = SimpleNamespace(
+            get=lambda k, d=None: {"handle": e.dxf.handle, "layer": "L"}.get(k, d)
+        )
+        return real(ent, layout, xref, notes, acad, ctx)
+
+    monkeypatch.setattr(oda_ezdxf, "convert", as_table)
+    monkeypatch.setattr(
+        acad_table, "read_acad_table_content", lambda e: read.append(1) or [["a"], ["b"]]
+    )
+    start = time.monotonic()
+    data = oda_ezdxf.extract(path, test_cfg)
+    assert time.monotonic() - start < 3
+    fits = rawdrawing.MAX_DRAWING_CELLS // 100_000
+    assert len(read) == fits == len(data["entities"])
+    warnings = data["document"]["warnings"]
+    assert sum("MAX_DRAWING_CELLS" in w for w in warnings) == 300 - fits
