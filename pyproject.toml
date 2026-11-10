@@ -12,6 +12,7 @@ dependencies = ["PyYAML>=6.0", "Jinja2>=3.1", "openpyxl>=3.1"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff"]
 dxf = ["ezdxf>=1.4,<2"]
+pdf = ["pdfplumber>=0.11,<0.12"]
 
 [project.scripts]
 redline = "redline.cli:main"
