@@ -496,4 +496,6 @@ def _drawing_entry(data: dict, file: str, t: _Tally, out: Parsed) -> CoverageEnt
     return CoverageEntry(file, "drawing", "; ".join(parts), Method.DXF_TABLE.value, _NO_SUMMARY)
 
 
-__all__ = ["JSON_SUFFIX", "SUFFIXES", "accepts", "parse_file", "parse_rawdrawing", "provenance"]
+TextItem = _Item
+text_grid = _grid
+__all__ = ["JSON_SUFFIX", "SUFFIXES", "TextItem", "accepts", "parse_file", "parse_rawdrawing", "provenance", "text_grid"]  # fmt: skip
