@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import shutil
 import tempfile
 from collections import Counter
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from redline import rawdrawing
@@ -25,6 +26,8 @@ from redline.extract import (
 VERSION = "0.1.0"
 ODA = "ODA File Converter"
 _AUDIT_LIMIT = 20
+_FIELD_VISITS = 64  # FIELD handles read per cell
+_FLD_IDX = re.compile(r"%<\\_FldIdx (\d+)>%")
 
 
 def _num(x: Any) -> float | None:
@@ -72,17 +75,49 @@ def _table_counts(e: Any) -> tuple[int, int] | None:
     return (rows, cols) if rows > 0 and cols > 0 else None
 
 
-def _field_text(db: Any, handle: Any, depth: int = 0) -> str:
-    """Cached text of a FIELD: its own value (code 301), else its child fields' (code 360)."""
-    f = db.get(handle) if depth < 8 else None
+def _field_text(
+    db: Any, handle: Any, seen: list[Any], notes: list[str], what: str, path: tuple = ()
+) -> str:
+    """Cached text of a FIELD: its own value (code 301), else its field code (codes 2 and 3)
+    with each child's text (code 360) put in at its FldIdx place. A handle on the current path
+    is a cycle. A cell reads at most _FIELD_VISITS handles in all (seen counts visits)."""
+    if handle in path:
+        return ""
+    if len(seen) >= _FIELD_VISITS:
+        note = f"{what}: FIELD reading stopped after {_FIELD_VISITS} fields"
+        if note not in notes:
+            notes.append(note)
+        return ""
+    seen.append(handle)
+    f = db.get(handle)
     if f is None or f.dxftype() != "FIELD":
         return ""
     tags = [t for sub in f.xtags.subclasses for t in sub]
     own = "".join(str(t.value) for t in tags if t.code == 301)
-    return own or "".join(_field_text(db, t.value, depth + 1) for t in tags if t.code == 360)
+    if own:
+        return own
+    kids = [
+        _field_text(db, t.value, seen, notes, what, (*path, handle)) for t in tags if t.code == 360
+    ]
+    code = "".join(str(t.value) for t in tags if t.code in (2, 3))
+    if not _FLD_IDX.search(code):
+        if len(kids) > 1:
+            notes.append(
+                f"{what}: FIELD has several child fields and no place for them in its code"
+            )
+            return ""
+        return "".join(kids)
+    if any(int(i) >= len(kids) for i in _FLD_IDX.findall(code)):
+        notes.append(
+            f"{what}: FIELD code names a child field that is not there, so no text was read"
+        )
+        return ""
+    return _FLD_IDX.sub(lambda m: kids[int(m.group(1))], code)
 
 
-def _cell_texts(e: Any, cols: int) -> tuple[dict[tuple[int, int], str], dict[tuple[int, int], str]]:
+def _cell_texts(
+    e: Any, cols: int, what: str, notes: list[str]
+) -> tuple[dict[tuple[int, int], str], dict[tuple[int, int], str]]:
     """Per cell of the AcDbTable tags (each cell opens with 171): FIELD cached text (code 344)
     and plain code 1 text. Long text comes as code 3 chunks, then code 1 last."""
     tags = _probe(lambda: list(e.xtags.get_subclass("AcDbTable")))
@@ -97,7 +132,12 @@ def _cell_texts(e: Any, cols: int) -> tuple[dict[tuple[int, int], str], dict[tup
         elif n < 0:
             continue
         elif t.code == 344:
-            fields[divmod(n, cols)] = _field_text(e.doc.entitydb, t.value)
+            pos = divmod(n, cols)
+            txt = _field_text(
+                e.doc.entitydb, t.value, [], notes, f"table {what} cell ({pos[0]}, {pos[1]})"
+            )
+            if txt:  # an empty field result must not hide the cell's own text
+                fields[pos] = txt
         elif t.code == 3:
             chunks += str(t.value)
         elif t.code == 1:
@@ -109,16 +149,20 @@ def _cell_texts(e: Any, cols: int) -> tuple[dict[tuple[int, int], str], dict[tup
 def _table(e: Any, what: str, notes: list[str], acad_table: Any) -> dict[str, Any]:
     from ezdxf.tools.text import plain_mtext
 
-    values = acad_table.read_acad_table_content(e)
     counts = _table_counts(e)
+    if counts and counts[0] * counts[1] > rawdrawing.MAX_TABLE_CELLS:
+        raise ExtractError(
+            f"table {what} has more cells than MAX_TABLE_CELLS ({rawdrawing.MAX_TABLE_CELLS})"
+        )
+    values = acad_table.read_acad_table_content(e)
     # ezdxf reads a FIELD cell's own text, which is empty. The drawing shows the cached value.
-    fields, plain = _cell_texts(e, counts[1]) if counts else ({}, {})
+    fields, plain = _cell_texts(e, counts[1], what, notes) if counts else ({}, {})
     cells = []
     for r, row in enumerate(values):
         for c, text in enumerate(row):
             # Every fallback cell is not evaluated until the FIELD tag check is shown right (D4).
             # Code 1 holds the text of many cells while code 302, which ezdxf reads, is empty.
-            text = fields.get((r, c), text or plain.get((r, c), ""))
+            text = fields.get((r, c)) or text or plain.get((r, c), "")
             text = plain_mtext(text, split=False).replace(chr(10), " ")
             cells.append({"r": r, "c": c, "text": _cut(text, what, notes), "evaluated": False})
     if len(cells) > rawdrawing.MAX_TABLE_CELLS:
@@ -149,7 +193,7 @@ def convert(
     out: dict[str, Any] = {
         "type": kind,
         "layout": layout,
-        "layer": str(g("layer") or "0"),
+        "layer": _cut(g("layer") or "0", handle, notes),
         "handle": handle,
         "bbox": None,
     }
@@ -202,6 +246,10 @@ def convert(
     return {k: v for k, v in out.items() if v is not None or k == "bbox"}
 
 
+def _unexpected(path: Path, e: Exception) -> str:
+    return f"ezdxf failed while reading {path.name} ({type(e).__name__})"
+
+
 def _odafc(parsing: dict[str, Any]) -> str:
     raw = parsing.get("odafc_path")
     if not raw:
@@ -230,7 +278,9 @@ def _to_dxf(odafc: str, src: Path, tmp: Path, n: int, timeout: float) -> Path:
 
 def _inside(raw: str, base: Path, root: Path) -> Path | None:
     """The xref's file when it sits inside the host drawing's folder tree, else None."""
-    if not raw:
+    # Judged from the text: resolving a UNC or drive path would make Windows open it.
+    win = PureWindowsPath(raw)
+    if not raw or win.is_absolute() or win.drive or win.root:
         return None
     try:
         p = (base / raw).resolve()
@@ -264,6 +314,7 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
     skipped: Counter[str] = Counter()
     root = path.resolve().parent
     visited = {path.resolve()}
+    failed: dict[Path, str] = {}
     runs = 0
 
     tmp = Path(tempfile.mkdtemp(prefix="redline-oda-", dir=tempfile.gettempdir()))
@@ -274,6 +325,14 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
         if src.suffix.lower() == ".dwg":
             runs += 1
             dxf = _to_dxf(odafc, src, tmp, runs, timeout)
+        try:
+            size = dxf.stat().st_size
+        except OSError as e:
+            raise ExtractError(f"{dxf.name} could not be read ({type(e).__name__})") from e
+        if size > rawdrawing.MAX_JSON_BYTES:
+            raise ExtractError(
+                f"{src.name} is over MAX_JSON_BYTES ({rawdrawing.MAX_JSON_BYTES} bytes)"
+            )
         try:
             doc, auditor = recover.readfile(str(dxf))
         except Exception as e:
@@ -294,10 +353,10 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
         entities.append({"id": f"e{len(entities) + 1:04d}", **item})
 
     def walk(doc: Any, origin: Path, xname: str | None, xpath: str | None) -> None:
-        tag = f"block:{xname}" if xname else None
+        tag = _cut(f"block:{xname}", "layout name", notes) if xname else None
         for lay in doc.layouts:
             for e in lay:
-                add(e, tag or lay.name, xpath)
+                add(e, tag or _cut(lay.name, "layout name", notes), xpath)
         for blk in doc.blocks:
             if blk.is_any_layout:
                 continue
@@ -305,31 +364,51 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
                 follow(blk, origin)
                 continue
             for e in blk:
-                add(e, tag or f"block:{blk.name}", xpath)
+                add(e, tag or _cut(f"block:{blk.name}", "layout name", notes), xpath)
 
     def follow(blk: Any, origin: Path) -> None:
         name, raw = blk.name, str(blk.block.dxf.get("xref_path") or "")
         target = _inside(raw, origin, root)
         done = False
-        if target is not None and target in visited:
+        if target is not None and target in failed:
+            notes.append(f"xref {name} was not read: {failed[target]}")
+        elif target is not None and target in visited:
             done = True  # read already, or a cycle
         elif target is not None and target.suffix.lower() in (".dwg", ".dxf") and target.is_file():
             if target.suffix.lower() == ".dwg" and odafc is None:
                 notes.append(f"xref {name} is a DWG and odafc_path is not set, so it was not read")
             else:
                 visited.add(target)
+                before = set(visited)
+                kept, kept_skipped = len(entities), Counter(skipped)
+                kept_xrefs = len(xrefs)
                 try:
                     walk(load(target), target.parent, name, raw)
                     done = True
-                except ExtractError as e:
-                    notes.append(f"xref {name} was not read: {e}")
+                except Exception as e:  # noqa: BLE001
+                    reason = str(e) if isinstance(e, ExtractError) else _unexpected(target, e)
+                    del entities[kept:]  # an xref is read whole or not at all
+                    skipped.clear()
+                    skipped.update(kept_skipped)
+                    for t in visited - before | {target}:  # also xrefs read inside this one
+                        failed[t] = reason
+                    visited.difference_update(failed)
+                    for x in xrefs[kept_xrefs:]:
+                        if x["resolved"]:
+                            x["resolved"] = False
+                            notes.append(f"xref {x['name']} was not read: {reason}")
+                    notes.append(f"xref {name} was not read: {reason}")
         xrefs.append({"name": name, "path": raw, "resolved": done})
 
     try:
         doc = load(path)
         walk(doc, root, None, None)
         units = ezunits.decode(doc.units) if doc.units else "unitless"
-        layouts = list(doc.layouts.names_in_taborder())
+        layouts = [_cut(n, "layout name", notes) for n in doc.layouts.names_in_taborder()]
+    except ExtractError:
+        raise
+    except Exception as e:
+        raise ExtractError(_unexpected(path, e)) from e
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     host = (
