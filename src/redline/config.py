@@ -246,8 +246,33 @@ def _check_dxf_parsing(parsing: dict[str, Any]) -> None:
             raise ConfigError(f"column_maps.yaml: parsing.{key} must be null or a non-empty string")
 
 
+def _check_pdf_parsing(parsing: dict[str, Any]) -> None:
+    n = parsing.get("pdf_text_page_min_chars")
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+        raise ConfigError(
+            "column_maps.yaml: parsing.pdf_text_page_min_chars must be an integer of 1 or more"
+        )
+    for key in (
+        "pdf_scanned_image_area_fraction",
+        "pdf_title_block_width_fraction",
+        "pdf_title_block_height_fraction",
+    ):
+        x = parsing.get(key)
+        if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 < x <= 1:
+            raise ConfigError(f"column_maps.yaml: parsing.{key} must be a number above 0 up to 1")
+    for key in (
+        "pdf_row_tolerance_word_heights",
+        "pdf_column_gap_fraction",
+        "pdf_region_gap_word_heights",
+        "pdf_timeout_s",
+    ):
+        x = parsing.get(key)
+        if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 < x < math.inf:
+            raise ConfigError(f"column_maps.yaml: parsing.{key} must be a number above zero")
+
+
 def _check_column_maps(cm: dict[str, Any]) -> None:
-    for key in ("csv_panel_schedule", "panel_header_block"):
+    for key in ("csv_panel_schedule", "panel_header_block", "title_block"):
         m = cm.get(key)
         if not isinstance(m, dict) or not all(
             isinstance(k, str)
@@ -270,6 +295,7 @@ def _check_column_maps(cm: dict[str, Any]) -> None:
             "column_maps.yaml: parsing.min_header_alias_matches must be an integer of 1 or more"
         )
     _check_dxf_parsing(parsing)
+    _check_pdf_parsing(parsing)
     wd = (cm.get("aecad_project") or {}).get("wd_m_attribute_map")
     if not isinstance(wd, dict) or not all(
         isinstance(k, str)
