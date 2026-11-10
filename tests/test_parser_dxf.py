@@ -447,3 +447,26 @@ def test_table_render_block_text_is_not_read_again(test_cfg):
     out = dxf.parse_rawdrawing(d, test_cfg)
     assert not any("block:*T" in c.source.locator for p in out.panels for c in p.circuits)
     assert "texts in table render blocks not read twice" in out.coverage[-1].what_read
+
+
+def _lp(out):
+    return [p.name for p in out.panels]
+
+
+def test_orphan_table_render_block_is_still_read(test_cfg):
+    other = [
+        ["7", "Boiler room", "900", "30 A", "2", "10 AWG"],
+        ["8", "Boiler fan", "700", "25", "2", "10 AWG"],
+        ["9", "Pump", "600", "20", "2", "10 AWG"],
+    ]
+    d = drawing(loose(name="LP-9", layout="block:*T2") + [table(schedule("LP-7", other))])
+    names = _lp(dxf.parse_rawdrawing(d, test_cfg))
+    assert names.count("LP-9") == 1 and names.count("LP-7") == 1
+
+
+def test_unread_table_render_block_is_still_read(test_cfg):
+    blank = table([[""] * 6 for _ in range(3)])
+    d = drawing(loose(layout="block:*T2") + [blank])
+    out = dxf.parse_rawdrawing(d, test_cfg)
+    assert _lp(out).count("LP-9") == 1
+    assert "not read twice" not in out.coverage[-1].what_read
