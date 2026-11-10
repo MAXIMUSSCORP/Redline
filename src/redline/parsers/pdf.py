@@ -42,6 +42,9 @@ MAX_PAGES = 1000
 MAX_WORDS_PER_PAGE = 100_000
 MAX_ANNOTS_PER_PAGE = 10_000
 MAX_CHARS_PER_PAGE = 1_000_000
+# Longest array or dictionary pdfminer may parse in the file, whether in the file body, the page
+# tree or an object stream. A page tree of 100000 pages is under it.
+MAX_ARRAY_ITEMS = 200_000
 # Per-process ceiling on the child. A large E-size sheet needs well under 1 GB.
 MAX_CHILD_MEMORY_MB = 4096
 _CAPS = (
@@ -111,6 +114,72 @@ def _text_of(x: Any, decode) -> str:
     return x.replace("﻿", "") if isinstance(x, str) else ""
 
 
+class _ArrayTooLong(InputError):
+    """A PDF array or dictionary is longer than MAX_ARRAY_ITEMS. Raised while it is parsed, so the
+    rest of it is never tokenised."""
+
+
+class _BoundedArrays:
+    """Stop pdfminer's file parser at MAX_ARRAY_ITEMS entries in one array. This is the only way to
+    bound an /Annots array before pdfminer builds it: it is parsed when the page, its /Annots object
+    or the object stream holding either is first read. Content streams use another parser and are
+    not touched. An object or object stream that failed is remembered, since pdfminer caches only
+    what it parsed, and a thousand pages may name the same one. These are pdfminer internals: a
+    release that renames one makes the read fail loudly, and the annotation tests fail with it."""
+
+    def __init__(self, name: str) -> None:
+        self.error = _ArrayTooLong(
+            f"{name} has an array of more than {MAX_ARRAY_ITEMS} entries in the file or its page "
+            "tree, so it is not read"
+        )
+
+    def __enter__(self) -> None:
+        try:
+            from pdfminer.pdfdocument import PDFDocument
+            from pdfminer.pdfparser import PDFParser
+        except ImportError as e:
+            raise InputError("pdfplumber not installed: pip install redline[pdf]") from e
+        self.saved = [
+            (cls, name, getattr(cls, name))
+            for cls, name in [
+                (PDFParser, "push"),
+                (PDFDocument, "_getobj_parse"),
+                (PDFDocument, "_getobj_objstm"),
+            ]
+        ]
+        failed: set = set()
+        error = self.error
+        push = PDFParser.push
+
+        def bounded_push(parser, *objs):
+            push(parser, *objs)
+            if len(parser.curstack) > MAX_ARRAY_ITEMS:
+                raise error
+
+        def remembered(method, key):
+            def wrapper(doc, *args):
+                k = (method.__name__, key(*args))
+                if k in failed:
+                    raise error
+                try:
+                    return method(doc, *args)
+                except _ArrayTooLong:
+                    failed.add(k)
+                    raise
+
+            return wrapper
+
+        PDFParser.push = bounded_push
+        PDFDocument._getobj_parse = remembered(PDFDocument._getobj_parse, lambda pos, objid: pos)
+        PDFDocument._getobj_objstm = remembered(
+            PDFDocument._getobj_objstm, lambda stream, index, objid: stream.objid
+        )
+
+    def __exit__(self, *exc) -> None:
+        for cls, name, original in self.saved:
+            setattr(cls, name, original)
+
+
 def _is_memory(e: BaseException | None) -> bool:
     """pdfplumber wraps a MemoryError from pdfminer in its own exception."""
     while e is not None:
@@ -141,7 +210,14 @@ def _dump_page(page: Any, caps: dict, decode, resolve1) -> dict:
         ih = min(_num(im.get("bottom")), h) - max(_num(im.get("top")), 0.0)
         area += max(iw, 0.0) * max(ih, 0.0)
     d["image_area_fraction"] = round(min(area / (w * h), 1.0), 4) if w * h > 0 else 0.0
-    raw_annots = resolve1(page.page_obj.annots)  # the raw array, before any entry is resolved
+    try:
+        raw_annots = resolve1(page.page_obj.annots)  # the raw array, before any entry is resolved
+    except _ArrayTooLong:
+        d["skipped"] = (
+            f"page /Annots holds more than {MAX_ARRAY_ITEMS} entries, over MAX_ANNOTS_PER_PAGE "
+            f"({caps['MAX_ANNOTS_PER_PAGE']}), so it is not read"
+        )
+        return d
     n_annots = len(raw_annots) if isinstance(raw_annots, list) else 0
     if n_annots > caps["MAX_ANNOTS_PER_PAGE"]:
         d["skipped"] = (
@@ -198,6 +274,11 @@ def _dump_page(page: Any, caps: dict, decode, resolve1) -> dict:
 
 def _dump(job: dict) -> dict:
     """Open the PDF and dump every page. Raises InputError with a plain reason."""
+    with _BoundedArrays(Path(job["path"]).name):
+        return _read(job)
+
+
+def _read(job: dict) -> dict:
     name = Path(job["path"]).name
     import itertools
 
@@ -219,6 +300,8 @@ def _dump(job: dict) -> dict:
     )
     try:
         pdf = pdfplumber.open(job["path"])
+    except InputError:
+        raise
     except PDFPasswordIncorrect as e:
         raise InputError(f"{name} is password protected, so it is not read") from e
     except Exception as e:
@@ -260,8 +343,9 @@ def _dump(job: dict) -> dict:
     read = len(pages)
     total = read
     if more:
-        # /Count is the file's own claim, so it is used only when it fits what was read.
-        total = count if isinstance(count, int) and count > read else 0
+        # /Count is the file's own claim, so it is used only when it fits what was read and what
+        # the parent's JSON read accepts (above 2**53 it is not an exact number).
+        total = count if isinstance(count, int) and read < count <= 2**53 else 0
         skipped = (
             f"{total - read} pages past MAX_PAGES ({cap}) are not read"
             if total
