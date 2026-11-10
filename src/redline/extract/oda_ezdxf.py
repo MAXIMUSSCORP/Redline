@@ -75,20 +75,32 @@ def _table_counts(e: Any) -> tuple[int, int] | None:
     return (rows, cols) if rows > 0 and cols > 0 else None
 
 
+def _budget() -> dict[str, Any]:
+    """One per table: FIELD handles read so far, whether the current cell lost a part, notes given."""
+    return {"n": 0, "cut": False, "said": set()}
+
+
+def _say(budget: dict[str, Any], notes: list[str], msg: str) -> None:
+    if msg not in budget["said"]:
+        budget["said"].add(msg)
+        notes.append(msg)
+
+
 def _field_text(
-    db: Any, handle: Any, seen: list[Any], notes: list[str], what: str, path: tuple = ()
+    db: Any, handle: Any, budget: dict[str, Any], notes: list[str], what: str, path: tuple = ()
 ) -> str:
     """Cached text of a FIELD: its own value (code 301), else its field code (codes 2 and 3)
     with each child's text (code 360) put in at its FldIdx place. A handle on the current path
-    is a cycle. A cell reads at most _FIELD_VISITS handles in all (seen counts visits)."""
+    is a cycle. A table reads at most _FIELD_VISITS handles in all. A part lost to a cycle or
+    the budget sets budget["cut"], and the caller then drops the whole cell text."""
     if handle in path:
+        budget["cut"] = True
         return ""
-    if len(seen) >= _FIELD_VISITS:
-        note = f"{what}: FIELD reading stopped after {_FIELD_VISITS} fields"
-        if note not in notes:
-            notes.append(note)
+    if budget["n"] >= _FIELD_VISITS:
+        budget["cut"] = True
+        _say(budget, notes, f"{what}: FIELD reading stopped after {_FIELD_VISITS} fields")
         return ""
-    seen.append(handle)
+    budget["n"] += 1
     f = db.get(handle)
     if f is None or f.dxftype() != "FIELD":
         return ""
@@ -96,54 +108,71 @@ def _field_text(
     own = "".join(str(t.value) for t in tags if t.code == 301)
     if own:
         return own
-    kids = [
-        _field_text(db, t.value, seen, notes, what, (*path, handle)) for t in tags if t.code == 360
-    ]
+    kids = []
+    for t in tags:
+        if t.code == 360:
+            if budget["n"] >= _FIELD_VISITS:  # spent: do not walk the rest of the children
+                budget["cut"] = True
+                _say(budget, notes, f"{what}: FIELD reading stopped after {_FIELD_VISITS} fields")
+                break
+            kids.append(_field_text(db, t.value, budget, notes, what, (*path, handle)))
+    if budget["cut"]:
+        return ""
     code = "".join(str(t.value) for t in tags if t.code in (2, 3))
     if not _FLD_IDX.search(code):
         if len(kids) > 1:
-            notes.append(
-                f"{what}: FIELD has several child fields and no place for them in its code"
+            _say(
+                budget,
+                notes,
+                f"{what}: FIELD has several child fields and no place for them in its code",
             )
             return ""
         return "".join(kids)
     if any(int(i) >= len(kids) for i in _FLD_IDX.findall(code)):
-        notes.append(
-            f"{what}: FIELD code names a child field that is not there, so no text was read"
+        _say(
+            budget,
+            notes,
+            f"{what}: FIELD code names a child field that is not there, so no text was read",
         )
         return ""
     return _FLD_IDX.sub(lambda m: kids[int(m.group(1))], code)
 
 
 def _cell_texts(
-    e: Any, cols: int, what: str, notes: list[str]
-) -> tuple[dict[tuple[int, int], str], dict[tuple[int, int], str]]:
-    """Per cell of the AcDbTable tags (each cell opens with 171): FIELD cached text (code 344)
-    and plain code 1 text. Long text comes as code 3 chunks, then code 1 last."""
+    e: Any, rows: int, cols: int, what: str, notes: list[str]
+) -> tuple[dict[tuple[int, int], str], dict[tuple[int, int], str], set[tuple[int, int]]]:
+    """Per cell of the AcDbTable tags (each cell opens with 171): FIELD cached text (code 344),
+    plain code 1 text, and the cells whose field was cut short. Long text comes as code 3
+    chunks, then code 1 last. Tags past the declared rows x cols are ignored."""
     tags = _probe(lambda: list(e.xtags.get_subclass("AcDbTable")))
     if not tags or cols <= 0:
-        return {}, {}
+        return {}, {}, set()
     fields: dict[tuple[int, int], str] = {}
     plain: dict[tuple[int, int], str] = {}
+    cut: set[tuple[int, int]] = set()
+    budget = _budget()
     n, chunks = -1, ""
     for t in tags:
         if t.code == 171:
             n, chunks = n + 1, ""
-        elif n < 0:
+        elif n < 0 or n >= rows * cols:
             continue
         elif t.code == 344:
             pos = divmod(n, cols)
-            txt = _field_text(
-                e.doc.entitydb, t.value, [], notes, f"table {what} cell ({pos[0]}, {pos[1]})"
-            )
-            if txt:  # an empty field result must not hide the cell's own text
+            cell = f"table {what} cell ({pos[0]}, {pos[1]})"
+            budget["cut"] = False
+            txt = _field_text(e.doc.entitydb, t.value, budget, notes, cell)
+            if budget["cut"]:
+                cut.add(pos)
+                _say(budget, notes, f"{cell}: FIELD text was cut short, so the cell text is empty")
+            elif txt:  # an empty field result must not hide the cell's own text
                 fields[pos] = txt
         elif t.code == 3:
             chunks += str(t.value)
         elif t.code == 1:
             plain[divmod(n, cols)] = chunks + str(t.value)
             chunks = ""
-    return fields, plain
+    return fields, plain, cut
 
 
 def _table(e: Any, what: str, notes: list[str], acad_table: Any) -> dict[str, Any]:
@@ -156,13 +185,13 @@ def _table(e: Any, what: str, notes: list[str], acad_table: Any) -> dict[str, An
         )
     values = acad_table.read_acad_table_content(e)
     # ezdxf reads a FIELD cell's own text, which is empty. The drawing shows the cached value.
-    fields, plain = _cell_texts(e, counts[1], what, notes) if counts else ({}, {})
+    fields, plain, cut = _cell_texts(e, *counts, what, notes) if counts else ({}, {}, set())
     cells = []
     for r, row in enumerate(values):
         for c, text in enumerate(row):
             # Every fallback cell is not evaluated until the FIELD tag check is shown right (D4).
             # Code 1 holds the text of many cells while code 302, which ezdxf reads, is empty.
-            text = fields.get((r, c)) or text or plain.get((r, c), "")
+            text = "" if (r, c) in cut else fields.get((r, c)) or text or plain.get((r, c), "")
             text = plain_mtext(text, split=False).replace(chr(10), " ")
             cells.append({"r": r, "c": c, "text": _cut(text, what, notes), "evaluated": False})
     if len(cells) > rawdrawing.MAX_TABLE_CELLS:
@@ -398,7 +427,13 @@ def extract(path: Path, cfg: Config) -> dict[str, Any]:
                             x["resolved"] = False
                             notes.append(f"xref {x['name']} was not read: {reason}")
                     notes.append(f"xref {name} was not read: {reason}")
-        xrefs.append({"name": name, "path": raw, "resolved": done})
+        xrefs.append(
+            {
+                "name": _cut(name, "xref name", notes),
+                "path": _cut(raw, "xref path", notes),
+                "resolved": done,
+            }
+        )
 
     try:
         doc = load(path)
