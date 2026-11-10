@@ -630,29 +630,135 @@ def test_page_cap_before_page_objects(test_cfg, tmp_path):
     assert f"{n - pdf.MAX_PAGES} pages past MAX_PAGES" in d["pages"][-1]["skipped"]
 
 
+def annots_pdf(n: int, where: str = "indirect") -> bytes:
+    """One page whose /Annots holds n references: an indirect array (6), inline in the page, or
+    inside an object stream (7) found through an xref stream."""
+    arr = b"[" + b"5 0 R " * n + b"]"
+    annot = b"<< /Type /Annot /Subtype /Text /Rect [10 10 20 20] /Contents (x) >>"
+    page = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots %s >>"
+    objs = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        5: annot,
+    }
+    if where == "inline":
+        return raw_pdf({**objs, 3: page % arr})
+    if where == "indirect":
+        return raw_pdf({**objs, 3: page % b"6 0 R", 6: arr})
+    import struct
+    import zlib
+
+    out, offs = bytearray(b"%PDF-1.5\n"), {}
+    for num, body in {**objs, 3: page % b"6 0 R"}.items():
+        offs[num] = len(out)
+        out += b"%d 0 obj\n" % num + body + b"\nendobj\n"
+    z = zlib.compress(b"6 0 " + arr)
+    offs[7] = len(out)
+    out += b"7 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /Length %d >>\n" % len(z)
+    out += b"stream\n" + z + b"\nendstream\nendobj\n"
+    start = len(out)
+    rows = b""
+    for num in range(9):
+        if num == 6:
+            rows += struct.pack(">BIH", 2, 7, 0)
+        elif num == 8:
+            rows += struct.pack(">BIH", 1, start, 0)
+        else:
+            rows += struct.pack(">BIH", 1 if num in offs else 0, offs.get(num, 0), 0)
+    out += b"8 0 obj\n<< /Type /XRef /Size 9 /W [1 4 2] /Root 1 0 R /Length %d >>\n" % len(rows)
+    out += b"stream\n" + rows + b"\nendstream\nendobj\nstartxref\n%d\n%%%%EOF\n" % start
+    return bytes(out)
+
+
 def test_annots_cap_before_resolve(test_cfg, tmp_path, monkeypatch):
+    import time
+
+    import pdfminer.pdfparser
     import pdfplumber.page
 
     def resolved(self):
         raise AssertionError("annotations were resolved on an over-cap page")
 
     monkeypatch.setattr(pdfplumber.page.Page, "annots", property(resolved))
-    n = 300_000
-    objs = {
-        1: b"<< /Type /Catalog /Pages 2 0 R >>",
-        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots 6 0 R >>",
-        5: b"<< /Type /Annot /Subtype /Text /Rect [10 10 20 20] /Contents (x) >>",
-        6: b"[" + b"5 0 R " * n + b"]",
-    }
+    push = pdfminer.pdfparser.PDFParser.push
     path = tmp_path / "annots.pdf"
-    path.write_bytes(raw_pdf(objs))
-    import time
-
+    path.write_bytes(annots_pdf(1_000_000))
     start = time.monotonic()
     d = pdf.read_pages(path, test_cfg, isolated=False)
-    assert time.monotonic() - start < 10
-    assert f"page has {n} annotations, over MAX_ANNOTS_PER_PAGE" in d["pages"][0]["skipped"]
+    assert time.monotonic() - start < 3
+    assert "page /Annots holds more than" in d["pages"][0]["skipped"]
+    assert "over MAX_ANNOTS_PER_PAGE" in d["pages"][0]["skipped"]
+    assert pdfminer.pdfparser.PDFParser.push is push  # the bound is lifted after the read
+
+
+def test_annots_array_above_array_cap_counted(test_cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(pdf, "MAX_ARRAY_ITEMS", 50_000)
+    path = tmp_path / "annots.pdf"
+    path.write_bytes(annots_pdf(30_000))
+    d = pdf.read_pages(path, test_cfg, isolated=False)
+    assert "page has 30000 annotations, over MAX_ANNOTS_PER_PAGE" in d["pages"][0]["skipped"]
+
+
+def test_annots_cap_in_object_stream(test_cfg, tmp_path):
+    import time
+
+    path = tmp_path / "objstm.pdf"
+    path.write_bytes(annots_pdf(1_000_000, "objstm"))
+    start = time.monotonic()
+    d = pdf.read_pages(path, test_cfg, isolated=False)
+    assert time.monotonic() - start < 3
+    assert "page /Annots holds more than" in d["pages"][0]["skipped"]
+    small = tmp_path / "small.pdf"
+    small.write_bytes(annots_pdf(2, "objstm"))
+    assert len(pdf.read_pages(small, test_cfg, isolated=False)["pages"][0]["annots"]) == 2
+
+
+def test_annots_inline_array_ends_the_read_listed(test_cfg, tmp_path):
+    import time
+
+    path = tmp_path / "inline.pdf"
+    path.write_bytes(annots_pdf(1_000_000, "inline"))
+    start = time.monotonic()
+    with pytest.raises(csv_xlsx.InputError, match=r"inline\.pdf has an array of more than 200000"):
+        pdf.read_pages(path, test_cfg, isolated=False)
+    assert time.monotonic() - start < 3
+
+
+def test_annots_array_shared_by_pages_parsed_once(test_cfg, tmp_path):
+    import time
+
+    arr = b"[" + b"5 0 R " * 1_000_000 + b"]"
+    objs = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids ["
+        + b" ".join(b"%d 0 R" % (10 + i) for i in range(20))
+        + b"] >>",
+        5: b"<< /Type /Annot /Subtype /Text /Rect [10 10 20 20] /Contents (x) >>",
+        6: arr,
+    }
+    for i in range(20):
+        objs[10 + i] = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 9 9] /Annots 6 0 R >>"
+    path = tmp_path / "shared.pdf"
+    path.write_bytes(raw_pdf(dict(sorted(objs.items()))))
+    start = time.monotonic()
+    d = pdf.read_pages(path, test_cfg, isolated=False)
+    assert time.monotonic() - start < 3
+    assert all("holds more than" in p["skipped"] for p in d["pages"])
+
+
+def test_page_count_too_large_ignored(test_cfg, tmp_path):
+    n = pdf.MAX_PAGES + 1
+    objs = {1: b"<< /Type /Catalog /Pages 2 0 R >>"}
+    for i in range(n):
+        objs[3 + i] = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 9 9] >>"
+    kids = b" ".join(b"%d 0 R" % (3 + i) for i in range(n))
+    objs[2] = b"<< /Type /Pages /Kids [" + kids + b"] /Count 100000000000000000 >>"
+    path = tmp_path / "count.pdf"
+    path.write_bytes(raw_pdf(dict(sorted(objs.items()))))
+    d = pdf.read_pages(path, test_cfg)  # the child and the parent's strict JSON read
+    assert len(d["pages"]) == pdf.MAX_PAGES + 1
+    assert d["pages_total"] == pdf.MAX_PAGES + 1
+    assert "more than 1000 pages" in d["pages"][-1]["skipped"]
 
 
 def test_chars_cap_before_extract_words(test_cfg, monkeypatch):
