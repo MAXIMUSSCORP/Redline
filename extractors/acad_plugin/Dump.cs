@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -18,9 +19,9 @@ namespace Redline
     // A thin dumper: it reads the drawing and writes RawDrawing 1.0 JSON. It decides nothing.
     public class Dump
     {
-        readonly List<string> warnings = new();
-        readonly List<(string name, string path, bool resolved)> xrefs = new();
-        readonly HashSet<string> visited = new(StringComparer.OrdinalIgnoreCase);
+        List<string> warnings = new();
+        List<(string name, string path)> xrefs = new();
+        Dictionary<string, int> skipped = new();
         Utf8JsonWriter w = null!;
         long count;
 
@@ -30,6 +31,7 @@ namespace Redline
             var doc = Application.DocumentManager.MdiActiveDocument;
             var ed = doc.Editor;
             string? tmp = null;
+            warnings = new(); xrefs = new(); skipped = new(); count = 0;
             try
             {
                 var o = new PromptStringOptions("\nRedline output path: ") { AllowSpaces = true };
@@ -59,7 +61,6 @@ namespace Redline
             string sha;
             using (var s = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                 sha = Convert.ToHexString(SHA256.HashData(s)).ToLowerInvariant();
-            visited.Add(file);
 
             w.WriteStartObject();
             w.WriteString("schema_version", "1.0");
@@ -68,9 +69,9 @@ namespace Redline
             w.WriteString("host_version", "AutoCAD " + acad);
             w.WriteString("source_file", Path.GetFileName(file));
             w.WriteString("source_sha256", sha);
-            w.WriteString("extracted_at", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
+            w.WriteString("extracted_at", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture));
             w.WriteStartArray("entities");
-            var layouts = Walk(db, null);
+            var layouts = Walk(db);
             w.WriteEndArray();
 
             w.WriteStartObject("document");
@@ -78,13 +79,15 @@ namespace Redline
             w.WriteStartArray("layouts");
             foreach (var l in layouts) w.WriteStringValue(l);
             w.WriteEndArray();
+            foreach (var kv in skipped) warnings.Add("skipped " + kv.Value + " " + kv.Key);
+            foreach (var x in xrefs) warnings.Add("xref not read: " + x.name + " (the plugin path reads no xref content)");
             w.WriteStartArray("xrefs");
             foreach (var x in xrefs)
             {
                 w.WriteStartObject();
                 w.WriteString("name", x.name);
                 w.WriteString("path", x.path);
-                w.WriteBoolean("resolved", x.resolved);
+                w.WriteBoolean("resolved", false);
                 w.WriteEndObject();
             }
             w.WriteEndArray();
@@ -95,17 +98,16 @@ namespace Redline
             w.WriteEndObject();
         }
 
-        // Writes the entities of one database and returns its layout names. Xrefs are walked after the host.
-        List<string> Walk(Database db, string? xrefPath)
+        // Writes the host database entities and returns its layout names. Xrefs are only listed.
+        List<string> Walk(Database db)
         {
             var layouts = new List<string>();
-            var found = new List<BlockTableRecord>();
             using var tr = db.TransactionManager.StartOpenCloseTransaction();
             var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
             foreach (ObjectId id in bt)
             {
                 var btr = (BlockTableRecord)tr.GetObject(id, OpenMode.ForRead);
-                if (btr.IsFromExternalReference || btr.IsFromOverlayReference) { found.Add(btr); continue; }
+                if (btr.IsFromExternalReference || btr.IsFromOverlayReference) { xrefs.Add((btr.Name, btr.PathName)); continue; }
                 if (btr.IsAnonymous) continue;
                 string where;
                 if (btr.IsLayout)
@@ -116,24 +118,14 @@ namespace Redline
                 else where = "block:" + btr.Name;
                 foreach (ObjectId eid in btr)
                 {
-                    try { Emit(tr, (Entity)tr.GetObject(eid, OpenMode.ForRead), where, xrefPath); }
-                    catch (System.Exception ex) { warnings.Add(where + " " + eid.Handle + ": " + ex.GetType().Name); }
+                    try { Emit(tr, (Entity)tr.GetObject(eid, OpenMode.ForRead), where); }
+                    catch (System.Exception ex) { warnings.Add("skipped entity " + where + " " + eid.Handle + ": " + ex.GetType().Name + ": " + ex.Message); }
                 }
-            }
-            foreach (var x in found)
-            {
-                Database? xdb = null;
-                var ok = x.XrefStatus == XrefStatus.Resolved;
-                if (ok) { try { xdb = x.GetXrefDatabase(false); } catch (System.Exception) { } }
-                xrefs.Add((x.Name, x.PathName, xdb != null));
-                if (xdb == null) { warnings.Add("xref not resolved: " + x.Name); continue; }
-                if (!visited.Add(xdb.Filename)) continue;
-                Walk(xdb, xdb.Filename);
             }
             return layouts;
         }
 
-        void Emit(Transaction tr, Entity e, string layout, string? xrefPath)
+        void Emit(Transaction tr, Entity e, string layout)
         {
             string type, text = null!, blockName = null!;
             Point3d? at = null;
@@ -142,6 +134,8 @@ namespace Redline
             Table? table = null;
             switch (e)
             {
+                case AttributeDefinition:
+                    return; // template of an attribute, not drawing text; constants are written with the INSERT
                 case DBText t:
                     type = "TEXT"; text = t.TextString; at = t.Position; rot = t.Rotation; height = t.Height; break;
                 case MText m:
@@ -153,6 +147,8 @@ namespace Redline
                     var def = (BlockTableRecord)tr.GetObject(b.IsDynamicBlock ? b.DynamicBlockTableRecord : b.BlockTableRecord, OpenMode.ForRead);
                     blockName = def.Name;
                     attrs = new();
+                    foreach (ObjectId did in def)
+                        if (tr.GetObject(did, OpenMode.ForRead) is AttributeDefinition ad && ad.Constant) attrs.Add((ad.Tag, ad.TextString));
                     foreach (ObjectId aid in b.AttributeCollection)
                     {
                         var a = (AttributeReference)tr.GetObject(aid, OpenMode.ForRead);
@@ -169,7 +165,10 @@ namespace Redline
                     type = "POLYLINE";
                     try { at = ((Curve)e).StartPoint; } catch (System.Exception) { }
                     break;
-                default: return;
+                default:
+                    var tn = e.GetType().Name.ToUpperInvariant();
+                    skipped[tn] = skipped.GetValueOrDefault(tn) + 1;
+                    return;
             }
             double[]? box = null;
             try
@@ -179,9 +178,13 @@ namespace Redline
             }
             catch (System.Exception) { }
 
-            count++;
+            var outer = w;
+            using var ms = new MemoryStream();
+            w = new Utf8JsonWriter(ms);
+            try
+            {
             w.WriteStartObject();
-            w.WriteString("id", (xrefPath == null ? "" : Path.GetFileNameWithoutExtension(xrefPath) + ":") + e.Handle);
+            w.WriteString("id", e.Handle.ToString());
             w.WriteString("type", type);
             w.WriteString("layout", layout);
             w.WriteString("layer", e.Layer);
@@ -211,7 +214,7 @@ namespace Redline
             }
             w.WritePropertyName("table");
             if (table == null) w.WriteNullValue(); else WriteTable(table);
-            w.WriteString("xref_path", xrefPath);
+            w.WriteNull("xref_path");
             w.WritePropertyName("bbox");
             if (box != null && Finite(box) && box[0] <= box[2] && box[1] <= box[3])
             {
@@ -219,6 +222,11 @@ namespace Redline
             }
             else w.WriteNullValue();
             w.WriteEndObject();
+            w.Flush();
+            }
+            finally { w = outer; }
+            outer.WriteRawValue(ms.ToArray());
+            count++;
         }
 
         void WriteTable(Table t)
@@ -233,7 +241,17 @@ namespace Redline
                     string s;
                     var ok = true;
                     try { s = t.TextString(r, c, FormatOption.IgnoreMtextFormat); }
-                    catch (System.Exception) { s = ""; ok = false; }
+                    catch (System.Exception ex)
+                    {
+                        s = ""; ok = false;
+                        warnings.Add("table " + t.Handle + " row " + r + " col " + c + ": cell read failed, " + ex.GetType().Name);
+                    }
+                    // A field, formula or data link means the text may be a cached value: not evaluated.
+                    try
+                    {
+                        if (ok && (!t.GetFieldId(r, c).IsNull || t.HasFormula(r, c, 0) || !t.GetDataLink(r, c).IsNull)) ok = false;
+                    }
+                    catch (System.Exception) { ok = false; }
                     w.WriteStartObject();
                     w.WriteNumber("r", r);
                     w.WriteNumber("c", c);

@@ -3,7 +3,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>RedlinePlugin</AssemblyName>
     <RootNamespace>Redline</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>0.1.0</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <AcadDir Condition="'$(AcadDir)' == ''"></AcadDir>
