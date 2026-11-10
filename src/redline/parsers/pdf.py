@@ -78,7 +78,7 @@ WORDS_NOTE = "read from PDF words, no drawn grid"
 DISAGREE_NOTE = "annotation text and page text disagree"
 _NO_SUMMARY = "HIGH 0, MEDIUM 0, LOW 0, MISSING 0"
 _REASON_LIMIT = 199  # clip() keeps limit + 1 characters, so a reason is at most 200
-MAX_LISTED_PER_PAGE = 50  # annotation disagreements listed per page; the rest are only counted
+MAX_LISTED_PER_PAGE = 50  # items listed per page, of any kind; the rest are only counted
 _TITLE_SHOWN = 3  # values named in the "more than one value" text
 _TITLE_LABELS = {"sheet_number": ("sheet", "sheet number"), "revision": ("revision", "revision")}
 
@@ -633,23 +633,42 @@ def _read_title(
     def cell(i: int, c: int) -> str:
         return grid[i][c].strip() if i < len(grid) and c < len(grid[i]) else ""
 
-    def value(i: int, c: int) -> str:
-        x = cell(i, c)
-        return "" if x and is_label[i][c] else x
-
     def has_digit(x: str) -> bool:
         return any(ch.isdigit() for ch in x)
 
+    rev_max = parsing["pdf_title_revision_max_chars"]
+    sheet_max = parsing["pdf_title_sheet_max_chars_without_digit"]
+
+    def shaped(key: str, x: str) -> bool:
+        """The value has the shape of its key; a cell without it is not a value, like a label."""
+        parts = x.split()
+        if key == "revision":
+            return len(parts) == 1 and len(x) <= rev_max
+        if key == "sheet_number":
+            return bool(parts) and (
+                has_digit(parts[0]) or (len(parts) == 1 and len(x) <= sheet_max)
+            )
+        return True
+
+    def value(key: str, i: int, c: int) -> str:
+        x = cell(i, c)
+        return "" if x and (is_label[i][c] or not shaped(key, x)) else x
+
     header = [sum(flags) >= 2 for flags in is_label]  # two or more labels: a block header
     full: dict[tuple[int, int], bool] = {}
+    label_cols: dict[int, list[int]] = {}
 
     def full_row(h: int, i: int) -> bool:
         """Row i has a value under at least two of the label columns of header row h."""
         if (h, i) not in full:
+            if h not in label_cols:
+                label_cols[h] = [c for c, flag in enumerate(is_label[h]) if flag]
             hits = 0
-            for c, x in enumerate(grid[i]):
-                if x.strip() and not is_label[i][c] and c < len(is_label[h]) and is_label[h][c]:
+            for c in label_cols[h]:
+                if c < len(grid[i]) and grid[i][c].strip() and not is_label[i][c]:
                     hits += 1
+                    if hits == 2:
+                        break
             full[h, i] = hits >= 2
         return full[h, i]
 
@@ -668,6 +687,7 @@ def _read_title(
             if (
                 beside
                 and not is_label[r][j]
+                and shaped(key, beside)
                 and (has_digit(beside) or not has_digit(below) or is_label[r + 1][c])
             ):
                 found[key].append(beside)
@@ -675,14 +695,14 @@ def _read_title(
                 continue
             # Otherwise the value is in the column below. Several values only in a revision table:
             # the label's row is a header of a block and the rows below are full rows of it.
-            first = value(r + 1, c)
+            first = value(key, r + 1, c)
             if not first:
                 continue
             got_below = [(r + 1, first)]
             if header[r]:
                 i = r + 2
-                while i < len(grid) and full_row(r, i) and value(i, c):
-                    got_below.append((i, value(i, c)))
+                while i < len(grid) and full_row(r, i) and value(key, i, c):
+                    got_below.append((i, value(key, i, c)))
                     i += 1
             used.add((r, c))
             used |= {(i, c) for i, _ in got_below}
@@ -783,6 +803,14 @@ class _Page:
         self.out.coverage += part.coverage
 
     def entry(self) -> CoverageEntry:
+        # One cap for every item the page lists, whatever added it; the full counts stay here.
+        items = self.out.unparsed
+        if len(items) > MAX_LISTED_PER_PAGE:
+            kinds = ", ".join(f"{k} {n}" for k, n in sorted(Counter(u.kind for u in items).items()))
+            self.parts.append(
+                f"{len(items)} items listed ({kinds}), first {MAX_LISTED_PER_PAGE} shown"
+            )
+            del items[MAX_LISTED_PER_PAGE:]
         text = f"page {self.n}: " + "; ".join(self.parts)
         return CoverageEntry(self.file, f"page {self.n}", text, self.method.value, _NO_SUMMARY)
 
