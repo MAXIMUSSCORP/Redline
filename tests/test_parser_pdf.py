@@ -1342,3 +1342,172 @@ def test_disagreement_listing_capped_per_page(test_cfg, monkeypatch):
     _, listed, text = case(2)
     assert len(listed) == 18
     assert "18 cells where annotation text and page text disagree, listed" in text
+
+
+# (rows, what_read must hold, what_read must not hold); the shape named first in each row
+SHAPES = [
+    ("A3", [["REV", "STATUS"], ["C", "IFC"]], ["revision C"], ["revision STATUS"]),
+    ("A5", [["SHEET", "DISCIPLINE"], ["ES", "ELECTRICAL"]], ["sheet ES"], ["sheet DISCIPLINE"]),
+    (
+        "A7",
+        [["REV", "PROJECT TITLE"], ["C", "MAIN ST TOWER"]],
+        ["revision C"],
+        ["revision PROJECT"],
+    ),
+    (
+        "C4 firm",
+        [["B", "IFC", "2026-02-09"], ["REV", "DESCRIPTION", "DATE"], ["ACME ENGINEERING"]],
+        ["revision not found"],
+        ["ACME"],
+    ),
+    (
+        "C5 title",
+        [["1", "IFC", "2026-02-09"], ["REV", "DESCRIPTION", "DATE"], ["LIGHTING"]],
+        ["revision not found"],
+        ["LIGHTING"],
+    ),
+    (
+        "C6",
+        [["REV", "REMARKS", "DATE"], ["A", "ISSUED FOR PERMIT", "2026-01-05"]],
+        ["revision A"],
+        ["revision REMARKS"],
+    ),
+    (
+        "C7",
+        [["REV", "REVISION DESCRIPTION", "DATE"], ["A", "ISSUED FOR PERMIT", "2026-01-05"]],
+        ["revision A"],
+        ["revision REVISION"],
+    ),
+    ("E2 firm beside", [["REV", "ACME ENGINEERING"], ["C"]], ["revision C"], ["ACME"]),
+    (
+        "F1",
+        [["NO.", "REVISION", "DATE"], ["1", "ISSUED FOR PERMIT", "2026-01-05"]],
+        ["revision not found"],
+        ["ISSUED"],
+    ),
+    (
+        "F2",
+        [["NO.", "DATE", "REVISION", "BY"], ["1", "2026-01-05", "ISSUED FOR CONSTRUCTION", "JD"]],
+        ["revision not found"],
+        ["ISSUED"],
+    ),
+    (
+        "F3 owner",
+        [
+            ["2", "IFC", "2026-02-09"],
+            ["REV", "DESCRIPTION", "DATE"],
+            ["OWNER"],
+            ["CITY OF CALGARY"],
+        ],
+        ["revision not found"],
+        ["CITY", "revision OWNER"],
+    ),
+    (
+        "F4 key plan",
+        [["2", "IFC", "2026-02-09"], ["REV", "DESCRIPTION", "DATE"], ["KEY PLAN"]],
+        ["revision not found"],
+        ["KEY"],
+    ),
+    (
+        "F5 project",
+        [["2", "IFC", "2026-02-09"], ["REV", "DESCRIPTION", "DATE"], ["PROJECT"], ["MAIN ST"]],
+        ["revision not found"],
+        ["MAIN"],
+    ),
+    (
+        "F6 firm",
+        [
+            ["C", "IFC", "2026-03-09", "JD"],
+            ["REV.", "DESCRIPTION", "DATE", "BY"],
+            ["ACME ENGINEERING LTD."],
+        ],
+        ["revision not found"],
+        ["ACME"],
+    ),
+    (
+        "F7 seal",
+        [
+            ["0", "IFC", "2026-02-09", "JD"],
+            ["REV", "DESCRIPTION", "DATE", "BY"],
+            ["PERMIT TO PRACTICE"],
+        ],
+        ["revision not found"],
+        ["PERMIT"],
+    ),
+    (
+        "sheet no value",
+        [["SHEET NO."], ["ELECTRICAL PLAN"]],
+        ["sheet number not found"],
+        ["ELECTRICAL"],
+    ),
+    (
+        "sheet beside title",
+        [["SHEET NO.", "ELECTRICAL PLAN"]],
+        ["sheet number not found"],
+        ["ELECTRICAL"],
+    ),
+    # controls: right shapes still read
+    ("E-501", [["SHEET NO.", "E-501"]], ["sheet E-501"], []),
+    ("E1.01", [["SHEET", "E1.01"]], ["sheet E1.01"], []),
+    ("E-1", [["SHEET", "E-1"]], ["sheet E-1"], []),
+    ("ES", [["SHEET", "ES"]], ["sheet ES"], []),
+    ("E0.00", [["SHEET", "REV"], ["E0.00", "0"]], ["sheet E0.00, revision 0"], []),
+    ("E-501 OF 12", [["SHEET"], ["E-501 OF 12"]], ["sheet E-501 OF 12"], []),
+    ("rev C", [["REV", "C"]], ["revision C"], []),
+    ("rev 2", [["REV", "2"]], ["revision 2"], []),
+    ("rev 10", [["REV", "10"]], ["revision 10"], []),
+    ("rev P1", [["REV", "P1"]], ["revision P1"], []),
+]
+
+
+def test_title_value_shape_gates(test_cfg):
+    for name, rows, want, forbid in SHAPES:
+        text = title_text(test_cfg, rows)
+        for part in want:
+            assert part in text, f"{name}: {part!r} missing from {text!r}"
+        for part in forbid:
+            assert part not in text, f"{name}: {part!r} read from {text!r}"
+
+
+def test_title_shape_keys_from_config(test_cfg):
+    assert "revision 10" in title_text(test_cfg, [["REV", "10"]])
+    short = with_parsing(test_cfg, pdf_title_revision_max_chars=1)
+    assert "revision not found" in title_text(short, [["REV", "10"]])
+    assert "revision C" in title_text(short, [["REV", "C"]])
+    long = with_parsing(test_cfg, pdf_title_sheet_max_chars_without_digit=10)
+    assert "sheet number not found" in title_text(test_cfg, [["SHEET", "ELECTRICAL"]])
+    assert "sheet ELECTRICAL" in title_text(long, [["SHEET", "ELECTRICAL"]])
+
+
+def test_all_page_listings_capped(test_cfg):
+    rows = [gen.LP22_CELLS[1], *[["", "Load", "20", "1", "2", "1.0"] for _ in range(500)]]
+    ann = grid_words(rows, top=40.0, rowh=11.0)
+    lone = [
+        word(f"zq{i}", 700.0, 20000.0 + i * 100.0, 710.0, 20007.0 + i * 100.0) for i in range(500)
+    ]
+    out = parse(test_cfg, page(words=ann + lone, height=100000.0))
+    text = entry(out).what_read
+    assert len(out.unparsed) <= pdf.MAX_LISTED_PER_PAGE, text
+    assert "500" in text and "first 50 shown" in text, text
+    small = parse(test_cfg, page(words=grid_words(gen.LP22_CELLS)))
+    assert "shown" not in entry(small).what_read
+
+
+def test_title_staircase_linear(test_cfg):
+    import time
+
+    def w(t, col, row):
+        return word(
+            t, 10000.0 + 4.0 * col, 9000.0 + 2.0 * row, 10001.0 + 4.0 * col, 9000.5 + 2.0 * row
+        )
+
+    rows, words = 223, []
+    for r in range(rows):  # row r: values under every earlier header's columns, then two labels
+        words += [w("1", c, r) for c in range(2 * r)] + [
+            w("SHEET", 2 * r, r),
+            w("REV", 2 * r + 1, r),
+        ]
+    pg = page(words=words, width=12000.0, height=10000.0)
+    start = time.perf_counter()
+    entry(parse(test_cfg, pg))
+    assert time.perf_counter() - start < 1.0
