@@ -573,3 +573,35 @@ def test_declared_cells_capped_per_drawing_parse(test_cfg):
     assert time.perf_counter() - t0 < 3.0
     capped = [u for u in out.unparsed if "cell cap" in u.reason and "drawing" in u.reason]
     assert len(capped) >= 90
+
+
+def test_document_warnings_listed_in_unparsed(test_cfg):
+    d = drawing()
+    d["document"]["warnings"] = ["table A1 not read: size invalid", "skipped 2 VIEWPORT"]
+    out = dxf.parse_rawdrawing(d, test_cfg)
+    reasons = [u.reason for u in out.unparsed]
+    for w in d["document"]["warnings"]:
+        assert any(w in r and "t.dwg" in u.source.file for r, u in zip(reasons, out.unparsed))
+
+
+def test_star_t_matching_is_near_linear(test_cfg):
+    n = 6000
+    grid = [
+        ["Panel", "LP-9"],
+        ["Ckt", "Breaker", "Poles", "Wire Sz."],
+        ["1", "20 A", "1", "12 AWG"],
+    ]
+    tables = [table(grid, handle=f"{i:X}") for i in range(n)]
+    stars = [text("1", 0.0, 0.0, layout=f"block:*T{j}") for j in range(n)]
+    base = _seconds(drawing(tables), test_cfg)  # reading the tables is linear and not under test
+    assert _seconds(drawing(tables + stars), test_cfg) - base < 2.0
+
+
+def test_loose_text_merge_is_linear(test_cfg):
+    ents = [
+        text("x" * 1000, i * 1.0, 0.0, h=2.5, bbox=[i * 1.0, 0, i * 1.0 + 1.0, 2.5])
+        for i in range(20000)
+    ]
+    t0 = time.perf_counter()
+    dxf.parse_rawdrawing(drawing(ents), test_cfg)
+    assert time.perf_counter() - t0 < 5.0
