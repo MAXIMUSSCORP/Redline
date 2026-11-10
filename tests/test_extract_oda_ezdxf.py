@@ -132,6 +132,38 @@ def test_oda_field_cell_reads_cached_child_text_and_keeps_failed_value():
     assert {c["evaluated"] for c in cells.values()} == {False}
 
 
+def _tag_table(tag_pairs, values):
+    ent = FakeEntity(2, 2)
+    ent.doc = SimpleNamespace(entitydb=SimpleNamespace(get=lambda h: None))
+    tags = [SimpleNamespace(code=c, value=v) for c, v in tag_pairs]
+
+    class Sub(list):
+        get_first_value = staticmethod(lambda code, default=None: {91: 2, 92: 2}.get(code, default))
+
+    ent.xtags = SimpleNamespace(get_subclass=lambda name: Sub(tags))
+    item = oda_ezdxf.convert(ent, "E-101", None, [], fake_acad_table(values))
+    return {(c["r"], c["c"]): c for c in item["table"]["cells"]}
+
+
+def test_oda_cell_text_from_code_1_when_302_is_empty():
+    pairs = [(171, 1), (1, "K12"), (302, ""), (171, 1), (302, "own"), (1, "other")]
+    pairs += [(171, 1), (3, "long "), (3, "text "), (1, "end"), (302, "")]
+    cells = _tag_table(pairs, [["", "own"], ["", ""]])
+    assert cells[(0, 0)]["text"] == "K12"
+    assert cells[(0, 1)]["text"] == "own"
+    assert cells[(1, 0)]["text"] == "long text end"
+    assert cells[(1, 1)]["text"] == ""
+    assert {c["evaluated"] for c in cells.values()} == {False}
+
+
+def test_oda_cell_mtext_codes_become_plain_text():
+    pairs = [(171, 1), (1, r"LOAD\PVA"), (171, 1), (1, r"{\fArial|b1;Bold} x")]
+    cells = _tag_table(pairs, [["", ""], ["", ""]])
+    assert cells[(0, 0)]["text"] == "LOAD VA"
+    assert cells[(0, 1)]["text"] == "Bold x"
+    assert "\\" not in cells[(0, 0)]["text"]
+
+
 def test_oda_table_without_counts_emits_null():
     values = [["a", "b", "c"]]
     item = oda_ezdxf.convert(FakeEntity(0, 0), "E-101", None, [], fake_acad_table(values))
