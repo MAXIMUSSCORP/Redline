@@ -102,12 +102,14 @@ namespace Redline
         List<string> Walk(Database db)
         {
             var layouts = new List<string>();
+            var dependent = 0;
             using var tr = db.TransactionManager.StartOpenCloseTransaction();
             var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
             foreach (ObjectId id in bt)
             {
                 var btr = (BlockTableRecord)tr.GetObject(id, OpenMode.ForRead);
                 if (btr.IsFromExternalReference || btr.IsFromOverlayReference) { xrefs.Add((btr.Name, btr.PathName)); continue; }
+                if (btr.IsDependent) { dependent++; continue; }
                 if (btr.IsAnonymous) continue;
                 string where;
                 if (btr.IsLayout)
@@ -122,6 +124,7 @@ namespace Redline
                     catch (System.Exception ex) { warnings.Add("skipped entity " + where + " " + eid.Handle + ": " + ex.GetType().Name + ": " + ex.Message); }
                 }
             }
+            if (dependent > 0) warnings.Add("xref-dependent block definitions not read: " + dependent);
             return layouts;
         }
 
