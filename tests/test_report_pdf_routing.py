@@ -56,7 +56,7 @@ def test_pdf_only_unreadable_exits_2(tmp_path, capsys):
 
 
 def test_scanned_only_run_exits_0(tmp_path):
-    # a PDF that opens is read, even when every page is routed (CLAUDE.md 6)
+    # a PDF that opens is read, even when every page is routed
     code, html = _check(tmp_path, PDFS / "scanned_panel.pdf")
     assert code == 0
     assert "scanned_panel.pdf" in _section(html, "manual-check")

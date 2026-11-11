@@ -143,7 +143,7 @@ def test_two_column_each_half_judged_on_its_own(cfg):
 
 
 def test_two_column_letter_labels_with_blank_spacer_row_read(cfg):
-    # RV95: blank spacer rows never end a two-column CB1, CB2 schedule.
+    # Blank spacer rows never end a two-column CB1, CB2 schedule.
     head = ["Ckt", "Description", "Load VA", "Breaker", "Poles"] * 2
     rows = [["Panel", "LP1"], ["Bus", "100"], head]
     rows += [["CB1", "Lights", "800", "20", "1", "CB2", "Recept", "900", "20", "1"], []]

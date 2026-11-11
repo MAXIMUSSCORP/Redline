@@ -453,7 +453,7 @@ def test_title_block_table_not_read_as_schedule(test_cfg):
     assert [p.name for p in parse(test_cfg, page(tables=[elsewhere])).panels] == ["LP-22"]
 
 
-# ---- the four samples (CLAUDE.md 8) ----
+# ---- the four samples ----
 
 
 def read_sample(cfg, path):
@@ -478,7 +478,7 @@ def test_pdf_sample_counts(test_cfg, tmp_path):
 
     out = read_sample(test_cfg, PDFS / "shx_annot.pdf")
     [p] = out.panels
-    # the one planted disagreement is listed as well as marked LOW (RV8)
+    # the one planted disagreement is listed as well as marked LOW
     assert (p.name, len(p.circuits), [u.kind for u in out.unparsed]) == ("LP-23", 6, ["cell"])
     confs = Counter(v.confidence for v in every_value(out))
     assert max(confs) <= MEDIUM and confs[Confidence.LOW] == 1
@@ -958,7 +958,7 @@ def test_acad_pdfshx_plot_annotation_page(test_cfg):
     assert [u.reason for u in pages] == [pdf.SHX_NOTE]
 
 
-# ---- M3 review fixes (RV7 to RV12) ----
+# ---- M3 review fixes ----
 
 
 def band_page(**kw):
@@ -1129,7 +1129,7 @@ def test_title_block_table_words_not_counted_as_unread(test_cfg):
     assert "2 words in the title block area not read" in entry(out).what_read
 
 
-# ---- review round 2: RV25 to RV29, RV31 ----
+# ---- review fixes, round 2 ----
 
 
 def test_many_equal_annotations_linear(test_cfg):
@@ -1365,7 +1365,7 @@ def test_disagreement_listing_capped_per_page(test_cfg, monkeypatch):
         return out, [u for u in out.unparsed if "disagree" in u.reason], entry(out).what_read
 
     _, listed, text = case(12)
-    assert len(listed) == 19  # the page's route item (RV41) holds the 20th place
+    assert len(listed) == 19  # the page's route item holds the 20th place
     assert "78 cells where annotation text and page text disagree, 19 listed" in text
     _, listed, text = case(2)
     assert len(listed) == 18

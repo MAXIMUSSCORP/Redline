@@ -31,7 +31,7 @@ On a machine that can reach PyPI, download the wheels once: `pip download . -c c
 
 ### Clean machine tiers
 
-Tier A is what an agent can run. It exports the tracked files with `git archive` into a new folder, makes a new venv, runs the install line above, then `redline doctor` and the CSV check line. It proves the tracked files and this guide are enough for the Python side. It does not prove a new PC.
+Tier A is what a script can run. It exports the tracked files with `git archive` into a new folder, makes a new venv, runs the install line above, then `redline doctor` and the CSV check line. It proves the tracked files and this guide are enough for the Python side. It does not prove a new PC.
 Tier B is the owner's. On a second Windows PC, or in a new Windows user account on this PC, follow only this guide: Python, the venv, the extras, ODA File Converter, AutoCAD's first launch, the plugin folder and TRUSTEDPATHS. Then run `redline doctor --drawing samples/dwg/panel_sheet.dwg` and report its output. Redline never changes TRUSTEDPATHS or SECURELOAD, and `redline doctor` never starts AutoCAD's window.
 
 ## Check the machine: redline doctor
@@ -103,7 +103,7 @@ The fallback extractor reads a drawing with ezdxf. That read runs in a child Pyt
 For a `.dwg`, ODA File Converter first writes a `.dxf` in a temp folder, in its own process. The child then opens that `.dxf` (or the `.dxf` you gave), reads the layouts, tables, texts and xrefs, and writes a RawDrawing JSON file back to the temp folder. The parent validates that file.
 The child has the time set by `dxf_extractor_timeout_s` under `parsing:` in `config/column_maps.yaml`, 120 seconds in the shipped config. On timeout Redline stops the child and its sub processes. The extractor then fails with "ezdxf timed out after 120 s". If the other extractor can read the drawing, that one is used, and the report notes that the first one failed. If neither can, the file is listed in "Needs manual check" with the reason. When it is the only input, the run exits 2.
 For a `.dwg` the ODA step and the child each get the full time, so one drawing can take up to twice the setting.
-Each drawing pays the cost of starting a child process. It was about 1.5 seconds per drawing over a corpus of 616 gold drawings (review-M2 round 6).
+Each drawing pays the cost of starting a child process. It was about 1.5 seconds per drawing over a corpus of 616 gold drawings.
 The child needs ezdxf in the same venv as Redline. ezdxf that sits only in a user site folder or on `PYTHONPATH` is not seen.
 
 ## Check a PDF

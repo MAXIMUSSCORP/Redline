@@ -1,7 +1,15 @@
-.claude/plans/
-.claude/notepad.md
-.claude/checkpoints.log
-.unlazy/*/dispatch.json
+# local working notes
+CLAUDE.md
+DEV-PLAYBOOK.md
+PROGRESS.md
+.unlazy/
+.claude/
+docs/handoffs/
+docs/research/m5_stage1_decisions.md
+docs/research/m6_stage1_decisions.md
+ErrorReports/
+.playwright-mcp/
+
 /gold/
 .venv/
 __pycache__/

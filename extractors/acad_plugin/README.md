@@ -1,6 +1,6 @@
 # Redline AutoCAD plugin
 
-A thin dumper. It adds one command, `REDLINE_DUMP`, to the AutoCAD Core Console. The command reads the open drawing and writes RawDrawing 1.1 JSON (`.claude/plans/M2.md` section 4.10). It holds no business logic: it reads, it does not judge, rename, map or drop anything. Interpretation lives in the Python parsers.
+A thin dumper. It adds one command, `REDLINE_DUMP`, to the AutoCAD Core Console. The command reads the open drawing and writes RawDrawing 1.1 JSON. It holds no business logic: it reads, it does not judge, rename, map or drop anything. Interpretation lives in the Python parsers.
 
 Licensing: this plugin runs on the owner's workstation only (PLAN row 38). It is never shipped to a client.
 
@@ -61,12 +61,12 @@ Script lines:
 FILEDIA
 0
 NETLOAD
-C:/Users/Zaidz/redline/plugin/RedlinePlugin.dll
+C:/Users/<user>/redline/plugin/RedlinePlugin.dll
 REDLINE_DUMP
 <output json path>
 ```
 
-Outcome: LOADED. The first run on 2026-11-09 was refused: NETLOAD printed `Unable to load <path> assembly.` because `SECURELOAD` is 1 and `TRUSTEDPATHS` was empty (a one-line .lsp loaded from the same kind of folder gave `File load canceled`). The owner then added `C:/Users/Zaidz/redline/plugin` to TRUSTEDPATHS in AutoCAD 2027 (D10); SECURELOAD stays 1. Loaded from that folder, `REDLINE_DUMP` wrote 949 entities from the ETSU copy, and the dumps of the ETSU copy and of DEMO01.DWG validate (leaf-L2.1 G1.7 to G1.9). Install the DLL in the trusted folder; a copy anywhere else is refused.
+Outcome: LOADED. The first run on 2026-11-09 was refused: NETLOAD printed `Unable to load <path> assembly.` because `SECURELOAD` is 1 and `TRUSTEDPATHS` was empty (a one-line .lsp loaded from the same kind of folder gave `File load canceled`). The owner then added `C:/Users/<user>/redline/plugin` to TRUSTEDPATHS in AutoCAD 2027 (D10); SECURELOAD stays 1. Loaded from that folder, `REDLINE_DUMP` wrote 949 entities from the ETSU copy, and the dumps of the ETSU copy and of DEMO01.DWG validate (leaf-L2.1 G1.7 to G1.9). Install the DLL in the trusted folder; a copy anywhere else is refused.
 ## Xrefs
 
 The plugin reads no xref content. Every xref is listed in `document.xrefs` with `resolved: false`, and a document warning names it.
