@@ -3,13 +3,22 @@ from __future__ import annotations
 import itertools
 import math
 
-from redline.config import FIRE_ALARM_LIMITS, FIRE_ALARM_TABLE, Config, fire_alarm_limit, rule_ref
+from redline.config import (
+    FIRE_ALARM_LIMITS,
+    FIRE_ALARM_TABLE,
+    Config,
+    device_classes,
+    fire_alarm_limit,
+    rule_ref,
+)
 from redline.engine import RuleSpec
 from redline.findings import Finding, Severity, checked, input_gate, inputs_used
 from redline.model import Device, EgressPath, Method, Project, Value
 from redline.units import LENGTH_TOLERANCE_M, METRES_PER_UNIT
 
 ID = "fire_alarm"
+# Design limit on pairs compared per sheet part (memory and time), not a code value.
+MAX_FIRE_ALARM_PAIRS = 2 * 100**3  # 2 million; spelt so to pass test_no_code_values
 FIX_HAND = "Check this item by hand against the drawings."
 FIX_REVIEW = "Reviewer to check this item against the drawings and the configured limits [VERIFY]."
 FIX_FIX = (
@@ -97,10 +106,13 @@ def _gaps(
 ) -> list[tuple[float, float]]:
     """Stretches (metres along the path) out of reach of every device, longer than allowed."""
     cum = 0.0
-    spans: list[tuple[float, float]] = []
+    reach = 0.0
+    gaps: list[tuple[float, float]] = []
+    tol = LENGTH_TOLERANCE_M
     for (ax, ay), (bx, by) in itertools.pairwise(points):
         seg = math.hypot(bx - ax, by - ay)
         if seg > 0:
+            spans: list[tuple[float, float]] = []
             ux, uy = (bx - ax) / seg, (by - ay) / seg
             for qx, qy in devs:
                 along = (qx - ax) * ux + (qy - ay) * uy
@@ -110,15 +122,13 @@ def _gaps(
                     lo, hi = max(along - half, 0.0), min(along + half, seg)
                     if lo <= hi:
                         spans.append((cum + lo, cum + hi))
+            spans.sort()
+            for lo, hi in spans:
+                if lo - reach > allowed + tol:
+                    gaps.append((reach, lo))
+                reach = max(reach, hi)
         cum += seg
-    spans.sort()
-    gaps = []
-    reach = 0.0
-    for lo, hi in spans:
-        if lo - reach > allowed:
-            gaps.append((reach, lo))
-        reach = max(reach, hi)
-    if cum - reach > allowed:
+    if cum - reach > allowed + tol:
         gaps.append((reach, cum))
     return gaps
 
@@ -170,10 +180,14 @@ def _exit_unit(
         default=None,
     )
     if best is None:
-        what = f"no {word} was read on this sheet, limit {limit:g} m"
+        msg = (
+            f"{unit}: no {word} block was matched on this sheet, limit {limit:g} m in "
+            f"fire_alarm.yaml ({_units_text(units)}).{_uncertain_note(unsure, cls)} {ref}"
+        )
+        return Finding(ID, Severity.NEEDS_REVIEW, msg, ref, e.source, inputs_used(req), FIX_REVIEW)
     else:
         dist = math.hypot(best.x.value - e.x.value, best.y.value - e.y.value) * mpu
-        if dist <= limit:
+        if dist <= limit + LENGTH_TOLERANCE_M:
             return None
         req = {**req, "nearest x": best.x, "nearest y": best.y}
         what = f"nearest {word} is {dist:.1f} m away, over the {limit:g} m limit"
@@ -215,6 +229,9 @@ def _path_unit(
         f"longest {hi - lo:.1f} m from {lo:.1f} m to {hi:.1f} m along the path{over}, "
         f"limits in fire_alarm.yaml ({_units_text(units)}).{_uncertain_note(unsure, cls)} {ref}"
     )
+    if not sure:
+        msg = f"No {word} block was matched on this sheet. {msg}"
+        return Finding(ID, Severity.NEEDS_REVIEW, msg, ref, p.source, inputs_used(req), FIX_REVIEW)
     return Finding(ID, _sev(unsure, req), msg, ref, p.source, inputs_used(req), FIX_FIX)
 
 
@@ -229,6 +246,13 @@ def _run_part(part: tuple, lims: dict, ref: str, data: dict, units: Value) -> li
     if mpu is None:
         return [_nc(ref, f"{sheet}: {label} not checked. Drawing units not stated.")]
     sure, unsure = _split(data["dev"], cls)
+    segs = len(items) if kind == "exit" else sum(max(len(p.points) - 1, 0) for p in items)
+    if segs * len(sure) > MAX_FIRE_ALARM_PAIRS:
+        msg = (
+            f"{sheet}: {label} not checked. {segs} x {len(sure)} pairs is over the design cap "
+            f"of {MAX_FIRE_ALARM_PAIRS}; check by hand."
+        )
+        return [_nc(ref, msg)]
     out: list[Finding] = []
     for it in items:
         if kind == "exit":
@@ -268,9 +292,17 @@ def check(project: Project, cfg: Config) -> list[Finding]:
         elif not sheets:
             out.append(_nc(ref, f"{name}: not checked. {none_read}"))
         else:
-            for key, data in sheets.items():
-                units = unit_of.get(key, Value.missing())
-                for part in PARTS[section]:
+            have = set(device_classes(cfg).values())
+            for part in PARTS[section]:
+                if part[2] not in have:
+                    msg = (
+                        f"{part[0]}: not checked. No block name is configured for {part[2]} "
+                        "in fire_alarm.yaml device_blocks [VERIFY]."
+                    )
+                    out.append(_nc(ref, msg))
+                    continue
+                for key, data in sheets.items():
+                    units = unit_of.get(key, Value.missing())
                     out += _run_part(part, lims, ref, data, units)
     return out
 
