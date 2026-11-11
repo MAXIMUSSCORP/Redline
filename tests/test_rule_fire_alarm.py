@@ -206,7 +206,10 @@ def test_nested_device_gives_review_not_violation(test_cfg):
 
 def test_paper_space_device_not_used(test_cfg):
     f = _one(_proj([_exit(), _dev("exit_sign", 1.0, 0.0, det="paper")]), test_cfg, ES_A)
-    assert f.severity == Severity.NEEDS_REVIEW and "no exit sign block was matched" in f.message
+    assert (
+        f.severity == Severity.NEEDS_REVIEW
+        and "no exit sign block placed in model space was matched" in f.message
+    )
 
 
 def test_unused_exit_doors_not_checked(test_cfg):
@@ -301,7 +304,7 @@ def test_empty_device_class_not_checked(test_cfg):
 
 def test_no_matched_device_is_review(test_cfg):
     f = _one(_proj([_exit()]), test_cfg, ES_A)
-    assert f.severity == Severity.NEEDS_REVIEW and "block was matched" in f.message
+    assert f.severity == Severity.NEEDS_REVIEW and "placed in model space was matched" in f.message
     path = [(0.0, 0.0), (40.0, 0.0)]
     f = _one(_proj([], [_path(path)]), test_cfg, EL)
     assert f.severity == Severity.NEEDS_REVIEW and "No emergency light block" in f.message
@@ -326,7 +329,14 @@ def test_distance_at_limit_passes(test_cfg):
 def test_gap_at_limit_passes(test_cfg):
     from redline.rules.fire_alarm import _gaps
 
-    assert not _gaps([(0.0, 0.0), (0.3 + 0.1 + 0.2, 0.0)], [], 0.0, 0.1 + 0.2 + 0.3)
+    # 2300 mm is 2300 * 0.001 m, which is 2.3000000000000003 m in floats
+    assert not _gaps([(0.0, 0.0), (2300 * 0.001, 0.0)], [], 0.0, 2.3)
+
+
+def test_nested_only_message_names_model_space(test_cfg):
+    nested = _dev("exit_sign", None, None, det="nested", conf=Confidence.LOW)
+    f = _one(_proj([_exit(), nested]), test_cfg, ES_A)
+    assert f.severity == Severity.NEEDS_REVIEW and "placed in model space" in f.message
 
 
 def test_pair_cap_not_checked(test_cfg):

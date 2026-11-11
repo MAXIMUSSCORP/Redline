@@ -19,6 +19,8 @@ RF_DETR_SIZES = ("nano", "small", "medium", "large")
 _RF_DETR = "rf-detr-"
 _REF_MISSING = "rule_ref missing in config [VERIFY]"
 FIRE_ALARM_TABLE = "fire_alarm.yaml"  # a tables_used name for the gate
+# design cap on pairs compared per sheet part (time and memory), not a code value
+MAX_FIRE_ALARM_PAIRS = 2_000_000
 FIRE_ALARM_LIMITS = {
     "exit_signs": ("require_at_each_exit", "max_distance_from_exit_m", "max_spacing_along_path_m"),
     "pull_stations": ("max_distance_from_exit_m",),
