@@ -695,6 +695,8 @@ def _read_title(
                 continue
             # Otherwise the value is in the column below. Several values only in a revision table:
             # the label's row is a header of a block and the rows below are full rows of it.
+            if header[r] and r > 0 and full_row(r, r - 1):  # bottom header: nothing below it
+                continue
             first = value(key, r + 1, c)
             if not first:
                 continue
@@ -710,10 +712,12 @@ def _read_title(
     values, got, missing = {}, [], []
     for key, vs in found.items():
         short, long = _TITLE_LABELS.get(key, (key.replace("_", " "),) * 2)
+        if key == "sheet_number":  # a first token with a digit is the number; "OF 12" is not
+            vs = [v.split()[0] if has_digit(v.split()[0]) else v for v in vs]
         distinct = sorted(set(vs))
         values[key] = distinct[0] if len(distinct) == 1 else None
         if len(distinct) == 1:
-            got.append(f"{short} {distinct[0]}")
+            got.append(f"{short} {clip(distinct[0], 39)}")
         elif distinct:
             shown = ", ".join(clip(v, 40) for v in distinct[:_TITLE_SHOWN])
             more = (
@@ -806,9 +810,10 @@ class _Page:
         # One cap for every item the page lists, whatever added it; the full counts stay here.
         items = self.out.unparsed
         if len(items) > MAX_LISTED_PER_PAGE:
+            items.sort(key=lambda u: u.kind != "page")  # stable: route items stay ahead of the cut
             kinds = ", ".join(f"{k} {n}" for k, n in sorted(Counter(u.kind for u in items).items()))
             self.parts.append(
-                f"{len(items)} items listed ({kinds}), first {MAX_LISTED_PER_PAGE} shown"
+                f"{len(items)} items to list ({kinds}), first {MAX_LISTED_PER_PAGE} listed"
             )
             del items[MAX_LISTED_PER_PAGE:]
         text = f"page {self.n}: " + "; ".join(self.parts)
@@ -868,7 +873,7 @@ def _title(
     left = [w for w in unused if not any(_in_box(w, b) for b in boxes)]
     pg.unread_at = len(pg.parts)
     if sheet:
-        pg.pg += f"; sheet={sheet}"
+        pg.pg += f"; sheet={clip(sheet, 39)}"
     gone = {id(w) for w in inside}
     return [w for w in words if id(w) not in gone], left
 

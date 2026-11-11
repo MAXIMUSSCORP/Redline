@@ -1337,7 +1337,7 @@ def test_disagreement_listing_capped_per_page(test_cfg, monkeypatch):
         return out, [u for u in out.unparsed if "disagree" in u.reason], entry(out).what_read
 
     _, listed, text = case(12)
-    assert len(listed) == 20
+    assert len(listed) == 19  # the page's route item (RV41) holds the 20th place
     assert "78 cells where annotation text and page text disagree, 20 listed" in text
     _, listed, text = case(2)
     assert len(listed) == 18
@@ -1452,7 +1452,7 @@ SHAPES = [
     ("E-1", [["SHEET", "E-1"]], ["sheet E-1"], []),
     ("ES", [["SHEET", "ES"]], ["sheet ES"], []),
     ("E0.00", [["SHEET", "REV"], ["E0.00", "0"]], ["sheet E0.00, revision 0"], []),
-    ("E-501 OF 12", [["SHEET"], ["E-501 OF 12"]], ["sheet E-501 OF 12"], []),
+    ("E-501 OF 12", [["SHEET"], ["E-501 OF 12"]], ["sheet E-501,"], []),
     ("rev C", [["REV", "C"]], ["revision C"], []),
     ("rev 2", [["REV", "2"]], ["revision 2"], []),
     ("rev 10", [["REV", "10"]], ["revision 10"], []),
@@ -1488,9 +1488,9 @@ def test_all_page_listings_capped(test_cfg):
     out = parse(test_cfg, page(words=ann + lone, height=100000.0))
     text = entry(out).what_read
     assert len(out.unparsed) <= pdf.MAX_LISTED_PER_PAGE, text
-    assert "500" in text and "first 50 shown" in text, text
+    assert "500" in text and "to list" in text and "first 50 listed" in text, text
     small = parse(test_cfg, page(words=grid_words(gen.LP22_CELLS)))
-    assert "shown" not in entry(small).what_read
+    assert "first 50" not in entry(small).what_read
 
 
 def test_title_staircase_linear(test_cfg):
@@ -1511,3 +1511,61 @@ def test_title_staircase_linear(test_cfg):
     start = time.perf_counter()
     entry(parse(test_cfg, pg))
     assert time.perf_counter() - start < 1.0
+
+
+def test_listing_cap_wording(test_cfg):
+    rows = [gen.LP22_CELLS[1], *[["", "Load", "20", "1", "2", "1.0"] for _ in range(80)]]
+    text = entry(parse(test_cfg, page(words=grid_words(rows, top=40.0)))).what_read
+    assert "to list" in text and "first 50 listed" in text and "items listed (" not in text, text
+
+
+def test_route_item_survives_listing_cap(test_cfg):
+    def a(t, col, r):
+        return {
+            "subtype": "FreeText", "contents": t, "x0": 100.0 + 60 * col, "x1": 140.0 + 60 * col,
+            "top": 50.0 + 12 * r, "bottom": 60.0 + 12 * r,
+        }  # fmt: skip
+
+    ann = [a("PANEL LP-1", 0, 0)] + [
+        a(t, c, 1) for c, t in enumerate(["CKT", "BREAKER", "DESCRIPTION"])
+    ]
+    ann += [a(t, c, 2 + r) for r in range(60) for c, t in enumerate(["-", "20", "LIGHTS"])]
+    pg = page(annots=ann, paths=500, chars=3, width=2000.0, height=2000.0)
+    out = parse(test_cfg, pg)
+    assert any(u.kind == "page" for u in out.unparsed), entry(out).what_read
+
+
+def test_bottom_header_short_token_not_revision(test_cfg):
+    for tok in ["SEAL", "N", "WSP", "1:50", "ACME"]:
+        text = title_text(test_cfg, [["A", "B"], ["1", "2"], ["REV", "DATE"], [tok, ""]])
+        assert f"revision {tok}" not in text, f"{tok}: {text}"
+        assert "revision not found" in text, f"{tok}: {text}"
+    assert "revision C" in title_text(test_cfg, [["REV", "DATE"], ["C", "2026-01-05"]])
+
+
+def test_title_abbreviated_labels(test_cfg):
+    t = title_text(test_cfg, [["REV", "CHK"], ["C", "JD"]])
+    assert "revision C" in t and "revision CHK" not in t, t
+    t = title_text(test_cfg, [["SHEET", "REV", "DWN"], ["E-501", "C", "AB"]])
+    assert "sheet E-501, revision C" in t, t
+    t = title_text(test_cfg, [["REV", "APPD"], ["B", "JD"]])
+    assert "revision B" in t and "revision APPD" not in t, t
+
+
+def test_sheet_first_token_and_clipped(test_cfg):
+    for rows in ([["SHEET", "E-501 OF 12"]], [["SHEET"], ["E-501 OF 12"]]):
+        t = title_text(test_cfg, rows)
+        assert "sheet E-501," in t + "," and "OF 12" not in t, t
+    big = "1" + "x" * 55000
+    words = [word("SHEET", 9000.0, 9500.0, 9030.0, 9508.0)]
+    words.append(word(big, 9040.0, 9500.0, 9050.0, 9508.0))
+    rows = [["PANEL", "LP-1", ""], ["CKT", "BREAKER", "DESCRIPTION"]]
+    rows += [[str(r + 1), "20", "LIGHTS"] for r in range(4)]
+    pg = page(words=words + grid_words(rows, x0=100.0, top=100.0), width=10000.0, height=10000.0)
+    out = parse(test_cfg, pg)
+    locs = [v.source.locator for v in every_value(out) if v.source is not None]
+    assert locs
+    for loc in locs:
+        m = re.search(r"sheet=([^;]*)", loc)
+        assert m and len(m.group(1)) <= 40, len(loc)
+    assert len(entry(out).what_read) < 1000
