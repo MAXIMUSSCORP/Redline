@@ -44,6 +44,18 @@ def _parser() -> argparse.ArgumentParser:
     xc = sub.add_parser("xcheck", help="compare what the two DWG extractors read from a drawing")
     xc.add_argument("files", nargs="+", metavar="FILE", help="DWG or DXF files")
     xc.add_argument("--config", metavar="DIR", default="config")
+    xc.add_argument("--batch", action="store_true", help="read many drawings, write xcheck.csv")
+    xc.add_argument("--out", metavar="DIR", help="folder for xcheck.csv, with --batch")
+    gold = sub.add_parser("gold", help="measure table reading against a gold manifest")
+    gsub = gold.add_subparsers(dest="gold_command", required=True)
+    ge = gsub.add_parser("eval", help="read the manifest sources and write the results")
+    ge.add_argument("manifest_dir", metavar="DIR", help="folder holding manifest.csv")
+    ge.add_argument("--config", metavar="DIR", default="config")
+    ge.add_argument("--out", metavar="DIR", help="results folder, default DIR/results")
+    doc = sub.add_parser("doctor", help="report what this machine can and cannot read")
+    doc.add_argument("--config", metavar="DIR", default="config")
+    doc.add_argument("--drawing", metavar="FILE", help="a drawing for the plugin smoke run")
+    doc.add_argument("--licences", action="store_true", help="print the licence table only")
     return ap
 
 
@@ -208,14 +220,47 @@ def _load_inputs(paths: list[str], cfg: Config) -> tuple[Project, int, list[Path
     return project, read, tried, folders
 
 
-def _xcheck(args: argparse.Namespace) -> int:
+def _config_or_none(path: str) -> tuple[Config | None, int]:
     try:
-        cfg = load_config(args.config)
+        return load_config(path), 0
     except ConfigError as e:
-        return _fail(f"config error: {' '.join(str(e).split())}")
+        return None, _fail(f"config error: {' '.join(str(e).split())}")
+
+
+def _xcheck(args: argparse.Namespace) -> int:
+    if args.out and not args.batch:
+        return _fail("--out needs --batch.")
+    cfg, code = _config_or_none(args.config)
+    if cfg is None:
+        return code
     from redline.tools import xcheck
 
-    text, code = xcheck.run([Path(f) for f in args.files], cfg)
+    files = [Path(f) for f in args.files]
+    if args.batch:
+        text, code = xcheck.run_batch(files, cfg, Path(args.out or "."))
+    else:
+        text, code = xcheck.run(files, cfg)
+    print(text)
+    return code
+
+
+def _gold_eval(args: argparse.Namespace) -> int:
+    cfg, code = _config_or_none(args.config)
+    if cfg is None:
+        return code
+    from redline.tools import gold_eval
+
+    text, code = gold_eval.run(Path(args.manifest_dir), cfg, Path(args.out) if args.out else None)
+    print(text)
+    return code
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    # doctor prints its config-free checks before it loads the config, so none is loaded here
+    from redline.tools import doctor
+
+    drawing = Path(args.drawing) if args.drawing else None
+    text, code = doctor.run(Path(args.config), drawing, args.licences)
     print(text)
     return code
 
@@ -227,6 +272,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "xcheck":
         return _xcheck(args)
+    if args.command == "gold":
+        return _gold_eval(args)
+    if args.command == "doctor":
+        return _doctor(args)
     if args.demo_project and args.inputs:
         return _fail("give input files or --demo-project, not both.")
     if not args.demo_project and not args.inputs:
