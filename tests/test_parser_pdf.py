@@ -611,7 +611,35 @@ def test_child_memory_ceiling_keeps_normal_pdf(test_cfg):
     assert "LP-22" in [p.name for p in out.panels]
 
 
-def test_page_cap_before_page_objects(test_cfg, tmp_path):
+def count_pushes(monkeypatch) -> list[int]:
+    """Count PDFParser.push calls. Set before a read: _BoundedArrays wraps whatever push is then.
+    An array entry "5 0 R" costs 3 pushes, so a bounded array is 3 * MAX_ARRAY_ITEMS; the tests
+    allow 4 times, under half of the 15 times that a million entries cost unbounded."""
+    import pdfminer.pdfparser
+
+    n = [0]
+    push = pdfminer.pdfparser.PDFParser.push
+
+    def counting(self, *objs):
+        n[0] += 1
+        return push(self, *objs)
+
+    monkeypatch.setattr(pdfminer.pdfparser.PDFParser, "push", counting)
+    return n
+
+
+def shortest_of_3(fn) -> float:
+    import time
+
+    runs = []
+    for _ in range(3):
+        start = time.perf_counter()
+        fn()
+        runs.append(time.perf_counter() - start)
+    return min(runs)
+
+
+def test_page_cap_before_page_objects(test_cfg, tmp_path, monkeypatch):
     n = 100_000
     objs = {1: b"<< /Type /Catalog /Pages 2 0 R >>"}
     kids = []
@@ -621,11 +649,18 @@ def test_page_cap_before_page_objects(test_cfg, tmp_path):
     objs[2] = b"<< /Type /Pages /Kids [" + b" ".join(kids) + b"] /Count %d >>" % n
     path = tmp_path / "many.pdf"
     path.write_bytes(raw_pdf(dict(sorted(objs.items()))))
-    import time
+    from pdfminer.pdfpage import PDFPage
 
-    start = time.monotonic()
+    built = [0]
+    init = PDFPage.__init__
+
+    def counting(self, *a, **k):
+        built[0] += 1
+        init(self, *a, **k)
+
+    monkeypatch.setattr(PDFPage, "__init__", counting)
     d = pdf.read_pages(path, test_cfg, isolated=False)
-    assert time.monotonic() - start < 3
+    assert built[0] <= pdf.MAX_PAGES + 1  # not the 100000 the file holds
     assert d["pages_total"] == n and len(d["pages"]) == pdf.MAX_PAGES + 1
     assert f"{n - pdf.MAX_PAGES} pages past MAX_PAGES" in d["pages"][-1]["skipped"]
 
@@ -671,8 +706,6 @@ def annots_pdf(n: int, where: str = "indirect") -> bytes:
 
 
 def test_annots_cap_before_resolve(test_cfg, tmp_path, monkeypatch):
-    import time
-
     import pdfminer.pdfparser
     import pdfplumber.page
 
@@ -680,12 +713,12 @@ def test_annots_cap_before_resolve(test_cfg, tmp_path, monkeypatch):
         raise AssertionError("annotations were resolved on an over-cap page")
 
     monkeypatch.setattr(pdfplumber.page.Page, "annots", property(resolved))
+    pushes = count_pushes(monkeypatch)
     push = pdfminer.pdfparser.PDFParser.push
     path = tmp_path / "annots.pdf"
     path.write_bytes(annots_pdf(1_000_000))
-    start = time.monotonic()
     d = pdf.read_pages(path, test_cfg, isolated=False)
-    assert time.monotonic() - start < 3
+    assert pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
     assert "page /Annots holds more than" in d["pages"][0]["skipped"]
     assert "over MAX_ANNOTS_PER_PAGE" in d["pages"][0]["skipped"]
     assert pdfminer.pdfparser.PDFParser.push is push  # the bound is lifted after the read
@@ -699,34 +732,29 @@ def test_annots_array_above_array_cap_counted(test_cfg, tmp_path, monkeypatch):
     assert "page has 30000 annotations, over MAX_ANNOTS_PER_PAGE" in d["pages"][0]["skipped"]
 
 
-def test_annots_cap_in_object_stream(test_cfg, tmp_path):
-    import time
-
+def test_annots_cap_in_object_stream(test_cfg, tmp_path, monkeypatch):
+    pushes = count_pushes(monkeypatch)
     path = tmp_path / "objstm.pdf"
     path.write_bytes(annots_pdf(1_000_000, "objstm"))
-    start = time.monotonic()
     d = pdf.read_pages(path, test_cfg, isolated=False)
-    assert time.monotonic() - start < 3
+    assert pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
     assert "page /Annots holds more than" in d["pages"][0]["skipped"]
     small = tmp_path / "small.pdf"
     small.write_bytes(annots_pdf(2, "objstm"))
     assert len(pdf.read_pages(small, test_cfg, isolated=False)["pages"][0]["annots"]) == 2
 
 
-def test_annots_inline_array_ends_the_read_listed(test_cfg, tmp_path):
-    import time
-
+def test_annots_inline_array_ends_the_read_listed(test_cfg, tmp_path, monkeypatch):
+    pushes = count_pushes(monkeypatch)
     path = tmp_path / "inline.pdf"
     path.write_bytes(annots_pdf(1_000_000, "inline"))
-    start = time.monotonic()
     with pytest.raises(csv_xlsx.InputError, match=r"inline\.pdf has an array of more than 200000"):
         pdf.read_pages(path, test_cfg, isolated=False)
-    assert time.monotonic() - start < 3
+    assert pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
 
 
-def test_annots_array_shared_by_pages_parsed_once(test_cfg, tmp_path):
-    import time
-
+def test_annots_array_shared_by_pages_parsed_once(test_cfg, tmp_path, monkeypatch):
+    pushes = count_pushes(monkeypatch)
     arr = b"[" + b"5 0 R " * 1_000_000 + b"]"
     objs = {
         1: b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -740,9 +768,8 @@ def test_annots_array_shared_by_pages_parsed_once(test_cfg, tmp_path):
         objs[10 + i] = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 9 9] /Annots 6 0 R >>"
     path = tmp_path / "shared.pdf"
     path.write_bytes(raw_pdf(dict(sorted(objs.items()))))
-    start = time.monotonic()
     d = pdf.read_pages(path, test_cfg, isolated=False)
-    assert time.monotonic() - start < 3
+    assert pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
     assert all("holds more than" in p["skipped"] for p in d["pages"])
 
 
@@ -1314,13 +1341,13 @@ def test_array_too_long_fresh_each_page(test_cfg, tmp_path, monkeypatch):
 
 
 def test_title_wide_label_row_linear(test_cfg):
-    import time
-
     # a gap wider than the column gap, so each word is a cell of the one row
-    words = [word("SHEET", 930.0 + i * 20.0, 700.0, 938.0 + i * 20.0, 708.0) for i in range(99_999)]
-    start = time.perf_counter()
-    entry(parse(test_cfg, page(n=1, words=words)))
-    assert time.perf_counter() - start < 2.0
+    def timed(n):
+        words = [word("SHEET", 930.0 + i * 20.0, 700.0, 938.0 + i * 20.0, 708.0) for i in range(n)]
+        pg = page(n=1, words=words)
+        return shortest_of_3(lambda: entry(parse(test_cfg, pg)))
+
+    assert timed(99_999) / timed(25_000) < 8  # 4 times the words, linear is about 4
 
 
 def test_disagreement_listing_capped_per_page(test_cfg, monkeypatch):
@@ -1523,23 +1550,22 @@ def test_all_page_listings_capped(test_cfg):
 
 
 def test_title_staircase_linear(test_cfg):
-    import time
-
     def w(t, col, row):
         return word(
             t, 10000.0 + 4.0 * col, 9000.0 + 2.0 * row, 10001.0 + 4.0 * col, 9000.5 + 2.0 * row
         )
 
-    rows, words = 223, []
-    for r in range(rows):  # row r: values under every earlier header's columns, then two labels
-        words += [w("1", c, r) for c in range(2 * r)] + [
-            w("SHEET", 2 * r, r),
-            w("REV", 2 * r + 1, r),
-        ]
-    pg = page(words=words, width=12000.0, height=10000.0)
-    start = time.perf_counter()
-    entry(parse(test_cfg, pg))
-    assert time.perf_counter() - start < 1.0
+    def timed(rows):
+        words = []
+        for r in range(rows):  # row r: values under every earlier header's columns, then two labels
+            words += [w("1", c, r) for c in range(2 * r)] + [
+                w("SHEET", 2 * r, r),
+                w("REV", 2 * r + 1, r),
+            ]
+        pg = page(words=words, width=12000.0, height=10000.0)
+        return shortest_of_3(lambda: entry(parse(test_cfg, pg)))
+
+    assert timed(223) / timed(74) < 16  # 3 times the rows, 9 times the words
 
 
 def test_listing_cap_wording(test_cfg):
