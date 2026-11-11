@@ -696,14 +696,6 @@ def _read_title(
                 continue
             # Otherwise the value is in the column below. Several values only in a revision table:
             # the label's row is a header of a block and the rows below are full rows of it.
-            # bottom header: nothing below it, unless the row above is the values of another header row
-            if (
-                header[r]
-                and r > 0
-                and full_row(r, r - 1)
-                and not (r > 1 and header[r - 2] and full_row(r - 2, r - 1))
-            ):
-                continue
             first = value(key, r + 1, c)
             if not first:
                 continue
@@ -788,6 +780,7 @@ class _Page:
         self.pg = f"page={self.n}"
         self.method = Method.PDF_TEXT
         self.clashes = 0
+        self.listed_at = -1  # index in parts of the disagreement part that holds _LISTED
         self.unread_at = 0  # where the title block "not read" count goes in the coverage text
 
     def unread(self, words: list[_Word]) -> None:
@@ -795,6 +788,8 @@ class _Page:
             self.parts.insert(
                 self.unread_at, f"{len(words)} words in the title block area not read"
             )
+            if self.listed_at >= self.unread_at:
+                self.listed_at += 1
 
     def unp(self, kind: str, raw: str, reason: str, locator: str, method: Method | None = None):
         src = Source(self.file, locator, method or self.method, Confidence.LOW)
@@ -824,9 +819,13 @@ class _Page:
                 f"{len(items)} items to list ({kinds}), first {MAX_LISTED_PER_PAGE} listed"
             )
             del items[MAX_LISTED_PER_PAGE:]
-        n = sum(u.kind == "cell" and "disagree" in u.reason for u in items)
-        text = f"page {self.n}: " + "; ".join(self.parts)
-        text = text.replace(_LISTED, "listed" if n == self.clashes else f"{n} listed")
+        n = sum(u.kind == "cell" for u in items)
+        parts = list(self.parts)
+        if self.listed_at >= 0:
+            parts[self.listed_at] = parts[self.listed_at].replace(
+                _LISTED, "listed" if n == self.clashes else f"{n} listed"
+            )
+        text = f"page {self.n}: " + "; ".join(parts)
         return CoverageEntry(self.file, f"page {self.n}", text, self.method.value, _NO_SUMMARY)
 
 
@@ -1071,6 +1070,7 @@ def _annotation_path(pg: _Page, annots: list[_Annot], words: list[_Word]) -> boo
         pg.unp("cell", text, why, f"{loc}; y={-ys[r]:g}; col={c}")
     if clash:
         pg.clashes = len(clash)
+        pg.listed_at = len(pg.parts)
         pg.parts.append(
             f"{len(clash)} cells where annotation text and page text disagree, "
             f"{_LISTED}; "
