@@ -1,0 +1,21 @@
+circuit,description,breaker_a,poles,wire,load_va
+1,Open office north,20 A,1,12 AWG,1075
+2,Workshop heaters,20 A,2,12 AWG,3600
+3,Open office south,20 A,1,12 AWG,1425
+4,Conference lighting,15,1,12 AWG,1600
+5,Training room,20 A,1,12 AWG,1775
+6,Vending,15,1,12 AWG,1950
+7,Cafeteria receptacles,20 A,1,12 AWG,2125
+8,Hall lighting,15,1,12 AWG,2300
+9,Boardroom,20 A,1,12 AWG,2475
+10,Print room,15,1,12 AWG,2650
+11,IT closet,20 A,1,12 AWG,2825
+12,Reception desk,15,1,12 AWG,3000
+13,Janitor room,20 A,1,12 AWG,3175
+14,Corridor receptacles,15,1,12 AWG,3350
+15,Lab bench A,20 A,1,12 AWG,3525
+16,Lab bench B,15,1,12 AWG,3700
+17,Roof receptacle,20 A,1,12 AWG,3875
+18,Parking lighting,15,1,12 AWG,4050
+19,Entry lighting,20 A,1,12 AWG,4225
+20,SPACE,,1,,
