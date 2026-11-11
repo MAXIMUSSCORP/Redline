@@ -1,6 +1,6 @@
 # Redline AutoCAD plugin
 
-A thin dumper. It adds one command, `REDLINE_DUMP`, to the AutoCAD Core Console. The command reads the open drawing and writes RawDrawing 1.0 JSON (`.claude/plans/M2.md` section 4.10). It holds no business logic: it reads, it does not judge, rename, map or drop anything. Interpretation lives in the Python parsers.
+A thin dumper. It adds one command, `REDLINE_DUMP`, to the AutoCAD Core Console. The command reads the open drawing and writes RawDrawing 1.1 JSON (`.claude/plans/M2.md` section 4.10). It holds no business logic: it reads, it does not judge, rename, map or drop anything. Interpretation lives in the Python parsers.
 
 Licensing: this plugin runs on the owner's workstation only (PLAN row 38). It is never shipped to a client.
 
@@ -45,6 +45,10 @@ REDLINE_DUMP
 ## Evaluated FIELD text
 
 A cell is `evaluated: true` only when `Table.TextString(row, col, FormatOption.IgnoreMtextFormat)` succeeds and the cell holds no field (`GetFieldId`), formula (`HasFormula`) or data link (`GetDataLink`). A cell with any of these, or whose read or check throws, is `evaluated: false`; a failed read also adds a warning naming table handle, row, column and exception type. Whether `TextString` returns the evaluated FIELD value is UNVERIFIED until L2.7.
+
+## Field flag (schema 1.1)
+
+TEXT, MTEXT and each attribute carry `evaluated`, the opposite of `DBObject.HasFields`: `false` when the object holds a FIELD, so its text may be a cached value. A constant attribute takes the flag from its `AttributeDefinition`. Built against AutoCAD 2027 on 2026-11-10, so the member exists. What `HasFields` returns on a drawing with a real FIELD is UNVERIFIED until the redeployed plugin is run on the D13 evidence drawing.
 
 
 ## Load test
