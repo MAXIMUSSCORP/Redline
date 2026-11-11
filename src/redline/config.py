@@ -21,6 +21,9 @@ _REF_MISSING = "rule_ref missing in config [VERIFY]"
 FIRE_ALARM_TABLE = "fire_alarm.yaml"  # a tables_used name for the gate
 # design cap on pairs compared per sheet part (time and memory), not a code value
 MAX_FIRE_ALARM_PAIRS = 2_000_000
+# design cap on pair comparisons over the whole run, an engineering bound, not a code value.
+# Measured 2026-11-11 on the dev PC at the limit (10 sheets of 2M pairs): 10.5 s, peak 33 MB.
+MAX_FIRE_ALARM_RUN_PAIRS = 10 * MAX_FIRE_ALARM_PAIRS
 FIRE_ALARM_LIMITS = {
     "exit_signs": (
         "require_at_each_exit",

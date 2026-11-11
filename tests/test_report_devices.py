@@ -202,3 +202,11 @@ def test_exits_label_names_the_list(test_cfg):
     html = _html(_plan(), test_cfg)
     assert "Exits listed in exits.csv: 1" in _section(html, "devices")
     assert "Exits checked" not in html
+
+
+def test_block_counts_round_trip():
+    from redline.parsers import dxf
+
+    assert dxf.read_block_counts(dxf.block_counts_text(7, 3)) == (7, 3)
+    assert dxf.read_block_counts("x " + dxf.block_counts_text(0, 12) + " y") == (0, 12)
+    assert dxf.read_block_counts("block name matches no device class") is None
