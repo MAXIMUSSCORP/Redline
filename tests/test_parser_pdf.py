@@ -611,7 +611,7 @@ def test_child_memory_ceiling_keeps_normal_pdf(test_cfg):
     assert "LP-22" in [p.name for p in out.panels]
 
 
-def count_pushes(monkeypatch) -> list[int]:
+def count_PDFParser_pushes(monkeypatch) -> list[int]:
     """Count PDFParser.push calls. Set before a read: _BoundedArrays wraps whatever push is then.
     An array entry "5 0 R" costs 3 pushes, so a bounded array is 3 * MAX_ARRAY_ITEMS; the tests
     allow 4 times, under half of the 15 times that a million entries cost unbounded."""
@@ -713,7 +713,7 @@ def test_annots_cap_before_resolve(test_cfg, tmp_path, monkeypatch):
         raise AssertionError("annotations were resolved on an over-cap page")
 
     monkeypatch.setattr(pdfplumber.page.Page, "annots", property(resolved))
-    pushes = count_pushes(monkeypatch)
+    pushes = count_PDFParser_pushes(monkeypatch)
     push = pdfminer.pdfparser.PDFParser.push
     path = tmp_path / "annots.pdf"
     path.write_bytes(annots_pdf(1_000_000))
@@ -733,7 +733,7 @@ def test_annots_array_above_array_cap_counted(test_cfg, tmp_path, monkeypatch):
 
 
 def test_annots_cap_in_object_stream(test_cfg, tmp_path, monkeypatch):
-    pushes = count_pushes(monkeypatch)
+    pushes = count_PDFParser_pushes(monkeypatch)
     path = tmp_path / "objstm.pdf"
     path.write_bytes(annots_pdf(1_000_000, "objstm"))
     d = pdf.read_pages(path, test_cfg, isolated=False)
@@ -745,7 +745,7 @@ def test_annots_cap_in_object_stream(test_cfg, tmp_path, monkeypatch):
 
 
 def test_annots_inline_array_ends_the_read_listed(test_cfg, tmp_path, monkeypatch):
-    pushes = count_pushes(monkeypatch)
+    pushes = count_PDFParser_pushes(monkeypatch)
     path = tmp_path / "inline.pdf"
     path.write_bytes(annots_pdf(1_000_000, "inline"))
     with pytest.raises(csv_xlsx.InputError, match=r"inline\.pdf has an array of more than 200000"):
@@ -754,7 +754,7 @@ def test_annots_inline_array_ends_the_read_listed(test_cfg, tmp_path, monkeypatc
 
 
 def test_annots_array_shared_by_pages_parsed_once(test_cfg, tmp_path, monkeypatch):
-    pushes = count_pushes(monkeypatch)
+    pushes = count_PDFParser_pushes(monkeypatch)
     arr = b"[" + b"5 0 R " * 1_000_000 + b"]"
     objs = {
         1: b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -1347,7 +1347,8 @@ def test_title_wide_label_row_linear(test_cfg):
         pg = page(n=1, words=words)
         return shortest_of_3(lambda: entry(parse(test_cfg, pg)))
 
-    assert timed(99_999) / timed(25_000) < 8  # 4 times the words, linear is about 4
+    ratio = timed(99_999) / timed(25_000)  # 4 times the words, linear is about 4
+    assert ratio < 8
 
 
 def test_disagreement_listing_capped_per_page(test_cfg, monkeypatch):
@@ -1565,7 +1566,8 @@ def test_title_staircase_linear(test_cfg):
         pg = page(words=words, width=12000.0, height=10000.0)
         return shortest_of_3(lambda: entry(parse(test_cfg, pg)))
 
-    assert timed(223) / timed(74) < 16  # 3 times the rows, 9 times the words
+    ratio = timed(223) / timed(74)  # 3 times the rows, 9 times the words
+    assert ratio < 16
 
 
 def test_listing_cap_wording(test_cfg):
