@@ -190,7 +190,7 @@ With `--batch`, give files or folders. Redline reads many drawings, prints a sum
 
     redline gold eval samples/gold/tables --config tests/test_config/ --out results
 
-`gold eval` reads `manifest.csv` in the folder you give, parses each source with the reader `redline check` uses, and compares the cells with a transcribed truth file. It prints the table counts, the silent wrong passes and the silent missing rows, then the results folder. It exits 0 when it completes and 2 on a config failure or when no manifest can be read. `--out` defaults to `results` inside the gold folder.
+`gold eval` reads `manifest.csv` in the folder you give, parses each source with the reader `redline check` uses, and compares the cells with a transcribed truth file. It prints the table counts, the silent wrong passes and the silent missing rows, then the results folder. It exits 0 when it completes. It exits 2 on a config failure, when no manifest can be read, when no truth file can be read, or when the `--out` folder cannot be made or written; then it writes nothing and parses nothing. `--out` defaults to `results` inside the gold folder.
 The committed set `samples/gold/tables/` is synthetic and tests the tool. The owner's real set goes in `gold/tables/`, which git ignores and which is never committed, because the results quote client text.
 `--out` writes client cell values and source names (`cells.csv`, `run.json`), and the default results folder is git-ignored, so `--out` must not point at a folder that git tracks.
 
@@ -227,6 +227,8 @@ The results folder holds four files:
 - `timing.csv`: seconds to parse each source.
 
 Each ratio is written beside its two counts. The metrics are cell accuracy by column, row recall, row hallucination rate (extra rows over predicted rows), the unreadable-flag rate, wrong cells by confidence, and human disagreement when check files exist. A table whose two reads differ is named "repeat run differs".
+A truth file that is missing or has a wrong header row is named in the line `truth file not read` and has a `truth_read` row of 0 over 1 in `results.csv`. The other tables are still scored. A `table_id` that is not letters, digits, `_`, `.` or `-`, or that holds `..`, is not read and is named in the line `table_id not allowed, not read`. If one output file cannot be written after the run, the text ends with the line `not written`, naming it.
+A truth row whose circuit number is `[unreadable]` cannot be paired with a row the tool read. Such a row, and one unpaired row the tool read, are counted as `gold_row_not_pairable` and left out of the row counts. The text then prints `gold rows not pairable`. Read it beside `silent missing rows`: the true number of missing rows lies from the first count up to the sum of the two. `cells.csv` lists these rows as `circuit unreadable` and `unpaired row` for a person to compare.
 A silent wrong pass is a wrong cell in `breaker_a`, `wire` or `load_va` whose confidence is HIGH or MEDIUM, so a rule would compute on it. A silent missing row is a missed row the run did not list. The target for both is zero. A count above zero is a measured fault in a reader, not a pass.
 Numbers are normalized before comparing: case and spacing for text, units and thousands commas for numbers, the size normalizer for wire.
 
