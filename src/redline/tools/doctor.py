@@ -47,10 +47,23 @@ def _vtuple(text: str) -> tuple[int, ...]:
     return tuple(int(x) for x in re.findall(r"\d+", text.split("+")[0])[:4])
 
 
+_VERSION = re.compile(r"\d+(?:\.\d+)*")
+_CLAUSE = re.compile(r"(>=|<=|==|!=|>|<)\s*(\d+(?:\.\d+)*)")
+
+
 def _in_range(version: str, spec: str) -> bool:
-    have = _vtuple(version)
-    for op, want in re.findall(r"(>=|<=|==|!=|>|<)\s*([\w.]+)", spec):
-        w = _vtuple(want)
+    """False when the version is outside the range or when it or the spec cannot be read."""
+    base = version.split("+")[0]
+    if not _VERSION.fullmatch(base):
+        return False
+    have = _vtuple(base)
+    for clause in (c.strip() for c in spec.split(",")):
+        if not clause:
+            continue
+        m = _CLAUSE.fullmatch(clause)
+        if not m:
+            return False
+        op, w = m.group(1), _vtuple(m.group(2))
         n = max(len(have), len(w))
         a, b = have + (0,) * (n - len(have)), w + (0,) * (n - len(w))
         if not {
@@ -68,7 +81,11 @@ def _in_range(version: str, spec: str) -> bool:
 def _requirements() -> list[tuple[str, str, str]]:
     """(name, specifier, extra) for each requirement of redline; extra is empty for the base."""
     out = []
-    for raw in metadata.requires("redline") or []:
+    try:
+        raws = metadata.requires("redline") or []
+    except metadata.PackageNotFoundError:
+        return []
+    for raw in raws:
         req, _, marker = raw.partition(";")
         m = re.match(r"\s*([A-Za-z0-9_.-]+)\s*(?:\[[^\]]*\])?\s*(.*)", req)
         if not m:
@@ -173,15 +190,23 @@ def _smoke(exe: str, dll: str | None, timeout: float) -> Line:
         script = tmp / "smoke.scr"
         script.write_text("\n".join(lines) + "\n", encoding="utf-8")
         try:
-            run_tool("AutoCAD Core Console", [exe, "/s", str(script), "/l", "en-US"], timeout, tmp)
+            code = run_tool(
+                "AutoCAD Core Console", [exe, "/s", str(script), "/l", "en-US"], timeout, tmp
+            )
         except ExtractError as e:
             return ("FAIL", "console", f"{exe}: {e}")
+        if code:
+            return (
+                "FAIL",
+                "console",
+                f"{exe}: the smoke run exited with code {code & 0xFFFFFFFF:#010x}",
+            )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return (
         "PASS",
         "console",
-        f"{exe}; the smoke run ended, its version and exit code are not read",
+        f"{exe}; the smoke run ended with exit code 0, its version is not read",
     )
 
 
@@ -198,7 +223,10 @@ def _check_plugin(exe_ok: bool, dll: str | None, cfg: Config, drawing: Path | No
         ]
     if not os.path.isfile(dll):
         return [("FAIL", "plugin", f"acad_plugin_dll does not exist: {dll}")]
-    sha = ("PASS", "plugin_file", f"{dll} SHA-256 {sha256_of(Path(dll))}")
+    try:
+        sha = ("PASS", "plugin_file", f"{dll} SHA-256 {sha256_of(Path(dll))}")
+    except ExtractError as e:
+        return [("FAIL", "plugin_file", f"{dll} could not be read: {e}")]
     if not exe_ok:
         return [
             sha,
@@ -296,7 +324,7 @@ _GROUPS = ("base", "dxf", "pdf", "dev")
 _HEADER = ["package", "version", "licence", "read_from", "licence_files", "group", "status"]
 
 
-def _licence(md: Any) -> tuple[str, str]:
+def _licence(md: metadata.PackageMetadata) -> tuple[str, str]:
     expr = (md.get("License-Expression") or "").strip()
     if expr:
         return expr, "License-Expression"
@@ -311,6 +339,11 @@ def _licence(md: Any) -> tuple[str, str]:
     if names:
         return " OR ".join(_CLASSIFIER.get(n, n) for n in names), "classifier"
     return "", ""
+
+
+def _listed(text: str) -> bool:
+    tokens = [t for t in re.split(r"\s+(?:AND|OR|WITH)\s+|[()]", text) if t.strip()]
+    return bool(tokens) and all(t.strip() in _PERMISSIVE for t in tokens)
 
 
 def _closure() -> dict[str, tuple[str, str]]:
@@ -350,8 +383,7 @@ def _licences() -> str:
     for name, group in rows:
         md = metadata.metadata(name)
         text, src = _licence(md)
-        tokens = [t for t in re.split(r"\s+(?:AND|OR|WITH)\s+|[()]", text) if t.strip()]
-        listed = bool(tokens) and all(t.strip() in _PERMISSIVE for t in tokens)
+        listed = _listed(text)
         files = len(md.get_all("License-File") or [])
         w.writerow(
             [
