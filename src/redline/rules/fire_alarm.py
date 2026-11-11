@@ -263,8 +263,8 @@ def _run_part(
         return [_nc(ref, msg)]
     if used[0] + segs * len(sure) > MAX_FIRE_ALARM_RUN_PAIRS:
         msg = (
-            f"{sheet}: {label} not checked. Reason: the run's limit of pair comparisons "
-            "was reached; check by hand."
+            f"{sheet}: {label} not checked. Checking this part would pass "
+            "the run's limit of pair comparisons; check by hand."
         )
         return [_nc(ref, msg)]
     used[0] += segs * len(sure)

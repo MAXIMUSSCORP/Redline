@@ -192,6 +192,7 @@ With `--batch`, give files or folders. Redline reads many drawings, prints a sum
 
 `gold eval` reads `manifest.csv` in the folder you give, parses each source with the reader `redline check` uses, and compares the cells with a transcribed truth file. It prints the table counts, the silent wrong passes and the silent missing rows, then the results folder. It exits 0 when it completes and 2 on a config failure or when no manifest can be read. `--out` defaults to `results` inside the gold folder.
 The committed set `samples/gold/tables/` is synthetic and tests the tool. The owner's real set goes in `gold/tables/`, which git ignores and which is never committed, because the results quote client text.
+`--out` writes client cell values and source names (`cells.csv`, `run.json`), and the default results folder is git-ignored, so `--out` must not point at a folder that git tracks.
 
 ### The layout
 

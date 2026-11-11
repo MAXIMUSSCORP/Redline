@@ -398,7 +398,7 @@ def _two_sheets():
     return Project("p", devices=out, sheet_units=units)
 
 
-RUN_REASON = "the run's limit of pair comparisons was reached; check by hand"
+RUN_REASON = "would pass the run's limit of pair comparisons; check by hand"
 
 
 def test_run_wide_pair_limit_not_checked(test_cfg, monkeypatch):
