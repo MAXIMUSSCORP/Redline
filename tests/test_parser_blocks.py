@@ -196,7 +196,7 @@ def test_empty_config_lists_every_name(test_cfg):
 
 
 def test_blocks_not_listed_by_plain_parse(test_cfg):
-    out = dxf.parse_rawdrawing(sheet([ins("CHAIR")]), test_cfg)
+    out = dxf.parse_rawdrawing(sheet([ins("CHAIR")]), test_cfg, list_blocks=False)
     assert out.unparsed == []
 
 
@@ -229,7 +229,7 @@ def test_unitless_sheet_units_not_usable(test_cfg, word):
     data = sheet([], units=word)
     if word is None:
         del data["document"]["units"]
-    out = dxf.parse_rawdrawing(data, test_cfg)
+    out = dxf.parse_rawdrawing(data, test_cfg, list_blocks=False)
     v = out.sheet_units["s.dxf"]
     assert v.value is None and not v.usable
     assert v.confidence == Confidence.LOW and "not stated" in v.source.note
