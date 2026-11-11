@@ -808,7 +808,7 @@ def test_cut_footer_and_page2_rows_keep_panel_demand_needs_review(tmp_path):
 
 
 class _Stub:
-    """Stands in for a tool module that arrives in a later wave."""
+    """Stands in for a redline.tools module: records each call and returns canned text and a code."""
 
     def __init__(self, code=0, **fns):
         self.calls = []
