@@ -14,9 +14,6 @@ rule_refs:
   panel_demand: "TEST Rule DEM-1"
   phase_balance: "TEST practice PB-1"
   completeness: "TEST drawing standard CMP-1"
-  fire_alarm_exit_signs: "TODO [VERIFY]"
-  fire_alarm_pull_stations: "TODO [VERIFY]"
-  emergency_lighting: "TODO [VERIFY]"
 
 tables:
   conductor_ampacity:         # material -> size -> insulation temp C -> amps
