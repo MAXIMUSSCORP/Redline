@@ -773,6 +773,16 @@ def test_old_exit_sign_spacing_key_is_config_error(tmp_path):
 
     with pytest.raises(ConfigError, match="max_distance_from_path_to_sign_m"):
         load_config(_copy_edit(tmp_path, "fire_alarm.yaml", edit))
+    both = tmp_path / "both"
+    both.mkdir()
+    with pytest.raises(ConfigError, match="max_spacing_along_path_m"):
+        load_config(
+            _copy_edit(
+                both,
+                "fire_alarm.yaml",
+                lambda c: c["exit_signs"].update(max_spacing_along_path_m=30),
+            )
+        )
 
 
 def test_device_name_under_two_classes(tmp_path):
