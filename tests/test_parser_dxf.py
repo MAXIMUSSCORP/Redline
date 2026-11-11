@@ -653,3 +653,38 @@ def test_star_t_many_similar_schedules_not_doubled(test_cfg):
     names = [p.name for p in out.panels]
     assert len(names) == 100 and len(set(names)) == 100
     assert "texts in table render blocks not read twice" in out.coverage[-1].what_read
+
+
+# ---- the field flag (D6) ----
+
+
+def _flagged(flag) -> dict:
+    ents = loose()
+    stale = next(e for e in ents if e["text"] == "1350")
+    if flag is not None:
+        stale["evaluated"] = flag
+    return drawing(ents)
+
+
+def _load_value(out):
+    return out.panels[0].circuits[0].load_va
+
+
+def test_unevaluated_text_is_low(test_cfg):
+    out = dxf.parse_rawdrawing(_flagged(False), test_cfg)
+    v = _load_value(out)
+    assert v.confidence == Confidence.LOW and dxf.STALE_NOTE in v.source.note
+    assert out.panels[0].circuits[1].load_va.confidence == Confidence.MEDIUM
+
+
+def test_unevaluated_attribute_noted(test_cfg):
+    d = wd_drawing()
+    d["entities"][0]["attributes"][0]["evaluated"] = False
+    out = dxf.parse_rawdrawing(d, test_cfg)
+    assert "WD_M value SHEET from a field, may be stale" in out.coverage[-1].what_read
+
+
+def test_absent_flag_keeps_medium(test_cfg):
+    for flag in (None, True):
+        v = _load_value(dxf.parse_rawdrawing(_flagged(flag), test_cfg))
+        assert v.confidence == Confidence.MEDIUM
