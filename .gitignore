@@ -2,7 +2,7 @@
 .claude/notepad.md
 .claude/checkpoints.log
 .unlazy/*/dispatch.json
-gold/
+/gold/
 .venv/
 __pycache__/
 *.pyc
