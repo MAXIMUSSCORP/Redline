@@ -190,8 +190,16 @@ def _owner_units(f: _File, project: Project, sheet: str, rows: list) -> None:
         said = "unitless" if old is None or old.raw in (None, "") else old.raw
         differs = old is None or old.value != length_unit(word)
         note = f"the drawing states {said}" if differs else "the drawing states the same"
-        src = Source(f.name, "units", Method.CSV, Confidence.HIGH, note)
+        contested = differs and old is not None and old.usable
+        conf = Confidence.MEDIUM if contested else Confidence.HIGH
+        src = Source(f.name, "units", Method.CSV, conf, note)
         project.sheet_units[sheet] = Value(word, src, raw=word)
+        if contested:
+            why = (
+                f"exits.csv states units {word}, the drawing header states {old.raw}."
+                f" Distances on this sheet use {word}. Reviewer to confirm the unit [VERIFY]."
+            )
+            f.list("sheet", sheet, why, Source(f.name, "units", Method.CSV, Confidence.MEDIUM))
         return
     src = Source(f.name, "units", Method.CSV, Confidence.LOW, _UNITS_UNKNOWN)
     project.sheet_units[sheet] = Value(None, src, raw=", ".join(sorted(set(words))))

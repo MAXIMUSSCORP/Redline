@@ -198,6 +198,15 @@ def test_owner_units_named_with_drawing_units(test_cfg):
     assert "units ft" in f.message and "the drawing states mm" in f.message
 
 
+def test_contradicted_units_rest_on_medium(test_cfg):
+    units = _units("ft", "the drawing states mm", Confidence.MEDIUM)
+    f = _one(_proj([_exit(), _dev("exit_sign", 10.0, 0.0)], units=units), test_cfg, ES_A)
+    assert f.severity == Severity.VIOLATION
+    assert "units ft" in f.message and "the drawing states mm" in f.message
+    (u,) = [i for i in f.inputs_used if i.field == "units"]
+    assert u.value == "ft" and u.confidence == Confidence.MEDIUM
+
+
 def test_nested_device_gives_review_not_violation(test_cfg):
     nested = _dev("exit_sign", None, None, det="nested", conf=Confidence.LOW)
     f = _one(_proj([_exit(), nested]), test_cfg, ES_A)

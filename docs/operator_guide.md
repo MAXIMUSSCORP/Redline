@@ -122,9 +122,9 @@ A folder of `.dxf` or `.dwg` plan sheets is read for device blocks. Redline coun
    - `paths.csv`, columns `sheet,path,seq,x,y`. One path is its rows in `seq` order.
    A file in the folder named `exits.csv` or `paths.csv` is read after the drawings. A row that cannot be read is listed and that exit or path gets no check.
 4. Exits: when `exits.csv` has rows for a sheet, that list wins for the sheet and the exit door blocks of that sheet are shown as `unused`.
-5. Units: the drawing header gives the length unit. A sheet with no usable unit gives NOT_CHECKED for every distance. The owner can state the unit in the `units` column of `exits.csv` (`mm`, `cm`, `m`, `in` or `ft`); that overrides the header, and the report names both.
+5. Units: the drawing header gives the length unit. A sheet with no usable unit gives NOT_CHECKED for every distance. The owner can state the unit in the `units` column of `exits.csv` (`mm`, `cm`, `m`, `in` or `ft`); that overrides the header, and the report names both. When the header states a different unit, the sheet is listed under "Needs manual check" with both units and the unit used, and the unit is then a MEDIUM input.
 6. Limits: each limit in `fire_alarm.yaml` that is `null` gives NOT_CHECKED for that check. Nothing is passed by silence.
-7. `exit_signs.max_spacing_along_path_m` is read as each sign's reach along the path. A point within that distance of a sign is covered, so signs up to twice the value apart pass. The reviewer confirms this meaning [VERIFY].
+7. `exit_signs.max_distance_from_path_to_sign_m` is read as the farthest a point of an egress path may lie from an exit sign. A point within that distance of a sign is covered, so signs up to twice the value apart pass. The old name `max_spacing_along_path_m` is a config error. The reviewer confirms this meaning [VERIFY].
 8. `fire_alarm.yaml` carries `verified: false` until a qualified reviewer fills and verifies it. While it is false, every VIOLATION from the fire alarm rule is shown as NEEDS_REVIEW, and the Config tables row for `fire_alarm.yaml` reads NOT VERIFIED.
 
 Devices read from blocks are never worse than their confidence: a block inside another block or an xref is LOW and is not measured.

@@ -752,11 +752,11 @@ def test_fire_alarm_shape_checked(tmp_path):
         sec("exit_signs", rule_ref=None),
         lambda c: c["pull_stations"].pop("max_distance_from_exit_m"),
         sec("exit_signs", require_at_each_exit="yes"),
-        sec("exit_signs", max_spacing_along_path_m=0),
-        sec("exit_signs", max_spacing_along_path_m=-1),
-        sec("exit_signs", max_spacing_along_path_m=True),
-        sec("exit_signs", max_spacing_along_path_m="10"),
-        sec("exit_signs", max_spacing_along_path_m=float("inf")),
+        sec("exit_signs", max_distance_from_path_to_sign_m=0),
+        sec("exit_signs", max_distance_from_path_to_sign_m=-1),
+        sec("exit_signs", max_distance_from_path_to_sign_m=True),
+        sec("exit_signs", max_distance_from_path_to_sign_m="10"),
+        sec("exit_signs", max_distance_from_path_to_sign_m=float("inf")),
         sec("emergency_lighting", coverage_radius_m=float("nan")),
     ]
     for i, edit in enumerate(edits):
@@ -764,6 +764,15 @@ def test_fire_alarm_shape_checked(tmp_path):
         d.mkdir()
         with pytest.raises(ConfigError, match="fire_alarm.yaml"):
             load_config(_copy_edit(d, "fire_alarm.yaml", edit))
+
+
+def test_old_exit_sign_spacing_key_is_config_error(tmp_path):
+    def edit(c):
+        s = c["exit_signs"]
+        s["max_spacing_along_path_m"] = s.pop("max_distance_from_path_to_sign_m")
+
+    with pytest.raises(ConfigError, match="max_distance_from_path_to_sign_m"):
+        load_config(_copy_edit(tmp_path, "fire_alarm.yaml", edit))
 
 
 def test_device_name_under_two_classes(tmp_path):
