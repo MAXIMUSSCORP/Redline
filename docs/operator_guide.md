@@ -124,7 +124,8 @@ A folder of `.dxf` or `.dwg` plan sheets is read for device blocks. Redline coun
 4. Exits: when `exits.csv` has rows for a sheet, that list wins for the sheet and the exit door blocks of that sheet are shown as `unused`.
 5. Units: the drawing header gives the length unit. A sheet with no usable unit gives NOT_CHECKED for every distance. The owner can state the unit in the `units` column of `exits.csv` (`mm`, `cm`, `m`, `in` or `ft`); that overrides the header, and the report names both.
 6. Limits: each limit in `fire_alarm.yaml` that is `null` gives NOT_CHECKED for that check. Nothing is passed by silence.
-7. `fire_alarm.yaml` carries `verified: false` until a qualified reviewer fills and verifies it. While it is false, every VIOLATION from the fire alarm rule is shown as NEEDS_REVIEW, and the Config tables row for `fire_alarm.yaml` reads NOT VERIFIED.
+7. `exit_signs.max_spacing_along_path_m` is read as each sign's reach along the path. A point within that distance of a sign is covered, so signs up to twice the value apart pass. The reviewer confirms this meaning [VERIFY].
+8. `fire_alarm.yaml` carries `verified: false` until a qualified reviewer fills and verifies it. While it is false, every VIOLATION from the fire alarm rule is shown as NEEDS_REVIEW, and the Config tables row for `fire_alarm.yaml` reads NOT VERIFIED.
 
 Devices read from blocks are never worse than their confidence: a block inside another block or an xref is LOW and is not measured.
 

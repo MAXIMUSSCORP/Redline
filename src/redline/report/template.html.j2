@@ -152,7 +152,7 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 {% for s in devices.sheets %}
 <p class="mono"><b>{{ s.name }}</b></p>
 <p class="mono">Units: {{ s.units }}</p>
-<p class="mono">Exits checked: {{ s.exits }} · Paths: {{ s.paths }} · LOW: {{ s.low }}</p>
+<p class="mono">Exits listed in exits.csv: {{ s.exits }} · Paths: {{ s.paths }} · LOW: {{ s.low }}</p>
 <table>
 <tr><th>Class</th>{% for c in devices.columns %}<th>{{ c }}</th>{% endfor %}</tr>
 {% for r in s.rows %}
