@@ -385,6 +385,70 @@ def test_licences_review_status():
     for x in r:
         if not x["licence"]:
             assert x["status"] == "REVIEW"
-        if x["licence"] == "MIT":
-            assert x["status"] == "listed"
+    by = {x["package"].lower(): x for x in r}
+    assert by["pyyaml"]["licence"] == "MIT"
+    assert by["pyyaml"]["status"] == "listed"
     assert {x["status"] for x in r} <= {"listed", "REVIEW"}
+
+
+def test_licence_with_exception_is_review():
+    assert doctor._listed("Apache-2.0")
+    assert not doctor._listed("Apache-2.0 WITH LLVM-exception")
+    assert not doctor._listed("")
+
+
+def test_licences_without_distribution(monkeypatch):
+    def gone(name):
+        raise metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(doctor.metadata, "requires", gone)
+    text, code = doc(licences=True)
+    assert code == 0 and text == ",".join(doctor._HEADER)
+
+
+# review R5.1
+
+
+def test_console_smoke_nonzero_exit_fails(tools, monkeypatch):
+    monkeypatch.setattr(doctor, "run_tool", lambda *a: 3221225477)
+    text, code = doc()
+    line = find(text, "console")[0]
+    assert code == 0 and line.startswith("FAIL  console  ")
+    assert "0xc0000005" in line and "PASS  console" not in text
+
+
+def test_console_nonzero_exit_plugin_not_checked(tools, monkeypatch):
+    monkeypatch.setattr(doctor, "run_tool", lambda *a: 1)
+    text, _ = doc(tools.drawing)
+    assert find(text, "plugin")[0].startswith("NOT CHECKED  plugin  the core console did not run")
+
+
+def test_packages_not_installed_not_checked(monkeypatch):
+    def gone(name):
+        raise metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(doctor.metadata, "requires", gone)
+    assert doctor._requirements() == []
+    assert doctor._check_packages()[0][0] == "NOT CHECKED"
+
+
+def test_plugin_unreadable_fails(tools, monkeypatch):
+    def locked(path):
+        raise ExtractError("RedlinePlugin.dll could not be read")
+
+    monkeypatch.setattr(doctor, "sha256_of", locked)
+    text, code = doc()
+    assert code == 0 and find(text, "plugin_file")[0].startswith("FAIL  plugin_file  ")
+
+
+def test_in_range_unknown_operator():
+    assert not doctor._in_range("2.0", "~=3.1")
+    assert not doctor._in_range("2.0", ">=1.0,===2.0")
+    assert doctor._in_range("2.0", ">=1.0,<3")
+    assert doctor._in_range("2.0", "")
+
+
+def test_in_range_unparseable_version():
+    assert not doctor._in_range("0.11.9rc1", ">=0.11.9,<0.12")
+    assert not doctor._in_range("dev", ">=1")
+    assert doctor._in_range("1.4.2+local", ">=1.4,<2")
