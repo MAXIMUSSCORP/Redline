@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import os
@@ -69,6 +70,27 @@ def _probe(fn: Any) -> Any:
         return fn()
     except Exception:  # noqa: BLE001
         return None
+
+
+def _has_field(e: Any) -> bool:
+    """True when the entity's extension dictionary holds ACAD_FIELD (its text comes from a FIELD)."""
+    return bool(_probe(lambda: e.has_extension_dict and "ACAD_FIELD" in e.get_extension_dict()))
+
+
+def _source_name(e: Any, name: str) -> str:
+    """A dynamic block insert is written against an anonymous *U block. Its record keeps the
+    source block's handle in AcDbBlockRepBTag XDATA (code 1005). Any miss keeps the *U name."""
+    if not name.startswith("*U"):
+        return name
+
+    def find() -> str:
+        doc = e.doc
+        for code, value in doc.block_records.get(name).get_xdata("AcDbBlockRepBTag"):
+            if code == 1005:
+                return str(doc.entitydb.get(value).dxf.name) or name
+        return name
+
+    return _probe(find) or name
 
 
 def _table_counts(e: Any) -> tuple[int, int] | None:
@@ -334,25 +356,31 @@ def convert(
     if kind == "TEXT":
         out["text"] = _cut(g("text", ""), handle, notes)
         out["text_height"] = _pos(g("height"))
-        out["insertion_point"] = _pt(g("insert") or ())
+        out["insertion_point"] = _pt(g("insert"))
         out["rotation_deg"] = _num(g("rotation", 0))
+        if _has_field(e):
+            out["evaluated"] = False
     elif kind == "MTEXT":
         from ezdxf.tools.text import plain_mtext
 
         out["text"] = _cut(plain_mtext(e.text, split=False), handle, notes)
         out["text_height"] = _pos(g("char_height"))
-        out["insertion_point"] = _pt(g("insert") or ())
+        out["insertion_point"] = _pt(g("insert"))
         out["rotation_deg"] = _num(g("rotation", 0))
+        if _has_field(e):
+            out["evaluated"] = False
     elif kind == "INSERT":
-        out["block_name"] = _cut(g("name", ""), handle, notes)
+        out["block_name"] = _cut(_source_name(e, g("name", "")), handle, notes)
         out["attributes"] = [
             {
                 "tag": _cut(a.dxf.get("tag", ""), handle, notes),
                 "value": _cut(a.dxf.get("text", ""), handle, notes),
+                **({"evaluated": False} if _has_field(a) else {}),
             }
             for a in e.attribs
         ]
-        out["insertion_point"] = _pt(g("insert") or ())
+        # dxf.insert is OCS; the AutoCAD plugin writes WCS Position.
+        out["insertion_point"] = _pt(_probe(lambda: e.ocs().to_wcs(g("insert"))))
         out["rotation_deg"] = _num(g("rotation", 0))
     elif kind == "ACAD_TABLE":
         table = _table(e, handle, notes, acad_table, ctx)
@@ -360,14 +388,14 @@ def convert(
             return None
         out["table"] = table
         ref = _probe(lambda: e.xtags.get_subclass("AcDbBlockReference").get_first_value(10, None))
-        out["insertion_point"] = _pt(ref or ())
+        out["insertion_point"] = _pt(ref)
     elif kind == "MLEADER":
         out["text"] = _cut(_probe(e.get_mtext_content) or "", handle, notes)
         out["attributes"] = _mleader_attribs(e)
-        out["insertion_point"] = _pt(_probe(lambda: e.context.mtext.insert) or ())
+        out["insertion_point"] = _pt(_probe(lambda: e.context.mtext.insert))
         out["text_height"] = _pos(_probe(lambda: e.context.char_height))
     elif kind == "LINE":
-        a, b = _pt(g("start") or ()), _pt(g("end") or ())
+        a, b = _pt(g("start")), _pt(g("end"))
         out["insertion_point"] = a
         if a and b:
             out["bbox"] = [min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])]
@@ -609,10 +637,8 @@ def _in_child(job: dict[str, Any]) -> dict[str, Any]:
 
 def _extract(path: Path, cfg: Config, isolated: bool) -> dict[str, Any]:
     path = path.absolute()  # the child runs in the temp folder; no filesystem call is made
-    try:
-        import ezdxf  # noqa: F401
-    except ImportError as e:
-        raise Unavailable("ezdxf not installed: pip install redline[dxf]") from e
+    if importlib.util.find_spec("ezdxf") is None:  # find_spec: `import ezdxf` loads socket (C20)
+        raise Unavailable("ezdxf not installed: pip install redline[dxf]")
     parsing = cfg.column_maps["parsing"]
     suffix = path.suffix.lower()
     if suffix not in (".dwg", ".dxf"):

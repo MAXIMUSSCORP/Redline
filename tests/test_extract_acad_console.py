@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -257,6 +258,33 @@ def test_live_acad_console_dumps_sample():
         raise
     assert data["extractor"] == "acad_plugin"
     assert data["entities"]
+
+
+def _flags(data):
+    """Text and attribute flags of the host layouts, matched by content: the fixtures use
+    synthetic handles."""
+    out = Counter()
+    for e in data["entities"]:
+        if e["layout"].startswith("block:"):
+            continue
+        if e["type"] in ("TEXT", "MTEXT"):
+            out[(e["type"], e["text"], e.get("evaluated"))] += 1
+        for a in e.get("attributes") or []:
+            out[(e["block_name"], a["tag"], a["value"], a.get("evaluated"))] += 1
+    return out
+
+
+@pytest.mark.live
+def test_live_acad_console_text_flags():
+    cfg = load_config(ROOT / "config")
+    sample = ROOT / "samples" / "dwg" / "panel_sheet.dwg"
+    try:
+        data = acad_console.extract(sample, cfg)
+    except Unavailable as e:
+        pytest.skip(str(e))
+    assert data["schema_version"] == "1.1"
+    want = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    assert _flags(data) == _flags(want)
 
 
 def test_non_ascii_temp_path_is_unavailable(env, monkeypatch):

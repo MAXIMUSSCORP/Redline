@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from redline import rawdrawing
-from redline.config import Config
+from redline.config import Config, device_classes
 from redline.model import (
     Confidence,
     CoverageEntry,
+    Device,
     Method,
     Panel,
     Source,
@@ -24,6 +25,7 @@ from redline.model import (
 )
 from redline.parsers.csv_xlsx import InputError
 from redline.parsers.tabular import Parsed, rows_to_panels
+from redline.units import length_unit
 
 SUFFIXES = (".dwg", ".dxf")
 JSON_SUFFIX = ".rawdrawing.json"
@@ -74,7 +76,7 @@ def parse_file(path: Path, cfg: Config) -> Parsed:
     if not result.ok:
         shown = "; ".join(result.errors[:3])
         raise InputError(f"{path.name} is not a valid RawDrawing: {shown}")
-    out = parse_rawdrawing(data, cfg)
+    out = parse_rawdrawing(data, cfg, list_blocks=True)
     out.provenance = {path.name: provenance(data)}
     return out
 
@@ -130,6 +132,7 @@ class TextItem:
     h: float
     text: str
     x_end: float | None
+    stale: bool = False  # the text comes from a FIELD that was not evaluated
 
 
 def _clean(text: Any) -> str:
@@ -149,7 +152,9 @@ def _items(entities: list[dict]) -> tuple[list[TextItem], int]:
             skipped += 1
             continue
         bbox = e.get("bbox")
-        items.append(TextItem(p[0], p[1], h, text, bbox[2] if bbox else None))
+        items.append(
+            TextItem(p[0], p[1], h, text, bbox[2] if bbox else None, e.get("evaluated") is False)
+        )
     return items, skipped
 
 
@@ -162,11 +167,12 @@ def _nearest(xs: list[float], x: float) -> int:
 
 
 def text_grid(
-    items: list[TextItem], row_tol: float, gap: float
+    items: list[TextItem], row_tol: float, gap: float, low: set | None = None
 ) -> tuple[list[list[str]], list[float], int] | None:
     """Rows by y, cells by x, columns aligned to the header row. Returns grid, y per row, and the
     number of cells that shared a column with another cell of their row. None when the grid
-    would be over the cell cap."""
+    would be over the cell cap. When low is given, it gets the (row, column) of every cell that
+    holds a stale text."""
     med = statistics.median(i.h for i in items)
     rows: list[list[TextItem]] = []
     total = 0.0  # running sum of y in the current row
@@ -185,7 +191,7 @@ def text_grid(
             prev = merged[-1] if merged else None
             if prev and prev.x_end is not None and it.x - prev.x_end <= gap * med:
                 parts[-1].append(it.text)
-                merged[-1] = replace(prev, x_end=it.x_end)
+                merged[-1] = replace(prev, x_end=it.x_end, stale=prev.stale or it.stale)
             else:
                 merged.append(it)
                 parts.append([it.text])
@@ -202,6 +208,8 @@ def text_grid(
             k = _nearest(xs, c.x)
             shared += bool(line[k])
             line[k] = f"{line[k]} {c.text}".strip()
+            if low is not None and c.stale:
+                low.add((n, k))
         text = line[0]
         if n < top and len(r) == 1 and len(xs) > 1 and text == r[0].text and ":" not in text:
             # A lone title line above the header ("Panel LP-13") holds a key and its value. The
@@ -209,6 +217,8 @@ def text_grid(
             key, _, value = text.rpartition(" ")
             if key and any(ch.isdigit() for ch in value):
                 line[0], line[1] = key, value
+                if low is not None and (n, 0) in low:
+                    low.add((n, 1))
         grid.append(line)
     return grid, [statistics.fmean(i.y for i in r) for r in rows], shared
 
@@ -223,6 +233,9 @@ class _Tally:
     clusters_read: int = 0
     clusters_listed: int = 0
     wd_read: list[str] = field(default_factory=list)
+    wd_stale: list[str] = field(default_factory=list)
+    devices: Counter = field(default_factory=Counter)  # (class, detection) -> count
+    unmatched: dict = field(default_factory=dict)  # folded name -> [name, placed, nested]
     attr_blocks: int = 0
     unplaced_text: int = 0
     shared_columns: int = 0
@@ -240,13 +253,21 @@ def _where(e: dict) -> str:
     return f"layout={e.get('layout')}" + (f"; xref={xp}" if xp else "")
 
 
-def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
+def parse_rawdrawing(data: dict, cfg: Config, list_blocks: bool = False) -> Parsed:
+    """Panels, devices and sheet units of one RawDrawing. list_blocks adds one Unparsed per block
+    name that matches no device class; it is off here so the M2 test of plain INSERTs holds, and
+    parse_file turns it on."""
     parsing = cfg.column_maps.get("parsing") or {}
     file = data["source_file"]
     stamp = f"{data['extractor']}@{data['extractor_version']}"
     out = Parsed(provenance={file: provenance(data)})
     tally = _Tally()
     entities = [e for e in data.get("entities") or [] if isinstance(e, dict)]
+    classes = device_classes(cfg)
+    doc = data.get("document") or {}
+    layouts = set(doc.get("layouts") or [])
+    wd_map = (cfg.column_maps.get("aecad_project") or {}).get("wd_m_attribute_map") or {}
+    wd_by_tag = {a.strip().upper(): k for k, v in wd_map.items() for a in v}
 
     def unp(kind: str, raw: str, reason: str, locator: str, method: Method) -> None:
         out.unparsed.append(
@@ -289,7 +310,7 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
     for e in entities:
         t, layout = e.get("type"), str(e.get("layout"))
         if t == "INSERT":
-            _insert(e, cfg, file, out, tally, unp)
+            _insert(e, file, stamp, classes, layouts, out, tally, unp, wd_by_tag)
         elif t == "MLEADER":
             tally.mleaders += 1
         elif t in ("TEXT", "MTEXT"):
@@ -340,10 +361,20 @@ def parse_rawdrawing(data: dict, cfg: Config) -> Parsed:
             reason = f"loose text could not be read ({type(ex).__name__})"
             unp("table", "", reason, _where(texts[k][0]), Method.DXF_TEXT)
 
+    unmatched = tally.unmatched.values() if list_blocks else ()
+    for name, placed, nested in sorted(unmatched, key=lambda r: r[0].casefold()):
+        why = (
+            "block name matches no device class in fire_alarm.yaml device_blocks: "
+            f"{placed} placed, {nested} inside block definitions or xrefs"
+        )
+        src = Source(file, "blocks", Method.DXF_BLOCK, Confidence.LOW)
+        out.unparsed.append(Unparsed("block", clip(name), why, src))
+    out.sheet_units[file] = _units(doc, file, stamp)
     for p in out.panels:
         apply_to_sources(p, lambda s: replace(s, extractor=stamp))
     out.unparsed = [replace(u, source=replace(u.source, extractor=stamp)) for u in out.unparsed]
     out.coverage.append(_drawing_entry(data, file, tally, out))
+    out.coverage[-1].what_read += f"; drawing units {out.sheet_units[file].raw or 'not stated'}"
     return out
 
 
@@ -416,21 +447,81 @@ def _table(e, cfg, file, min_cells, out, tally, add, unp) -> None:
         unp("table", "", f"table could not be read ({type(ex).__name__})", loc, Method.DXF_TABLE)
 
 
-def _insert(e, cfg, file, out, tally, unp) -> None:
+def _insert(e, file, stamp, classes, layouts, out, tally, unp, wd_by_tag) -> None:
     attrs = [a for a in e.get("attributes") or [] if isinstance(a, dict)]
-    if str(e.get("block_name") or "").upper() != "WD_M":
-        tally.attr_blocks += bool(attrs)
+    name = str(e.get("block_name") or "").strip()
+    if name.upper() == "WD_M":
+        for a in attrs:
+            tag, value = str(a.get("tag") or ""), str(a.get("value") or "")
+            key = wd_by_tag.get(tag.strip().upper())
+            if key is not None:
+                tally.wd_read.append(f"{key} {clip(value)}")
+            else:
+                loc = f"{_where(e)}; handle={e.get('handle')}; attrib={tag}"
+                unp("column", clip(f"{tag}={value}"), _WD_UNMAPPED, loc, Method.DXF_ATTRIB)
+            if a.get("evaluated") is False:
+                tally.wd_stale.append(clip(tag))
         return
-    wd_map = (cfg.column_maps.get("aecad_project") or {}).get("wd_m_attribute_map") or {}
-    by_tag = {a.strip().upper(): k for k, v in wd_map.items() for a in v}
-    for a in attrs:
-        tag, value = str(a.get("tag") or ""), str(a.get("value") or "")
-        key = by_tag.get(tag.strip().upper())
-        if key is not None:
-            tally.wd_read.append(f"{key} {clip(value)}")
-        else:
-            loc = f"{_where(e)}; handle={e.get('handle')}; attrib={tag}"
-            unp("column", clip(f"{tag}={value}"), _WD_UNMAPPED, loc, Method.DXF_ATTRIB)
+    tally.attr_blocks += bool(attrs)
+    layout = str(e.get("layout"))
+    placed = layout in layouts and not e.get("xref_path")
+    cls = classes.get(name.casefold())
+    if cls is None:
+        row = tally.unmatched.setdefault(name.casefold(), [name, 0, 0])
+        row[1 if placed else 2] += 1
+        return
+    where = f"layout={layout}; handle={e.get('handle')}"
+    if placed:
+        detection = "block" if layout.casefold() == "model" else "paper"
+        src = Source(file, where, Method.DXF_BLOCK, Confidence.HIGH, extractor=stamp)
+    else:
+        detection = "nested"
+        xp = e.get("xref_path")
+        inside = f"xref {clip(xp)}" if xp else f"block definition {clip(layout)}"
+        note = f"inside {inside}; placements not counted"
+        src = Source(file, where, Method.DXF_BLOCK, Confidence.LOW, note, extractor=stamp)
+    p = e.get("insertion_point")
+    xy = (
+        (Value(p[0], src), Value(p[1], src))
+        if placed and isinstance(p, list) and len(p) >= 2
+        else (Value.missing(), Value.missing())
+    )
+    out.devices.append(
+        Device(
+            type=cls,
+            source=src,
+            sheet=Value(file, src),
+            location=Value(layout, src),
+            x=xy[0],
+            y=xy[1],
+            detection=detection,
+        )
+    )
+    tally.devices[(cls, detection)] += 1
+
+
+def _units(doc: dict, file: str, stamp: str) -> Value:
+    word = doc.get("units")
+    unit = length_unit(word if isinstance(word, str) else None)
+    if unit is not None:
+        src = Source(
+            file,
+            "document.units",
+            Method.DXF_BLOCK,
+            Confidence.MEDIUM,
+            "declared in the drawing header",
+            extractor=stamp,
+        )
+    else:
+        src = Source(
+            file,
+            "document.units",
+            Method.DXF_BLOCK,
+            Confidence.LOW,
+            "drawing units not stated",
+            extractor=stamp,
+        )
+    return Value(unit, src, raw=None if word is None else str(word))
 
 
 def _cluster(group, key, cfg, parsing, file, out, tally, add, unp) -> None:
@@ -441,7 +532,10 @@ def _cluster(group, key, cfg, parsing, file, out, tally, add, unp) -> None:
     if len(items) < parsing.get("dxf_table_min_cells", 1):
         tally.unplaced_text += len(items)
         return
-    built = text_grid(items, parsing["row_tolerance_text_heights"], parsing["column_gap_fraction"])
+    low: set = set()
+    built = text_grid(
+        items, parsing["row_tolerance_text_heights"], parsing["column_gap_fraction"], low
+    )
     if built is None:
         why = f"loose text of {len(items)} texts would make a grid over the cell cap, so it is not read"
         out.unparsed.append(
@@ -457,6 +551,8 @@ def _cluster(group, key, cfg, parsing, file, out, tally, add, unp) -> None:
         file=file,
         method=Method.DXF_TEXT,
         locate=lambda i: f"{where}; y={ys[i]:g}",
+        low_cells=low,
+        low_note=STALE_NOTE,
     )
     if not part.panels and all(u.kind in ("table", "column") for u in part.unparsed):
         # No schedule header: loose annotation, listed once instead of cell by cell.
@@ -484,6 +580,11 @@ def _drawing_entry(data: dict, file: str, t: _Tally, out: Parsed) -> CoverageEnt
     ]
     if t.wd_read:
         parts.append("WD_M values " + ", ".join(t.wd_read))
+    if t.wd_stale:
+        parts.extend(f"WD_M value {tag} from a field, may be stale" for tag in t.wd_stale)
+    if t.devices:
+        counts = ", ".join(f"{cls} {n} ({det})" for (cls, det), n in sorted(t.devices.items()))
+        parts.append("device blocks " + counts)
     if t.attr_blocks:
         parts.append(f"{t.attr_blocks} block references with attributes not read as schedules")
     if t.unplaced_text:

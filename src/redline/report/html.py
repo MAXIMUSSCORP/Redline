@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Iterable
 from itertools import islice
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
-from redline.config import Config, is_test_config, table_verified
+from redline.config import FIRE_ALARM_TABLE, Config, is_test_config, table_verified
 from redline.engine import RunResult
 from redline.findings import Finding, Severity
-from redline.model import Confidence, Project, clip
+from redline.model import Confidence, Project, Unparsed, Value, clip
 from redline.report.csv_out import format_inputs
 
 LIABILITY_SENTENCE = (
@@ -22,11 +23,14 @@ SECTION_IDS = (
     "rules",
     "findings",
     "manual-check",
+    "devices",
     "coverage",
     "config-tables",
     "footer",
 )
 EMPTY = "—"
+BLOCK_LIMIT = 500  # unmatched block names shown per file; its own limit, not MAX_ROWS (D12)
+DETECTION_COLUMNS = ("block", "list", "unused", "nested", "paper", "detector")
 _ORDER = {s: i for i, s in enumerate(Severity)}
 
 _env = Environment(
@@ -60,6 +64,96 @@ def _text(items: Iterable[object], total: int, noun: str, limit: int = 200) -> s
     if total > MAX_ROWS:
         out.append(f"and {total - MAX_ROWS} more {noun}")
     return "; ".join(out)
+
+
+_PLACED = re.compile(r"(\d+) placed, (\d+) inside")
+
+
+def _units_text(v: Value | None) -> str:
+    if v is None:
+        return "not stated"
+    s = v.source
+    where = f"{s.file} {s.locator}" + (f"; {s.note}" if s.note else "") if s else EMPTY
+    said = f"drawing states {clip(v.raw)}" if v.raw not in (None, "", v.value) else ""
+    extra = "; ".join(x for x in (where, said) if x)
+    return f"{clip(v.value) if v.value is not None else 'not usable'} (source: {extra})"
+
+
+def _devices(project: Project, cfg: Config) -> dict:
+    """The Devices and exits section: counts per sheet and class, and the unmatched block names."""
+    names: dict[str, str] = {}  # casefold -> first spelling, in order of appearance
+
+    def note(sheet: object) -> None:
+        s = str(sheet or "").strip()
+        names.setdefault(s.casefold(), s or "sheet not stated")
+
+    for s in project.sheet_units:
+        note(s)
+    for d in project.devices:
+        note(d.sheet.value)
+    for p in project.paths:
+        note(p.sheet)
+    units = {k.casefold(): v for k, v in project.sheet_units.items()}
+    classes = list(cfg.fire_alarm["device_blocks"])
+    classes += sorted({d.type for d in project.devices} - set(classes))
+    sheets = []
+    for key, name in names.items():
+        mine = [d for d in project.devices if str(d.sheet.value or "").strip().casefold() == key]
+        count: Counter = Counter((d.type, d.detection) for d in mine)
+        rows = []
+        for cls in classes:
+            cells = [str(count[(cls, c)]) for c in DETECTION_COLUMNS]
+            layouts = sorted(
+                {clip(d.location.value) for d in mine if d.type == cls and d.detection == "paper"}
+            )
+            if layouts:
+                cells[DETECTION_COLUMNS.index("paper")] += " in " + ", ".join(layouts)
+            rows.append({"cls": clip(cls), "cells": cells})
+        paths = [p for p in project.paths if p.sheet.strip().casefold() == key]
+        low = [clip(p.name) for p in paths if p.source.confidence < Confidence.HIGH]
+        sheets.append(
+            {
+                "name": clip(name, 260),
+                "units": _units_text(units.get(key)),
+                "exits": sum(1 for d in mine if d.type == "exit_door" and d.detection == "list"),
+                "paths": len(paths),
+                "low": ", ".join(low) or "none",
+                "rows": rows,
+            }
+        )
+    by_file: dict[str, list[Unparsed]] = {}
+    for u in project.unparsed:
+        if u.kind == "block":
+            by_file.setdefault(u.source.file, []).append(u)
+    unmatched = []
+    for file, items in by_file.items():
+        items.sort(key=lambda u: u.raw.casefold())
+        rows = []
+        for u in items[:BLOCK_LIMIT]:
+            m = _PLACED.search(u.reason)
+            rows.append(
+                {
+                    "name": clip(u.raw, 200),
+                    "placed": m.group(1) if m else EMPTY,
+                    "nested": m.group(2) if m else EMPTY,
+                }
+            )
+        hidden = max(0, len(items) - BLOCK_LIMIT)
+        unmatched.append(
+            {
+                "file": _or_empty(clip(file, 260)),
+                "rows": rows,
+                "total": len(items),
+                "hidden": hidden,
+                "more": f"and {hidden} more block names in {clip(file, 260)}" if hidden else "",
+            }
+        )
+    return {
+        "sheets": sheets,
+        "columns": DETECTION_COLUMNS,
+        "unmatched": unmatched,
+        "none": not sheets and not unmatched,
+    }
 
 
 def _medium_note(f: Finding) -> str:
@@ -107,7 +201,9 @@ def render_html(project: Project, result: RunResult, cfg: Config) -> str:
                 "reason": _or_empty(clip(u.reason, 200)),
             }
             for u in project.unparsed
+            if u.kind != "block"
         ],
+        devices=_devices(project, cfg),
         coverage=[
             {
                 "file": _or_empty(clip(c.file, 260)),
@@ -141,6 +237,13 @@ def render_html(project: Project, result: RunResult, cfg: Config) -> str:
                 "source": _or_empty(clip(t.get("source"), 200)),
             }
             for name, t in cfg.cec["tables"].items()
+        ]
+        + [
+            {
+                "name": FIRE_ALARM_TABLE,
+                "verified": table_verified(cfg, FIRE_ALARM_TABLE),
+                "source": _or_empty(clip(cfg.fire_alarm.get("source"), 200)),
+            }
         ],
         tool_version=_or_empty(clip(ri.tool_version) if ri else ""),
         input_tool_version=_or_empty(clip(ri.input_tool_version) if ri else ""),

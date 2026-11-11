@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "extractor": "acad_plugin",
   "extractor_version": "0.1.0",
   "host_version": "synthetic fixture, no host",
@@ -2221,7 +2221,8 @@
       "insertion_point": [
         750.0,
         190.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0004",
@@ -2235,7 +2236,8 @@
       "insertion_point": [
         750.0,
         182.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0005",
@@ -2249,7 +2251,8 @@
       "insertion_point": [
         770.0,
         182.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0006",
@@ -2263,7 +2266,8 @@
       "insertion_point": [
         840.0,
         182.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0007",
@@ -2277,7 +2281,8 @@
       "insertion_point": [
         880.0,
         182.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0008",
@@ -2291,7 +2296,8 @@
       "insertion_point": [
         920.0,
         182.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0009",
@@ -2305,7 +2311,8 @@
       "insertion_point": [
         950.0,
         182.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0010",
@@ -2319,7 +2326,8 @@
       "insertion_point": [
         750.0,
         174.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0011",
@@ -2333,7 +2341,8 @@
       "insertion_point": [
         770.0,
         174.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0012",
@@ -2347,7 +2356,8 @@
       "insertion_point": [
         840.0,
         174.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0013",
@@ -2361,7 +2371,8 @@
       "insertion_point": [
         880.0,
         174.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0014",
@@ -2375,7 +2386,8 @@
       "insertion_point": [
         920.0,
         174.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0015",
@@ -2389,7 +2401,8 @@
       "insertion_point": [
         950.0,
         174.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0016",
@@ -2403,7 +2416,8 @@
       "insertion_point": [
         750.0,
         166.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0017",
@@ -2417,7 +2431,8 @@
       "insertion_point": [
         770.0,
         166.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0018",
@@ -2431,7 +2446,8 @@
       "insertion_point": [
         840.0,
         166.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0019",
@@ -2445,7 +2461,8 @@
       "insertion_point": [
         880.0,
         166.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0020",
@@ -2459,7 +2476,8 @@
       "insertion_point": [
         920.0,
         166.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0021",
@@ -2473,7 +2491,8 @@
       "insertion_point": [
         950.0,
         166.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0022",
@@ -2487,7 +2506,8 @@
       "insertion_point": [
         750.0,
         158.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0023",
@@ -2501,7 +2521,8 @@
       "insertion_point": [
         770.0,
         158.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0024",
@@ -2515,7 +2536,8 @@
       "insertion_point": [
         840.0,
         158.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0025",
@@ -2529,7 +2551,8 @@
       "insertion_point": [
         880.0,
         158.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0026",
@@ -2543,7 +2566,8 @@
       "insertion_point": [
         920.0,
         158.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0027",
@@ -2557,7 +2581,8 @@
       "insertion_point": [
         950.0,
         158.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0028",
@@ -2571,7 +2596,8 @@
       "insertion_point": [
         750.0,
         150.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0029",
@@ -2585,7 +2611,8 @@
       "insertion_point": [
         770.0,
         150.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0030",
@@ -2599,7 +2626,8 @@
       "insertion_point": [
         840.0,
         150.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0031",
@@ -2613,7 +2641,8 @@
       "insertion_point": [
         880.0,
         150.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0032",
@@ -2627,7 +2656,8 @@
       "insertion_point": [
         920.0,
         150.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0033",
@@ -2641,7 +2671,8 @@
       "insertion_point": [
         950.0,
         150.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0034",
@@ -2655,7 +2686,8 @@
       "insertion_point": [
         750.0,
         142.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0035",
@@ -2669,7 +2701,8 @@
       "insertion_point": [
         770.0,
         142.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0036",
@@ -2683,7 +2716,8 @@
       "insertion_point": [
         840.0,
         142.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0037",
@@ -2697,7 +2731,8 @@
       "insertion_point": [
         880.0,
         142.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0038",
@@ -2711,7 +2746,8 @@
       "insertion_point": [
         920.0,
         142.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0039",
@@ -2725,7 +2761,8 @@
       "insertion_point": [
         950.0,
         142.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0040",
@@ -2739,7 +2776,8 @@
       "insertion_point": [
         750.0,
         134.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0041",
@@ -2753,7 +2791,8 @@
       "insertion_point": [
         770.0,
         134.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0042",
@@ -2767,7 +2806,8 @@
       "insertion_point": [
         840.0,
         134.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0043",
@@ -2781,7 +2821,8 @@
       "insertion_point": [
         880.0,
         134.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0044",
@@ -2795,7 +2836,8 @@
       "insertion_point": [
         920.0,
         134.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0045",
@@ -2809,7 +2851,8 @@
       "insertion_point": [
         950.0,
         134.0
-      ]
+      ],
+      "evaluated": true
     },
     {
       "id": "e0046",
@@ -2879,15 +2922,18 @@
       "attributes": [
         {
           "tag": "SHEET",
-          "value": "E-101"
+          "value": "E-101",
+          "evaluated": true
         },
         {
           "tag": "DWGDESC",
-          "value": "Lighting panel schedules"
+          "value": "Lighting panel schedules",
+          "evaluated": true
         },
         {
           "tag": "PROJ",
-          "value": "Synthetic Test Building"
+          "value": "Synthetic Test Building",
+          "evaluated": true
         }
       ]
     },
@@ -2907,11 +2953,13 @@
       "attributes": [
         {
           "tag": "CKT",
-          "value": "LP-11-5"
+          "value": "LP-11-5",
+          "evaluated": true
         },
         {
           "tag": "MOUNT",
-          "value": "450"
+          "value": "450",
+          "evaluated": true
         }
       ]
     },

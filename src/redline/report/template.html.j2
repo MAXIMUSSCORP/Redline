@@ -132,13 +132,47 @@ tr.needs_review{box-shadow:inset 2px 0 0 var(--text)}
 {% for u in unparsed %}
 <tr class="needs_review"><td>{{ sev('NOT_CHECKED') }}</td><td>{{ u.kind }}: {{ u.raw }}</td><td>{{ u.file }}</td><td>{{ u.loc }}</td><td>{{ u.reason }}</td></tr>
 {% endfor %}
+{% for g in devices.unmatched %}
+<tr class="needs_review"><td>{{ sev('NOT_CHECKED') }}</td><td>block names: {{ g.total }} block names match no device class; listed under Devices and exits{% if g.hidden %} ({{ g.hidden }} not shown){% endif %}</td><td>{{ g.file }}</td><td>blocks</td><td>Name the blocks under device_blocks in fire_alarm.yaml, or leave them out.</td></tr>
+{% endfor %}
 {% for x in manual %}
 <tr class="{{ x.sev|lower }}"><td>{{ sev(x.sev) }}</td><td>{{ x.f.rule_id }}</td><td>{{ x.file }}</td><td>{{ x.loc }}</td><td>{{ x.f.message }}</td></tr>
 {% endfor %}
 </table>
-{% if not unparsed and not manual %}
+{% if not unparsed and not manual and not devices.unmatched %}
 <p>No item is waiting for a manual check in this run.</p>
 {% endif %}
+</section>
+
+<section id="devices">
+<h2>Devices and exits</h2>
+{% if devices.none %}
+<p>No plan sheet, exits.csv or paths.csv was read.</p>
+{% endif %}
+{% for s in devices.sheets %}
+<p class="mono"><b>{{ s.name }}</b></p>
+<p class="mono">Units: {{ s.units }}</p>
+<p class="mono">Exits listed in exits.csv: {{ s.exits }} · Paths: {{ s.paths }} · LOW: {{ s.low }}</p>
+<table>
+<tr><th>Class</th>{% for c in devices.columns %}<th>{{ c }}</th>{% endfor %}</tr>
+{% for r in s.rows %}
+<tr class="cls"><td>{{ r.cls }}</td>{% for c in r.cells %}<td>{{ c }}</td>{% endfor %}</tr>
+{% endfor %}
+</table>
+{% endfor %}
+{% for g in devices.unmatched %}
+<p class="mono"><b>Block names that match no device class: {{ g.file }}</b></p>
+<table>
+<tr><th>Name</th><th>File</th><th>Placed</th><th>Inside blocks or xrefs</th></tr>
+{% for r in g.rows %}
+<tr><td>{{ r.name }}</td><td>{{ g.file }}</td><td>{{ r.placed }}</td><td>{{ r.nested }}</td></tr>
+{% endfor %}
+{% if g.more %}
+<tr><td>{{ g.more }}</td><td></td><td></td><td></td></tr>
+{% endif %}
+</table>
+{% endfor %}
+<p class="dim">A block name that is not under device_blocks is not counted as a device. Check it by hand.</p>
 </section>
 
 <section id="coverage">
