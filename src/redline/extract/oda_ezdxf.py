@@ -379,7 +379,8 @@ def convert(
             }
             for a in e.attribs
         ]
-        out["insertion_point"] = _pt(g("insert"))
+        # dxf.insert is OCS; the AutoCAD plugin writes WCS Position.
+        out["insertion_point"] = _pt(_probe(lambda: e.ocs().to_wcs(g("insert"))))
         out["rotation_deg"] = _num(g("rotation", 0))
     elif kind == "ACAD_TABLE":
         table = _table(e, handle, notes, acad_table, ctx)

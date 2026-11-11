@@ -91,6 +91,17 @@ def test_oda_dxf_text_mtext_insert_read(tmp_path, test_cfg):
     assert "ezdxf" in data["host_version"]
 
 
+def test_insert_point_is_wcs(tmp_path, test_cfg):
+    doc = new_doc()
+    doc.blocks.new("PNL")
+    msp = doc.modelspace()
+    msp.add_blockref("PNL", (6000, 0), dxfattribs={"extrusion": (0, 0, -1)})
+    msp.add_blockref("PNL", (7, 8))
+    data = oda_ezdxf.extract(save(doc, tmp_path / "w.dxf"), test_cfg)
+    pts = [e["insertion_point"] for e in data["entities"] if e["type"] == "INSERT"]
+    assert [p[:2] for p in pts] == [[-6000.0, 0.0], [7.0, 8.0]]
+
+
 def test_oda_table_cells_not_evaluated():
     notes = []
     values = [["Panel", "LP-1"], ["Ckt", "1"]]
