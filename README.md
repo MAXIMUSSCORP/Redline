@@ -6,9 +6,9 @@ Redline screens building electrical design packages for a qualified reviewer. It
 
 | Source | Status |
 |---|---|
-| CSV, TXT and XLSX panel schedules | Built (M1, in verification) |
-| AutoCAD DWG and DXF | Planned (M2) |
-| PDF drawing sets | Planned (M3) |
+| CSV, TXT and XLSX panel schedules | Built (M1) |
+| AutoCAD DWG and DXF | Built (M2) |
+| PDF drawing sets | Built (M3, real sheets not yet tested) |
 | Revit | Coming soon |
 
 Revit exports are not supported yet. Revit support is coming soon (`docs/PLAN.md` row 35).
