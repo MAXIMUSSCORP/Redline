@@ -10,9 +10,11 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 import time
 import unicodedata
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -20,7 +22,7 @@ from pathlib import Path
 from redline import __version__
 from redline.cli import _load_inputs
 from redline.config import Config
-from redline.model import Confidence, Project
+from redline.model import Confidence, Panel, Project
 from redline.report.csv_out import _safe
 from redline.units import normalize_size
 
@@ -36,6 +38,7 @@ ATTR = {
 UNIT = {"breaker_a": "a", "poles": "p", "load_va": "va"}
 SILENT_COLS = ("breaker_a", "wire", "load_va")
 UNREADABLE = "[unreadable]"
+SAFE_ID = re.compile(r"[A-Za-z0-9_.-]+")
 REQUIRED = ("table_id", "source_file", "panel")
 RESULT_HEADER = ["scope", "table_id", "column", "measure", "numerator", "denominator", "ratio"]
 CELL_HEADER = ["table", "circuit", "column", "gold", "predicted", "confidence", "outcome"]
@@ -89,6 +92,11 @@ def distance(a: str, b: str) -> int:
     return prev[-1]
 
 
+def near(a: str, b: str) -> bool:
+    """True when the strings are at most 1 edit apart. Lengths more than 1 apart skip the work."""
+    return abs(len(a) - len(b)) <= 1 and distance(a, b) <= 1
+
+
 # --- reading ---
 
 
@@ -101,6 +109,7 @@ class Table:
     tags: list[str]
     rows: list[list[str]] | None = None  # truth rows, None when not readable
     check: list[list[str]] | None = None
+    bad_id: bool = False
 
 
 @dataclass
@@ -141,6 +150,10 @@ def _manifest(folder: Path) -> tuple[list[Table] | None, str]:
     for r in sorted(data, key=lambda r: r["table_id"]):
         tags = [t.strip() for t in r.get("tags", "").split(";") if t.strip()]
         t = Table(r["table_id"], r["source_file"], r["panel"], r.get("kind", ""), tags)
+        if not SAFE_ID.fullmatch(t.id) or ".." in t.id:
+            t.bad_id = True  # the id names a file under truth/ and check/, so it stays inside them
+            tables.append(t)
+            continue
         t.rows = _rows(folder / "truth" / f"{t.id}.csv")
         ck = folder / "check" / f"{t.id}.csv"
         t.check = _rows(ck) if ck.is_file() else None
@@ -155,7 +168,7 @@ def _read_source(path: Path, cfg: Config) -> Read:
     return Read([first, _load_inputs([str(path)], cfg)[0]], seconds)
 
 
-def _find(project: Project, name: str):
+def _find(project: Project, name: str) -> Panel | None:
     want = name.strip().casefold()
     return next((p for p in project.panels if p.name.strip().casefold() == want), None)
 
@@ -166,11 +179,12 @@ def _lists(project: Project, name: str, row: bool) -> bool:
     for real gold to show what it must catch."""
     n = name.strip().casefold()
     for u in project.unparsed:
-        text = f"{u.raw} {u.reason}".casefold()
+        text = u.raw.casefold()  # the name is in raw; reason is free text such as "be a schedule"
+        named = re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text) is not None
         if row:
-            hit = u.kind == "row" and n in text
+            hit = u.kind == "row" and named
         else:
-            hit = u.kind in ("page", "sheet") or u.reason.startswith("file not read") or n in text
+            hit = u.kind in ("page", "sheet") or u.reason.startswith("file not read") or named
         if hit:
             return True
     return False
@@ -188,6 +202,7 @@ class Scored:
     differs: bool = False
     silent_wrong: int = 0
     silent_missing: int = 0
+    not_pairable: int = 0
 
     def add(self, col: str, measure: str, num: int, den: int) -> None:
         m = self.meas.setdefault((col, measure), [0, 0])
@@ -195,7 +210,7 @@ class Scored:
         m[1] += den
 
 
-def _pair(gold: list[list[str]], pred: list[str]):
+def _pair(gold: list[list[str]], pred: list[str]) -> tuple[list[int | None], list[int]]:
     """Index of the paired predicted row for each gold row (None when missed), and the
     predicted rows nobody paired. Repeated numbers pair in order of appearance."""
     free: dict[str, list[int]] = defaultdict(list)
@@ -223,12 +238,22 @@ def _score(t: Table, rd: Read) -> Scored:
     paired, extra = _pair(gold, [c.number for c in circuits])
     s.listed = not s.read and _lists(a, t.panel, False)
     row_listed = s.listed if not s.read else _lists(a, t.panel, True)
-    missed = sum(1 for p in paired if p is None)
+    # D14: an unkeyed gold row and a leftover predicted row may be one row; the scorer cannot say
+    unkeyed = sum(1 for g in gold if _unreadable(g[0]))
+    n = min(unkeyed, len(extra))
+    s.not_pairable = n
+    keyed_missed = sum(
+        1 for g, p in zip(gold, paired, strict=True) if p is None and not _unreadable(g[0])
+    )
+    missed = keyed_missed + unkeyed - n
     s.silent_missing = 0 if row_listed else missed
-    s.add("rows", "row_recall", len(gold) - missed, len(gold))
-    s.add("rows", "row_hallucination", len(extra), len(circuits))
-    s.add("rows", "silent_missing_row", s.silent_missing, len(gold))
+    s.add("rows", "row_recall", len(gold) - n - missed, len(gold) - n)
+    s.add("rows", "row_hallucination", len(extra) - n, len(circuits) - n)
+    s.add("rows", "silent_missing_row", s.silent_missing, len(gold) - n)
+    s.add("rows", "gold_row_not_pairable", n, len(gold))
     for g, p in zip(gold, paired, strict=True):
+        if _unreadable(g[0]):
+            continue
         c = circuits[p] if p is not None else None
         for col in COLS:
             gt = g[TRUTH_HEADER.index(col)]
@@ -267,16 +292,20 @@ def _score(t: Table, rd: Read) -> Scored:
                 s.add(col, m, int(h), 1)
                 s.add("all", m, int(h), 1)
             if col == "description":
-                near = has and distance(norm(col, gt), norm(col, str(v.value))) <= 1
-                s.add(col, "distance_le_1", int(near), 1)
+                near_cell = has and near(norm(col, gt), norm(col, str(v.value)))
+                s.add(col, "distance_le_1", int(near_cell), 1)
             if out != "correct":
                 cn = conf.name if conf is not None else ""
                 s.cells.append([t.id, g[0], col, gt, shown, cn, out])
+    for g in gold:
+        if _unreadable(g[0]):
+            s.cells.append(
+                [t.id, g[0], "(row)", "circuit unreadable", "", "", "circuit unreadable"]
+            )
+    label = "unpaired row" if unkeyed else "extra row"
     for i in extra:
         c = circuits[i]
-        s.cells.append(
-            [t.id, c.number, "(row)", "", "extra row", c.source.confidence.name, "extra row"]
-        )
+        s.cells.append([t.id, c.number, "(row)", "", label, c.source.confidence.name, label])
     if t.check is not None:
         _disagree(s, gold, t.check)
     return s
@@ -284,8 +313,18 @@ def _score(t: Table, rd: Read) -> Scored:
 
 def _disagree(s: Scored, truth: list[list[str]], check: list[list[str]]) -> None:
     paired, extra = _pair(truth, [r[0] for r in check])
-    only = len(extra) + sum(1 for p in paired if p is None)
-    s.add("rows", "check_rows_in_one_file", only, len(truth) + len(extra))
+    unkeyed = sum(1 for g in truth if _unreadable(g[0]))
+    n = min(unkeyed, len(extra))
+    keyed_missed = sum(
+        1 for g, p in zip(truth, paired, strict=True) if p is None and not _unreadable(g[0])
+    )
+    s.add(
+        "rows",
+        "check_rows_in_one_file",
+        keyed_missed + unkeyed - n + len(extra) - n,
+        len(truth) + len(extra) - 2 * n,
+    )
+    s.add("rows", "check_row_not_pairable", n, len(truth))
     for g, p in zip(truth, paired, strict=True):
         if p is None:
             continue
@@ -310,11 +349,29 @@ def _sha(path: Path) -> str:
         return ""
 
 
-def _write_csv(path: Path, header: list[str], rows: list[list]) -> None:
+def _write_csv(path: Path, header: list[str], rows: list[list[str | int]]) -> None:
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\n")
         w.writerow(header)
         w.writerows([[_safe(c) for c in r] for r in rows])
+
+
+OUTPUTS = ("results.csv", "cells.csv", "timing.csv", "run.json")
+
+
+def _writable(out: Path) -> str:
+    """Empty when the folder can be made and every output file opened for writing."""
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        for name in OUTPUTS:
+            f = out / name
+            new = not f.exists()
+            f.open("ab").close()
+            if new:
+                f.unlink()
+    except OSError as e:
+        return f"cannot write results to {out}: {type(e).__name__}. Nothing was parsed."
+    return ""
 
 
 def run(manifest_dir: Path, cfg: Config, out_dir: Path | None) -> tuple[str, int]:
@@ -322,8 +379,12 @@ def run(manifest_dir: Path, cfg: Config, out_dir: Path | None) -> tuple[str, int
     tables, why = _manifest(folder)
     if tables is None:
         return f"gold eval: {why}", 2
+    if all(t.rows is None for t in tables):
+        ids = ", ".join(t.id for t in tables)
+        return f"gold eval: no truth file could be read: {ids}. No results written.", 2
     out = Path(out_dir) if out_dir is not None else folder / "results"
-    out.mkdir(parents=True, exist_ok=True)
+    if why := _writable(out):
+        return f"gold eval: {why}", 2
 
     reads: dict[str, Read] = {}
     scored: dict[str, Scored] = {}
@@ -345,10 +406,12 @@ def run(manifest_dir: Path, cfg: Config, out_dir: Path | None) -> tuple[str, int
 
     for t in tables:
         s = scored.get(t.id)
-        if s is None:
-            continue
         scopes = [("table", t.id), ("total", ""), *[(f"kind:{t.kind}", "")] * bool(t.kind)]
         scopes += [(f"tag:{g}", "") for g in t.tags]
+        for scope, tid in scopes:
+            put(scope, tid, "table", "truth_read", int(s is not None), 1)
+        if s is None:
+            continue
         flags = {"table_read": s.read, "table_listed": s.listed, "repeat_run_differs": s.differs}
         for scope, tid in scopes:
             for (col, measure), (num, den) in s.meas.items():
@@ -362,16 +425,28 @@ def run(manifest_dir: Path, cfg: Config, out_dir: Path | None) -> tuple[str, int
             result.items(), key=lambda kv: (order[kv[0][0].split(":")[0]], *kv[0])
         )
     ]
-    _write_csv(out / "results.csv", RESULT_HEADER, rows)
-    _write_csv(
-        out / "cells.csv",
-        CELL_HEADER,
-        [c for t in tables if t.id in scored for c in scored[t.id].cells],
+    failed: list[str] = []
+
+    def write(name: str, make: Callable[[Path], object]) -> None:
+        try:
+            make(out / name)
+        except OSError:
+            failed.append(name)
+
+    write("results.csv", lambda f: _write_csv(f, RESULT_HEADER, rows))
+    write(
+        "cells.csv",
+        lambda f: _write_csv(
+            f, CELL_HEADER, [c for t in tables if t.id in scored for c in scored[t.id].cells]
+        ),
     )
-    _write_csv(
-        out / "timing.csv",
-        ["source_file", "seconds"],
-        [[Path(k).name, f"{r.seconds:.4f}"] for k, r in sorted(reads.items())],
+    write(
+        "timing.csv",
+        lambda f: _write_csv(
+            f,
+            ["source_file", "seconds"],
+            [[Path(k).name, f"{r.seconds:.4f}"] for k, r in sorted(reads.items())],
+        ),
     )
     versions = {}
     for t in tables:
@@ -387,7 +462,10 @@ def run(manifest_dir: Path, cfg: Config, out_dir: Path | None) -> tuple[str, int
         "sources": {s: _sha(folder / s) for s in sorted({t.source for t in tables})},
         "models": [],
     }
-    (out / "run.json").write_text(json.dumps(info, indent=2, sort_keys=True), encoding="utf-8")
+    write(
+        "run.json",
+        lambda f: f.write_text(json.dumps(info, indent=2, sort_keys=True), encoding="utf-8"),
+    )
 
     n_read = sum(s.read for s in scored.values())
     n_listed = sum(s.listed for s in scored.values())
@@ -397,8 +475,14 @@ def run(manifest_dir: Path, cfg: Config, out_dir: Path | None) -> tuple[str, int
         f"silent missing rows: {sum(s.silent_missing for s in scored.values())}",
         f"results: {out}",
     ]
-    if ids := [t.id for t in tables if t.rows is None]:
+    if pairless := sum(s.not_pairable for s in scored.values()):
+        lines.append(f"gold rows not pairable: {pairless}")
+    if ids := [t.id for t in tables if t.bad_id]:
+        lines.append("table_id not allowed, not read: " + ", ".join(ids))
+    if ids := [t.id for t in tables if t.rows is None and not t.bad_id]:
         lines.append("truth file not read: " + ", ".join(ids))
     if ids := [i for i, s in scored.items() if s.differs]:
         lines.append("repeat run differs: " + ", ".join(ids))
+    if failed:
+        lines.append("not written: " + ", ".join(failed))
     return "\n".join(lines), 0
