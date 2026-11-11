@@ -12,7 +12,7 @@ FIXTURES = Path(__file__).resolve().parent.parent / "samples" / "dwg"
 
 def _valid() -> dict:
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "extractor": "acad_plugin",
         "extractor_version": "0.1.0",
         "host_version": "test host",
@@ -80,10 +80,39 @@ def test_higher_major_refused():
 
 def test_higher_minor_warns():
     d = _valid()
-    d["schema_version"] = "1.1"
+    d["schema_version"] = "1.2"
     v = validate(d)
     assert v.ok
     assert any("minor" in w for w in v.warnings)
+
+
+def test_schema_1_0_still_valid():
+    d = _valid()
+    d["schema_version"] = "1.0"
+    v = validate(d)
+    assert v.ok and v.warnings == ()
+
+
+def test_text_evaluated_must_be_bool():
+    for good in (True, False):
+        d = _valid()
+        d["entities"][1]["evaluated"] = good
+        assert validate(d).ok
+    for bad in ("yes", 0, 1, None):
+        d = _valid()
+        d["entities"][1]["evaluated"] = bad
+        assert any("entities[1].evaluated" in e for e in validate(d).errors), bad
+
+
+def test_attribute_evaluated_must_be_bool():
+    for good in (True, False):
+        d = _valid()
+        d["entities"][1]["attributes"] = [{"tag": "T", "value": "v", "evaluated": good}]
+        assert validate(d).ok
+    for bad in ("no", 0, None):
+        d = _valid()
+        d["entities"][1]["attributes"] = [{"tag": "T", "value": "v", "evaluated": bad}]
+        assert any("attributes[0].evaluated" in e for e in validate(d).errors), bad
 
 
 def test_bad_bbox_fails():
@@ -292,6 +321,7 @@ def _cell_texts(d: dict) -> list[list[str]]:
 
 def test_dwg_fixtures_shape():
     for name, d in _fixtures().items():
+        assert d["schema_version"] == "1.1"
         assert d["extractor"] == name
         assert d["extractor_version"] == "0.1.0"
         assert d["host_version"] == "synthetic fixture, no host"
@@ -331,6 +361,10 @@ def test_dwg_fixtures_shape():
         assert [a["tag"] for a in blocks["WD_M"]["attributes"]] == ["SHEET", "DWGDESC", "PROJ"]
         assert len(blocks["RECEPT"]["attributes"]) == 2
         assert {"LINE", "POLYLINE"} <= {e["type"] for e in ents}
+        # The plugin writes the flag on every text and attribute. The fallback finds no FIELD here.
+        flags = [e.get("evaluated") for e in ents if e["type"] in ("TEXT", "MTEXT")]
+        flags += [a.get("evaluated") for e in ents for a in e.get("attributes") or []]
+        assert flags and set(flags) == ({True} if name == "acad_plugin" else {None})
     a, b = _fixtures().values()
     assert _cell_texts(a) == _cell_texts(b)
 
