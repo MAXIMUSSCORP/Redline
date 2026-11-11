@@ -1,8 +1,8 @@
-config_version: "0.2-skeleton"
+config_version: "0.3-skeleton"
 verified: false
 source: "<fill: the building code and edition in force for the project's jurisdiction, and the edition of each standard it references for fire alarm installation, exit signs and emergency lighting> [VERIFY]"
 device_blocks: { exit_sign: [], pull_station: [], emergency_light: [], exit_door: [], horn_strobe: [], smoke_detector: [] }
-# exit_signs.max_spacing_along_path_m is read as each sign's reach along the path: a point within that distance of a sign is covered, so signs up to twice the value apart pass. Reviewer to confirm the meaning [VERIFY].
-exit_signs:         { rule_ref: "TODO [VERIFY]", require_at_each_exit: null, max_distance_from_exit_m: null, max_spacing_along_path_m: null }
+# exit_signs.max_distance_from_path_to_sign_m: no point of an egress path may be farther than this from an exit sign, so signs up to twice the value apart pass. Reviewer to confirm the meaning [VERIFY].
+exit_signs:         { rule_ref: "TODO [VERIFY]", require_at_each_exit: null, max_distance_from_exit_m: null, max_distance_from_path_to_sign_m: null }
 pull_stations:      { rule_ref: "TODO [VERIFY]", max_distance_from_exit_m: null }
 emergency_lighting: { rule_ref: "TODO [VERIFY]", coverage_radius_m: null, max_gap_along_path_m: null }

@@ -129,12 +129,20 @@ def test_missing_column_file_listed(tmp_path, test_cfg):
 def test_owner_units_win_and_drawing_named(tmp_path, test_cfg):
     p = run(tmp_path, test_cfg, rows(HEAD + ",units", f"{SHEET},0,0,E1,M", f"{SHEET},1,0,E2,m"))
     v = p.sheet_units[SHEET]
-    assert (v.value, v.confidence, v.source.method) == ("m", Confidence.HIGH, Method.CSV)
+    assert (v.value, v.confidence, v.source.method) == ("m", Confidence.MEDIUM, Method.CSV)
     assert "the drawing states mm" in v.source.note
+    (u,) = listed(p, "sheet")
+    assert "mm" in u.reason and "m" in u.reason.replace("mm", "") and "confirm" in u.reason
+    assert u.raw == SHEET and listed(p) == [] and len(p.devices) == 2
     q = run(tmp_path, test_cfg, rows(HEAD + ",units", f"{SHEET},0,0,E1,mm"))
     assert "the drawing states the same" in q.sheet_units[SHEET].source.note
+    assert q.sheet_units[SHEET].confidence == Confidence.HIGH and listed(q, "sheet") == []
     r = run(tmp_path, test_cfg, rows(HEAD + ",units", f"{SHEET},0,0,E1,"))
     assert r.sheet_units[SHEET].value == "mm" and r.sheet_units[SHEET].raw == "mm"
+    none = Project(name="t", sheet_units={SHEET: Value(None, units_value().source)})
+    s = run(tmp_path, test_cfg, rows(HEAD + ",units", f"{SHEET},0,0,E1,ft"), proj=none)
+    assert s.sheet_units[SHEET].confidence == Confidence.HIGH and listed(s, "sheet") == []
+    assert "unitless" in s.sheet_units[SHEET].source.note
 
 
 def test_blank_label_is_named_by_row(tmp_path, test_cfg):
