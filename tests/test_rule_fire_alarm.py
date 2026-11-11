@@ -372,3 +372,56 @@ def test_gaps_memory_per_segment():
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
     assert peak < 10_000_000
+
+
+def _two_sheets():
+    """Two sheets, each one exit and one sign: 1 x 1 pair for each exit check."""
+    out = []
+    for name in ("sheet_a.dxf", "sheet_b.dxf"):
+        s = Source(name, "h1", Method.DXF_BLOCK, Confidence.HIGH)
+        for cls, tag in (("exit_door", "E1"), ("exit_sign", "D1")):
+            out.append(
+                Device(
+                    cls,
+                    s,
+                    tag=Value(tag, s),
+                    sheet=Value(name, s),
+                    x=Value(0.0, s),
+                    y=Value(0.0, s),
+                    detection="block",
+                )
+            )
+    units = {
+        n: Value("m", Source(n, "document.units", Method.DXF_BLOCK, Confidence.MEDIUM))
+        for n in ("sheet_a.dxf", "sheet_b.dxf")
+    }
+    return Project("p", devices=out, sheet_units=units)
+
+
+RUN_REASON = "would pass the run's limit of pair comparisons; check by hand"
+
+
+def test_run_wide_pair_limit_not_checked(test_cfg, monkeypatch):
+    import redline.rules.fire_alarm as fa
+
+    monkeypatch.setattr(fa, "MAX_FIRE_ALARM_RUN_PAIRS", 1)
+    out = _got(_two_sheets(), test_cfg, text="Exit signs at exits")
+    late = [f for f in out if RUN_REASON in f.message]
+    assert [f.severity for f in late] == [Severity.NOT_CHECKED]
+    assert "sheet_b.dxf" in late[0].message
+    assert not any(RUN_REASON in f.message for f in out if "sheet_a.dxf" in f.message)
+
+
+def test_run_wide_limit_same_on_repeat(test_cfg, monkeypatch):
+    import redline.rules.fire_alarm as fa
+
+    monkeypatch.setattr(fa, "MAX_FIRE_ALARM_RUN_PAIRS", 1)
+    first = [f.message for f in _got(_two_sheets(), test_cfg)]
+    assert [f.message for f in _got(_two_sheets(), test_cfg)] == first
+    assert any(RUN_REASON in m for m in first)
+
+
+def test_run_limit_is_ten_part_caps():
+    from redline.config import MAX_FIRE_ALARM_PAIRS, MAX_FIRE_ALARM_RUN_PAIRS
+
+    assert MAX_FIRE_ALARM_RUN_PAIRS == 10 * MAX_FIRE_ALARM_PAIRS

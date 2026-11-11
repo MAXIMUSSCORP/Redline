@@ -1,0 +1,26 @@
+package,version,licence,read_from,licence_files,group,status
+et_xmlfile,2.0.0,MIT,License,3,base,listed
+Jinja2,3.1.6,BSD,classifier,1,base,listed
+MarkupSafe,3.0.4,BSD-3-Clause,License-Expression,1,base,listed
+openpyxl,3.1.5,MIT,License,1,base,listed
+PyYAML,6.0.3,MIT,License,1,base,listed
+ezdxf,1.4.5,MIT,classifier,1,dxf,listed
+fonttools,4.68.0,MIT,License,2,dxf,listed
+numpy,2.5.4,BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0,License-Expression,17,dxf,listed
+pyparsing,3.3.3,MIT,License-Expression,1,dxf,listed
+typing_extensions,4.16.0,PSF-2.0,License-Expression,1,dxf,listed
+cffi,2.1.1,MIT-0,License-Expression,1,pdf,listed
+charset-normalizer,3.5.2,MIT,License,1,pdf,listed
+cryptography,50.0.2,Apache-2.0 OR BSD-3-Clause,License-Expression,3,pdf,listed
+pdfminer.six,20260107,MIT,License-Expression,1,pdf,listed
+pdfplumber,0.11.10,MIT,classifier,1,pdf,listed
+pillow,13.0.0,MIT-CMU,License-Expression,1,pdf,listed
+pycparser,3.12,BSD-3-Clause,License-Expression,1,pdf,listed
+pypdfium2,5.15.2,"BSD-3-Clause, Apache-2.0, dependency licenses",License,37,pdf,REVIEW
+colorama,0.4.6,BSD,classifier,1,dev,listed
+iniconfig,2.3.1,MIT,License-Expression,1,dev,listed
+packaging,26.3,Apache-2.0 OR BSD-2-Clause,License-Expression,3,dev,listed
+pluggy,1.7.0,MIT,License,1,dev,listed
+Pygments,2.21.0,BSD-2-Clause,License-Expression,2,dev,listed
+pytest,9.2.0,MIT,License-Expression,1,dev,listed
+ruff,0.17.4,MIT,License-Expression,1,dev,listed

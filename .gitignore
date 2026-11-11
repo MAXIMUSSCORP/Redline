@@ -2,7 +2,7 @@
 .claude/notepad.md
 .claude/checkpoints.log
 .unlazy/*/dispatch.json
-gold/
+/gold/
 .venv/
 __pycache__/
 *.pyc
@@ -11,3 +11,7 @@ __pycache__/
 *.egg-info/
 report.html
 /findings.csv
+build/
+dist/
+/xcheck.csv
+samples/gold/tables/results/

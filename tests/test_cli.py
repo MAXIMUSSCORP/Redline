@@ -1,6 +1,9 @@
 import csv
 import json
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -802,3 +805,93 @@ def test_cut_footer_and_page2_rows_keep_panel_demand_needs_review(tmp_path):
         assert rc == 0, name
         rows = [r for r in _rows(out, "panel_demand") if "LP-1" in r["message"]]
         assert rows and {r["severity"] for r in rows} == {"NEEDS_REVIEW"}, name
+
+
+class _Stub:
+    """Stands in for a redline.tools module: records each call and returns canned text and a code."""
+
+    def __init__(self, code=0, **fns):
+        self.calls = []
+        for name in fns:
+            setattr(self, name, self._make(name, code))
+
+    def _make(self, name, code):
+        def fn(*args):
+            self.calls.append((name, args))
+            return f"{name} text", code
+
+        return fn
+
+
+def _stub(monkeypatch, name, **kw):
+    import redline.tools
+
+    stub = _Stub(**kw)
+    monkeypatch.setitem(sys.modules, f"redline.tools.{name}", stub)
+    monkeypatch.setattr(redline.tools, name, stub, raising=False)
+    return stub
+
+
+def test_gold_eval_dispatch(monkeypatch, tmp_path, capsys):
+    stub = _stub(monkeypatch, "gold_eval", run=None)
+    out = tmp_path / "o"
+    assert main(["gold", "eval", str(tmp_path), "--config", TEST_CFG, "--out", str(out)]) == 0
+    _, (manifest, cfg, got_out) = stub.calls[0]
+    assert (manifest, got_out) == (tmp_path, out) and cfg.dir == Path(TEST_CFG)
+    assert "run text" in capsys.readouterr().out
+    main(["gold", "eval", str(tmp_path), "--config", TEST_CFG])
+    assert stub.calls[1][1][2] is None
+
+
+def test_gold_eval_config_failure_exits_2(monkeypatch, tmp_path, capsys):
+    stub = _stub(monkeypatch, "gold_eval", run=None)
+    assert main(["gold", "eval", str(tmp_path), "--config", str(tmp_path / "none")]) == 2
+    assert stub.calls == []
+    assert "config error" in capsys.readouterr().err
+
+
+def test_doctor_dispatch(monkeypatch, tmp_path):
+    stub = _stub(monkeypatch, "doctor", code=2, run=None)
+    # doctor loads no config in the CLI, so a missing folder reaches it
+    assert main(["doctor", "--config", str(tmp_path / "none")]) == 2
+    assert stub.calls[0][1] == (tmp_path / "none", None, False)
+    main(["doctor", "--config", TEST_CFG, "--drawing", "d.dwg", "--licences"])
+    assert stub.calls[1][1] == (Path(TEST_CFG), Path("d.dwg"), True)
+
+
+def test_xcheck_batch_dispatch(monkeypatch, tmp_path):
+    stub = _stub(monkeypatch, "xcheck", run=None, run_batch=None)
+    assert main(["xcheck", "a.dwg", "b", "--config", TEST_CFG, "--batch", "--out", "o"]) == 0
+    name, (files, _cfg, out) = stub.calls[0]
+    assert (name, files, out) == ("run_batch", [Path("a.dwg"), Path("b")], Path("o"))
+    main(["xcheck", "a.dwg", "--config", TEST_CFG, "--batch"])
+    assert stub.calls[1][1][2] == Path(".")
+
+
+def test_xcheck_out_needs_batch(monkeypatch, tmp_path, capsys):
+    stub = _stub(monkeypatch, "xcheck", run=None, run_batch=None)
+    assert main(["xcheck", "a.dwg", "--config", TEST_CFG, "--out", str(tmp_path)]) == 2
+    assert stub.calls == []
+    assert "--batch" in capsys.readouterr().err
+
+
+def test_xcheck_without_batch_unchanged(monkeypatch):
+    stub = _stub(monkeypatch, "xcheck", run=None, run_batch=None)
+    assert main(["xcheck", "a.dwg", "--config", TEST_CFG]) == 0
+    assert [c[0] for c in stub.calls] == ["run"]
+    assert stub.calls[0][1][0] == [Path("a.dwg")]
+
+
+def test_tool_modules_not_imported_by_check(tmp_path):
+    code = (
+        "import sys\nfrom redline.cli import main\n"
+        "rc = main(['check', '--demo-project', sys.argv[1], '--config', sys.argv[2],"
+        " '--out', sys.argv[3]])\n"
+        "print(rc, [m for m in sys.modules if m.startswith('redline.tools')])\n"
+    )
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    args = [DEMO, TEST_CFG, str(tmp_path / "r.html")]
+    p = subprocess.run(
+        [sys.executable, "-c", code, *args], capture_output=True, text=True, env=env, check=True
+    )
+    assert p.stdout.strip() == "0 []"

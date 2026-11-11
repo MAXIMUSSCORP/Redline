@@ -121,7 +121,10 @@ def test_acad_timeout_kills_process(env, monkeypatch):
         acad_console.extract(env.drawing, env.cfg)
     assert st.killed
     if sys.platform == "win32":
-        assert st.runs == [["taskkill", "/T", "/F", "/PID", "4242"]]
+        assert len(st.runs) == 1
+        assert Path(st.runs[0][0]).name.lower() == "taskkill.exe"
+        assert Path(st.runs[0][0]).is_absolute()
+        assert st.runs[0][1:] == ["/T", "/F", "/PID", "4242"]
 
 
 def test_acad_no_output_json_raises_extract_error(env, monkeypatch):

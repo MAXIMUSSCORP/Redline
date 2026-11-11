@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import statistics
 from bisect import bisect_left
 from collections import Counter
@@ -33,12 +34,24 @@ STALE_NOTE = "field cell not evaluated; the cached text may be stale"
 LOOSE_NOTE = "read from loose text"
 # Text turned this far from 0 or 180 degrees is a label on a symbol, not a table row.
 ROTATION_TOLERANCE_DEG = 1.0
+_NO_CLASS = "block name matches no device class in fire_alarm.yaml device_blocks"
+_COUNTS = re.compile(r"(\d+) placed, (\d+) inside block definitions or xrefs")
 _NO_COUNTS = "table has no row and column counts, so its cells cannot be placed"
 _WD_UNMAPPED = "WD_M attribute not mapped (aecad_project.wd_m_attribute_map)"
 # A text found in more read tables than this does not pick candidate tables for a *T group, and
 # at most this many candidate tables are checked per group. A group with no match stays listed.
 _STAR_T_TABLES_PER_TEXT = 64
 _NO_SUMMARY = "HIGH 0, MEDIUM 0, LOW 0, MISSING 0"
+
+
+def block_counts_text(placed: int, nested: int) -> str:
+    """The one wording of a block's counts, read back by the report with read_block_counts."""
+    return f"{placed} placed, {nested} inside block definitions or xrefs"
+
+
+def read_block_counts(reason: str) -> tuple[int, int] | None:
+    m = _COUNTS.search(reason)
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 def accepts(path: Path) -> bool:
@@ -253,7 +266,7 @@ def _where(e: dict) -> str:
     return f"layout={e.get('layout')}" + (f"; xref={xp}" if xp else "")
 
 
-def parse_rawdrawing(data: dict, cfg: Config, list_blocks: bool = False) -> Parsed:
+def parse_rawdrawing(data: dict, cfg: Config, *, list_blocks: bool) -> Parsed:
     """Panels, devices and sheet units of one RawDrawing. list_blocks adds one Unparsed per block
     name that matches no device class; it is off here so the M2 test of plain INSERTs holds, and
     parse_file turns it on."""
@@ -363,10 +376,7 @@ def parse_rawdrawing(data: dict, cfg: Config, list_blocks: bool = False) -> Pars
 
     unmatched = tally.unmatched.values() if list_blocks else ()
     for name, placed, nested in sorted(unmatched, key=lambda r: r[0].casefold()):
-        why = (
-            "block name matches no device class in fire_alarm.yaml device_blocks: "
-            f"{placed} placed, {nested} inside block definitions or xrefs"
-        )
+        why = f"{_NO_CLASS}: {block_counts_text(placed, nested)}"
         src = Source(file, "blocks", Method.DXF_BLOCK, Confidence.LOW)
         out.unparsed.append(Unparsed("block", clip(name), why, src))
     out.sheet_units[file] = _units(doc, file, stamp)

@@ -1,0 +1,12 @@
+table_id,source_file,page_or_layout,panel,kind,tags,transcribed_by,checked_by,notes
+csv_lp1,../../csv/two_panels.csv,,LP-1,csv,,worker,synthetic,spec rows of two_panels.csv
+csv_lp2,../../csv/two_panels.csv,,LP-2,csv,,worker,,the TOTAL line has no circuit number and is not a row here
+dwga_lp11,../../dwg/panel_sheet.acad_plugin.rawdrawing.json,E-101,LP-11,dwg,dense,worker,,native table; the 20 LP-1 rows
+dwga_lp12,../../dwg/panel_sheet.acad_plugin.rawdrawing.json,E-101,LP-12,dwg,,worker,,FIELD table; load cells evaluated
+dwga_lp13,../../dwg/panel_sheet.acad_plugin.rawdrawing.json,E-101,LP-13,dwg,,worker,,loose text
+dwgo_lp11,../../dwg/panel_sheet.oda_ezdxf.rawdrawing.json,E-101,LP-11,dwg,dense,worker,synthetic,native table read by the fallback
+dwgo_lp12,../../dwg/panel_sheet.oda_ezdxf.rawdrawing.json,E-101,LP-12,dwg,,worker,,FIELD table; load cells not evaluated
+dwgo_lp13,../../dwg/panel_sheet.oda_ezdxf.rawdrawing.json,E-101,LP-13,dwg,,worker,,loose text
+pdf_lp21,../../pdf/panel_text.pdf,1,LP-21,flat_pdf,dense,worker,,vector PDF with a text layer; flat_pdf is the closest D3 kind
+pdf_lp22,../../pdf/panel_text.pdf,1,LP-22,flat_pdf,,worker,,ruled table on the same page
+scan_1,../../pdf/scanned_panel.pdf,1,SCAN-1,scan_72,,worker,synthetic,image only; no drawn panel name; every cell is unreadable

@@ -1,0 +1,19 @@
+# Exact versions of the tested set: pip freeze of the shared venv at M6 stage 3 (runtime closure of the base, dxf and pdf requirements). Rewrite at release.
+cffi==2.1.1
+charset-normalizer==3.5.2
+cryptography==50.0.2
+et-xmlfile==2.0.0
+ezdxf==1.4.5
+fonttools==4.68.0
+jinja2==3.1.6
+markupsafe==3.0.4
+numpy==2.5.4
+openpyxl==3.1.5
+pdfminer-six==20260107
+pdfplumber==0.11.10
+pillow==13.0.0
+pycparser==3.12
+pyparsing==3.3.3
+pypdfium2==5.15.2
+pyyaml==6.0.3
+typing-extensions==4.16.0
