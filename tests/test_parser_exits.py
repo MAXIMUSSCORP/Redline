@@ -346,6 +346,13 @@ def test_paths_row_cap_lowers_paths(tmp_path, monkeypatch):
     assert path.source.confidence == Confidence.LOW and "not read" in path.source.note
 
 
+def test_stub_notes_bounded(tmp_path):
+    text = rows(PHEAD, *(f"{SHEET},S{i},1,0,0" for i in range(4000)))
+    p = run(tmp_path, None, text, "paths.csv")
+    assert len(p.paths) == 4000
+    assert sum(len(x.source.note or "") for x in p.paths) < 1_000_000
+
+
 # ---- units on a sheet read twice ----
 
 
