@@ -223,6 +223,17 @@ def _check_ai(ai: dict[str, Any]) -> None:
                 )
 
 
+# A Windows wait of about 4294967 s wraps its 32-bit millisecond count.
+_MAX_TIMEOUT_S = 86400
+_MAX_PDF_TITLE_CHARS = 64
+_MAX_PDF_TEXT_PAGE_MIN_CHARS = 10000
+
+
+def _check_timeout_cap(parsing: dict[str, Any], key: str) -> None:
+    if parsing[key] > _MAX_TIMEOUT_S:
+        raise ConfigError(f"column_maps.yaml: parsing.{key} must be at most {_MAX_TIMEOUT_S}")
+
+
 def _check_dxf_parsing(parsing: dict[str, Any]) -> None:
     if parsing.get("dxf_stale_field_policy") != "low":
         raise ConfigError('column_maps.yaml: parsing.dxf_stale_field_policy must be "low"')
@@ -234,6 +245,7 @@ def _check_dxf_parsing(parsing: dict[str, Any]) -> None:
         x = parsing.get(key)
         if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 < x < math.inf:
             raise ConfigError(f"column_maps.yaml: parsing.{key} must be a number above zero")
+    _check_timeout_cap(parsing, "dxf_extractor_timeout_s")
     n = parsing.get("dxf_table_min_cells")
     if not isinstance(n, int) or isinstance(n, bool) or n < 1:
         raise ConfigError(
@@ -246,8 +258,45 @@ def _check_dxf_parsing(parsing: dict[str, Any]) -> None:
             raise ConfigError(f"column_maps.yaml: parsing.{key} must be null or a non-empty string")
 
 
+def _check_pdf_parsing(parsing: dict[str, Any]) -> None:
+    n = parsing.get("pdf_text_page_min_chars")
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+        raise ConfigError(
+            "column_maps.yaml: parsing.pdf_text_page_min_chars must be an integer of 1 or more"
+        )
+    if n > _MAX_PDF_TEXT_PAGE_MIN_CHARS:
+        raise ConfigError(
+            "column_maps.yaml: parsing.pdf_text_page_min_chars must be at most "
+            f"{_MAX_PDF_TEXT_PAGE_MIN_CHARS}"
+        )
+    for key in (
+        "pdf_scanned_image_area_fraction",
+        "pdf_title_block_width_fraction",
+        "pdf_title_block_height_fraction",
+    ):
+        x = parsing.get(key)
+        if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 < x <= 1:
+            raise ConfigError(f"column_maps.yaml: parsing.{key} must be a number above 0 up to 1")
+    for key in (
+        "pdf_row_tolerance_word_heights",
+        "pdf_column_gap_fraction",
+        "pdf_region_gap_word_heights",
+        "pdf_timeout_s",
+    ):
+        x = parsing.get(key)
+        if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 < x < math.inf:
+            raise ConfigError(f"column_maps.yaml: parsing.{key} must be a number above zero")
+    for key in ("pdf_title_revision_max_chars", "pdf_title_sheet_max_chars_without_digit"):
+        x = parsing.get(key)
+        if not isinstance(x, int) or isinstance(x, bool) or not 1 <= x <= _MAX_PDF_TITLE_CHARS:
+            raise ConfigError(
+                f"column_maps.yaml: parsing.{key} must be an integer from 1 to {_MAX_PDF_TITLE_CHARS}"
+            )
+    _check_timeout_cap(parsing, "pdf_timeout_s")
+
+
 def _check_column_maps(cm: dict[str, Any]) -> None:
-    for key in ("csv_panel_schedule", "panel_header_block"):
+    for key in ("csv_panel_schedule", "panel_header_block", "title_block"):
         m = cm.get(key)
         if not isinstance(m, dict) or not all(
             isinstance(k, str)
@@ -270,6 +319,7 @@ def _check_column_maps(cm: dict[str, Any]) -> None:
             "column_maps.yaml: parsing.min_header_alias_matches must be an integer of 1 or more"
         )
     _check_dxf_parsing(parsing)
+    _check_pdf_parsing(parsing)
     wd = (cm.get("aecad_project") or {}).get("wd_m_attribute_map")
     if not isinstance(wd, dict) or not all(
         isinstance(k, str)

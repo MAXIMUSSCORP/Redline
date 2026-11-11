@@ -643,3 +643,85 @@ def test_wd_m_map_shape_checked(tmp_path):
     assert (
         load_config(_cm(tmp_path, put(ok))).column_maps["aecad_project"]["wd_m_attribute_map"] == ok
     )
+
+
+_PDF_POSITIVE = (
+    "pdf_row_tolerance_word_heights",
+    "pdf_column_gap_fraction",
+    "pdf_region_gap_word_heights",
+    "pdf_timeout_s",
+)
+_PDF_FRACTIONS = (
+    "pdf_scanned_image_area_fraction",
+    "pdf_title_block_width_fraction",
+    "pdf_title_block_height_fraction",
+)
+
+
+def test_pdf_parsing_keys_checked(tmp_path):
+    for key in _PDF_POSITIVE:
+        for bad in (0, -1, True, "3", None, float("inf"), float("nan")):
+            _rejects(tmp_path, _parsing(**{key: bad}), key)
+        _rejects(tmp_path, lambda c, k=key: c["parsing"].pop(k), key)
+    for key in _PDF_FRACTIONS + ("pdf_text_page_min_chars",):
+        _rejects(tmp_path, lambda c, k=key: c["parsing"].pop(k), key)
+    d = _cm(tmp_path, _parsing(pdf_timeout_s=0.5, pdf_column_gap_fraction=2))
+    assert load_config(d).column_maps["parsing"]["pdf_timeout_s"] == 0.5
+
+
+def test_pdf_fractions_in_range(tmp_path):
+    for key in _PDF_FRACTIONS:
+        for bad in (0, -0.1, 1.01, True, "0.5", None, float("inf"), float("nan")):
+            _rejects(tmp_path, _parsing(**{key: bad}), key)
+        for ok in (0.01, 1):
+            d = _cm(tmp_path, _parsing(**{key: ok}))
+            assert load_config(d).column_maps["parsing"][key] == ok
+
+
+def test_pdf_min_chars_integer(tmp_path):
+    for bad in (0, -1, 2.5, True, "200", None):
+        _rejects(tmp_path, _parsing(pdf_text_page_min_chars=bad), "pdf_text_page_min_chars")
+    d = _cm(tmp_path, _parsing(pdf_text_page_min_chars=1))
+    assert load_config(d).column_maps["parsing"]["pdf_text_page_min_chars"] == 1
+
+
+def test_pdf_timeout_upper_bound(tmp_path):
+    d = _cm(tmp_path, _parsing(pdf_timeout_s=86400))
+    assert load_config(d).column_maps["parsing"]["pdf_timeout_s"] == 86400
+    for bad in (86401, 1e300):
+        _rejects(tmp_path, _parsing(pdf_timeout_s=bad), "pdf_timeout_s")
+
+
+def test_dxf_timeout_upper_bound(tmp_path):
+    d = _cm(tmp_path, _parsing(dxf_extractor_timeout_s=86400))
+    assert load_config(d).column_maps["parsing"]["dxf_extractor_timeout_s"] == 86400
+    for bad in (86401, 1e300):
+        _rejects(tmp_path, _parsing(dxf_extractor_timeout_s=bad), "dxf_extractor_timeout_s")
+
+
+def test_pdf_text_page_min_chars_upper_bound(tmp_path):
+    d = _cm(tmp_path, _parsing(pdf_text_page_min_chars=10000))
+    assert load_config(d).column_maps["parsing"]["pdf_text_page_min_chars"] == 10000
+    _rejects(tmp_path, _parsing(pdf_text_page_min_chars=10001), "pdf_text_page_min_chars")
+
+
+def test_title_block_map_shape_checked(tmp_path):
+    def put(v):
+        return lambda c: c.update({"title_block": v})
+
+    for bad in (None, [], "x", {"a": "b"}, {"a": [""]}, {"a": [1]}, {1: ["a"]}, {"a": None}):
+        _rejects(tmp_path, put(bad), "title_block")
+    _rejects(tmp_path, lambda c: c.pop("title_block"), "title_block")
+    assert load_config(_cm(tmp_path, put({}))).column_maps["title_block"] == {}
+    ok = {"sheet_number": ["sheet"]}
+    assert load_config(_cm(tmp_path, put(ok))).column_maps["title_block"] == ok
+
+
+def test_pdf_title_shape_keys_validated(tmp_path):
+    for key in ("pdf_title_revision_max_chars", "pdf_title_sheet_max_chars_without_digit"):
+        for bad in (True, 0, -1, 2.5, 65, "4", None):
+            _rejects(tmp_path, _parsing(**{key: bad}), key)
+        _rejects(tmp_path, lambda c, k=key: c["parsing"].pop(k), key)
+        for ok in (1, 4, 64):
+            d = _cm(tmp_path, _parsing(**{key: ok}))
+            assert load_config(d).column_maps["parsing"][key] == ok

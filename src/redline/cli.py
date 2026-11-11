@@ -109,8 +109,8 @@ def _flag_repeated_panels(project: Project) -> None:
 
 
 def _reader(f: Path) -> Callable[[Path, Config], Parsed] | None:
-    """The parse function for a file, or None when no reader takes the file type. The DWG and
-    WDP readers are imported only when a file may need them."""
+    """The parse function for a file, or None when no reader takes the file type. The DWG, WDP
+    and PDF readers are imported only when a file may need them."""
     if f.name.lower().endswith((".json", ".dwg", ".dxf", ".wdp")):
         from redline.parsers import aecad_side, dxf
 
@@ -118,6 +118,10 @@ def _reader(f: Path) -> Callable[[Path, Config], Parsed] | None:
             return dxf.parse_file
         if f.suffix.lower() in aecad_side.SUFFIXES:
             return aecad_side.parse_file
+    if f.suffix.lower() == ".pdf":
+        from redline.parsers import pdf
+
+        return pdf.parse_file
     return parse_file if f.suffix.lower() in SUFFIXES else None
 
 
