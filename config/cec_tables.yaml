@@ -12,9 +12,6 @@ rule_refs:
   panel_demand: "CEC <edition> Rule <fill> [VERIFY]"
   phase_balance: "Project practice, not a CEC rule [VERIFY]"
   completeness: "Drawing standard, not a CEC rule"
-  fire_alarm_exit_signs: "TODO [VERIFY]"
-  fire_alarm_pull_stations: "TODO [VERIFY]"
-  emergency_lighting: "TODO [VERIFY]"
 
 tables:                       # every table: verified: false, source: "<fill from CEC book>"
   conductor_ampacity:         # material -> size -> insulation temp C -> amps
