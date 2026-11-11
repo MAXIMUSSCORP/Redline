@@ -369,7 +369,7 @@ def test_licences_read_order():
         {
             "License-Expression": "MIT",
             "License": "BSD",
-            "Classifier": ["License :: OSI Approved :: BSD License"],
+            "Classifier": ["License :: BSD License"],
         }
     )
     assert doctor._licence(md) == ("MIT", "License-Expression")
