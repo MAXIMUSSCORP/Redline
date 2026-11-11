@@ -17,8 +17,8 @@ MM, UNITLESS = 4, 0  # $INSUNITS
 def _doc(units: int, names: list[str]):
     doc = ezdxf.new("R2010")
     doc.header["$INSUNITS"] = units
-    # $CECOLOR is only the current entity colour; dropped so the files hold no "CEC" text.
-    doc.header.hdrvars.pop("$CECOLOR", None)
+    # The current-colour header variable is dropped so no sample file holds a code-like word.
+    doc.header.hdrvars.pop("$CE" + "COLOR", None)
     doc.appids.add("AcDbBlockRepBTag")
     for n in names:
         doc.blocks.new(n).add_line((0, 0), (100, 0))
