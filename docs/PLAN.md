@@ -753,36 +753,42 @@ redline check samples/plans/sheet_fa101.pdf --config config/ --out report.html -
 
 **Scope.** Prove accuracy, make runs repeatable, package, document.
 
+**M6 as built with M4 deferred (rows 47, 52; stage 2 plan `.claude/plans/M6.md`, ledgers `.unlazy/M6/`).** The deliverables below keep their original text. A part marked "Deferred with M4 (PLAN row 47, row 52)" is not built in M6 and is not abandoned. A part marked "owner-BLOCKED" is gated and stays open until the owner acts. Tool modules live in `src/redline/tools/`; the work table's `tools/` paths are read that way (row 52 D1).
+
 **Deliverables.**
 
 1. **Gold-set protocol for table cells.**
-   - 20 to 30 real schedules: DWG-derived vector PDFs, flattened vector PDFs, scans at 150 and 300 DPI, at least 3 with vertical text and 3 with dense small type. One person transcribes to CSV. A second checks 20 percent to measure human disagreement.
-   - Cell match: normalized string equality for typed columns (circuit number, breaker A, poles, wire, load VA). Edit distance of 1 or less for descriptions, reported apart.
-   - Per model and config: cell accuracy by column type, row recall, row hallucination rate, unreadable-flag rate, structure score, time per table, and the fraction of wrong cells that carried high confidence. Slice by DPI, rotation and density.
-   - Bar on breaker, wire and load: every unresolved disagreement surfaces as needs manual check, and silent wrong passes are counted. The target at default config is zero. Re-run on every model or prompt change. Run each config twice for variance.
-2. **Gold-set protocol for symbols.** As in M5.4, with final per-class and per-plan numbers on unseen plans.
+   - 20 to 30 real schedules: DWG-derived vector PDFs, flattened vector PDFs, scans at 150 and 300 DPI, at least 3 with vertical text and 3 with dense small type. One person transcribes to CSV. A second checks 20 percent to measure human disagreement. *The real schedules and the second transcription are owner-BLOCKED (leaf-L6.2 G2.11, G2.12). M6 builds and tests the scorer on committed synthetic gold in `samples/gold/tables/` (row 52 D3).*
+   - Cell match: normalized string equality for typed columns (circuit number, breaker A, poles, wire, load VA). Edit distance of 1 or less for descriptions, reported apart. *Built as row 52 D4.*
+   - Per model and config: cell accuracy by column type, row recall, row hallucination rate, unreadable-flag rate, structure score, time per table, and the fraction of wrong cells that carried high confidence. Slice by DPI, rotation and density. *Built per config for the deterministic readers. Deferred with M4 (PLAN row 47, row 52): per model results, the structure score, and the DPI, rotation and density slices of AI reads.*
+   - Bar on breaker, wire and load: every unresolved disagreement surfaces as needs manual check, and silent wrong passes are counted. The target at default config is zero. Re-run on every model or prompt change. Run each config twice for variance. *Built: silent wrong passes and silent missing rows counted, each source read twice. Deferred with M4 (PLAN row 47, row 52): the re-run on every model or prompt change.*
+2. **Gold-set protocol for symbols.** As in M5.4, with final per-class and per-plan numbers on unseen plans. *Deferred with M4 (PLAN row 47, row 52): it measures the detector L5.3. The symbol labels are also owner-BLOCKED (node-M6 O6).*
 3. **`redline xcheck`** finalised: batch mode, CSV output, fallback-loss summary.
-4. **Deterministic re-runs.** Pinned model versions, hashes, seeds and prompt versions in `RunInfo`. A test runs one input twice on recorded responses and compares findings byte for byte. A live job reports any difference.
-5. **Packaging.** Pip-installable. Extras `[dxf]` (ezdxf), `[pdf]` (pdfplumber), `[ai]` (OCR, table and VLM libraries), `[detect]` (detector libraries). The base install runs CSV. The plugin ships as a build recipe plus a prebuilt DLL per AutoCAD major version.
-6. **`redline doctor`** prints pass, warn or fail for: Python and extras; ODA File Converter; `accoreconsole.exe`, its version and a smoke script; plugin DLL for the detected AutoCAD; Ollama version and configured models; GPU and VRAM versus `ai.tier`; model cache, disk and hashes versus `ai.yaml`; which config tables are unverified.
-7. **Operator guide** (`docs/operator_guide.md`, short) and a release checklist: licence audit of every dependency and weight file, samples audited for client data.
+4. **Deterministic re-runs.** Pinned model versions, hashes, seeds and prompt versions in `RunInfo`. A test runs one input twice on recorded responses and compares findings byte for byte. A live job reports any difference. *Built for the non-AI paths: `tests/test_determinism.py` compares `findings.csv` and `report.html` byte for byte over six inputs, and a `live` test reruns the DWG (row 52 D5). Deferred with M4 (PLAN row 47, row 52): the model, seed and prompt pins in `RunInfo` and the live job that compares model runs.*
+5. **Packaging.** Pip-installable. Extras `[dxf]` (ezdxf), `[pdf]` (pdfplumber), `[ai]` (OCR, table and VLM libraries), `[detect]` (detector libraries). The base install runs CSV. The plugin ships as a build recipe plus a prebuilt DLL per AutoCAD major version. *Built with `[dxf]`, `[pdf]`, `constraints.txt` and one version source (row 52 D6). Deferred with M4 (PLAN row 47, row 52): the `[ai]` and `[detect]` extras. The prebuilt DLL stays on the owner's workstation until the reseller answers (row 38, owner-BLOCKED, leaf-L6.5 G5.13). The fresh-venv install gates need network access (D11, owner-BLOCKED until answered).*
+6. **`redline doctor`** prints pass, warn or fail for: Python and extras; ODA File Converter; `accoreconsole.exe`, its version and a smoke script; plugin DLL for the detected AutoCAD; Ollama version and configured models; GPU and VRAM versus `ai.tier`; model cache, disk and hashes versus `ai.yaml`; which config tables are unverified. *Built with the words PASS, WARN, FAIL and NOT CHECKED (row 52 D2). Deferred with M4 (PLAN row 47, row 52): the Ollama, GPU, VRAM, model cache and hash checks, printed as one NOT CHECKED line.*
+7. **Operator guide** (`docs/operator_guide.md`, short) and a release checklist: licence audit of every dependency and weight file, samples audited for client data. *Built (row 52 D7, D8). The sign-off of both audits, Redline's own licence, the ODA File Converter terms [VERIFY] and clean machine tier B are owner-BLOCKED (leaf-L6.5 G5.8 to G5.12).*
+8. **Carried M5 items** (row 52 D9): the shared block count format (CR6 = PR6), `list_blocks` keyword-only (PR8), a run-wide pair limit for the fire alarm checks (SR2-1), and a guide line for the thousands separator in `exits.csv` and `paths.csv` (SR2-3, recorded as a design limit at M6 close).
 
-**Work table.**
+**Work table.** Stage 2 paths and owners (`.unlazy/M6/PLAN.md` is the dispatch table).
 
 | Leaf | Owns (globs) | Depends on | Gates (acceptance, one line each) |
 |---|---|---|---|
-| OWNER_DECISION | `gold/**` | none | Owner delivers 20 to 30 transcribed table schedules and the symbol labels, with the second-person check on 20 percent |
-| L6.1 central | `src/redline/engine.py`, `findings.py`, `model.py`, `config.py`, `pyproject.toml` | none | `pytest tests/test_determinism.py` green (two runs, byte-identical findings); `pip install .` then `redline check samples/csv --config tests/test_config/` exits 0 |
-| L6.2 gold-eval | `tools/gold_eval.py`, `tests/test_gold_eval.py` | L6.1 | `redline gold eval gold/tables --config config/` writes results with config and model hashes; `test_silent_wrong_pass_counted` passes |
-| L6.3 xcheck-batch | `tools/xcheck.py`, `tests/test_xcheck_batch.py` | L6.1 | `redline xcheck samples/dwg --batch` writes CSV and a fallback-loss summary; `pytest tests/test_xcheck_batch.py` green |
-| L6.4 doctor | `tools/doctor.py`, `tests/test_doctor.py` | L6.1 | `redline doctor` prints pass, warn or fail for each listed check; `pytest tests/test_doctor.py` green with monkeypatched missing tools |
-| L6.5 docs-release | `docs/operator_guide.md`, `docs/release_checklist.md`, `README.md` | L6.2, L6.4 | A clean machine passes `redline doctor` following only the operator guide; the checklist lists the licence audit and the sample client-data audit |
+| OWNER_DECISION | `gold/**` | none | Owner delivers 20 to 30 transcribed table schedules and the symbol labels, with the second-person check on 20 percent. *owner-BLOCKED: leaf-L6.2 G2.11, G2.12; the symbol labels node-M6 O6 (and Deferred with M4, PLAN row 47, row 52)* |
+| L6.1 central | `src/redline/cli.py`, `pyproject.toml`, `constraints.txt`, `.gitignore`, `tests/test_determinism.py`, `tests/test_packaging.py`, `tests/test_cli.py`; `src/redline/engine.py`, `findings.py`, `model.py` for contract requests only. `config.py` moved to L6.6 (stage 2 C2) | none | `pytest tests/test_determinism.py` green (two runs, byte-identical findings); `pip install .` then `redline check samples/csv --config tests/test_config/` exits 0 (*network, owner-BLOCKED until D11 is answered*) |
+| L6.2 gold-eval | `src/redline/tools/gold_eval.py`, `tests/test_gold_eval.py`, `samples/gold/**` | L6.1 | `redline gold eval gold/tables --config config/` writes results with config and model hashes (*owner-BLOCKED on the real schedules; met first on `samples/gold/tables` with `tests/test_config/`; the model list is written and empty*); `test_silent_wrong_pass_counted` passes |
+| L6.3 xcheck-batch | `src/redline/tools/xcheck.py`, `tests/test_xcheck_batch.py` | L6.1 | `redline xcheck samples/dwg --batch` writes CSV and a fallback-loss summary; `pytest tests/test_xcheck_batch.py` green |
+| L6.4 doctor | `src/redline/tools/doctor.py`, `tests/test_doctor.py` | L6.1 | `redline doctor` prints pass, warn or fail for each listed check (*AI checks: one NOT CHECKED line, Deferred with M4, PLAN row 47, row 52*); `pytest tests/test_doctor.py` green with monkeypatched missing tools |
+| L6.5 docs-release | `docs/operator_guide.md`, `docs/release_checklist.md`, `docs/licences.csv`, `README.md` | L6.2, L6.3, L6.4, L6.6 | A clean machine passes `redline doctor` following only the operator guide (*tier A by an agent, network, D11; tier B owner-BLOCKED*); the checklist lists the licence audit and the sample client-data audit (*sign-off owner-BLOCKED*) |
+| L6.6 carried | `src/redline/config.py`, `src/redline/rules/fire_alarm.py`, `src/redline/parsers/dxf.py`, `src/redline/report/html.py`, `tests/test_rule_fire_alarm.py`, `tests/test_report_devices.py`, `tests/test_parser_dxf.py`, `tests/test_parser_blocks.py` | none | `test_run_wide_pair_limit_not_checked`, `test_block_counts_round_trip` and `test_list_blocks_keyword_required` pass; no golden moves |
+
+Waves: L6.1 and L6.6 (wave 1); L6.2, L6.3 and L6.4 (wave 2, after L6.1); L6.5 (wave 3).
 
 **Acceptance.**
-- Gold-set results come from one command and are stored with the config and model hashes that produced them.
+- Gold-set results come from one command and are stored with the config and model hashes that produced them. *Met on synthetic gold in M6; the real run is owner-BLOCKED. The model list is empty until M4.*
 - Repeat runs match.
-- A clean machine passes `redline doctor` after following the operator guide.
-- `pip install` gives a working CSV demo. Each extra adds its milestone and no more.
+- A clean machine passes `redline doctor` after following the operator guide. *Tier A (tracked files, fresh venv, this PC) by an agent, needing network (D11); tier B (a second PC or Windows account) owner-BLOCKED.*
+- `pip install` gives a working CSV demo. Each extra adds its milestone and no more. *Needs network (D11).*
 
 **Demo.**
 ```
@@ -790,8 +796,11 @@ redline doctor
 redline gold eval gold/tables --config config/
 redline xcheck samples/dwg --batch
 ```
+*The second line is owner-BLOCKED until `gold/tables/` holds the owner's schedules; `redline gold eval samples/gold/tables --config tests/test_config/` runs it on synthetic gold meanwhile.*
 
 **Effort.** 3 to 4 weeks. **Dependencies.** M2 to M5. Owner labeling time, which runs in parallel from M3.
+
+**Owner-BLOCKED in M6, never faked and never dropped:** the real schedules and the second transcription; the symbol labels; clean machine tier B; the plugin DLL redeploy with CS1 to CS6 and M5 leaf-L5.6 G6.8 to G6.10; the sign-off of both release audits; Redline's own licence; the ODA File Converter terms [VERIFY]; the reseller answer (row 38); L3.5 real PDF sheets (M3 D7); M5 O1 to O6; the release version number; D11 (network for the fresh-venv gates).
 
 ## 7. Testing strategy
 
