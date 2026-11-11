@@ -660,7 +660,7 @@ def test_page_cap_before_page_objects(test_cfg, tmp_path, monkeypatch):
 
     monkeypatch.setattr(PDFPage, "__init__", counting)
     d = pdf.read_pages(path, test_cfg, isolated=False)
-    assert built[0] <= pdf.MAX_PAGES + 1  # not the 100000 the file holds
+    assert pdf.MAX_PAGES <= built[0] <= pdf.MAX_PAGES + 1  # not the 100000 the file holds
     assert d["pages_total"] == n and len(d["pages"]) == pdf.MAX_PAGES + 1
     assert f"{n - pdf.MAX_PAGES} pages past MAX_PAGES" in d["pages"][-1]["skipped"]
 
@@ -718,7 +718,7 @@ def test_annots_cap_before_resolve(test_cfg, tmp_path, monkeypatch):
     path = tmp_path / "annots.pdf"
     path.write_bytes(annots_pdf(1_000_000))
     d = pdf.read_pages(path, test_cfg, isolated=False)
-    assert pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
+    assert pdf.MAX_ARRAY_ITEMS <= pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
     assert "page /Annots holds more than" in d["pages"][0]["skipped"]
     assert "over MAX_ANNOTS_PER_PAGE" in d["pages"][0]["skipped"]
     assert pdfminer.pdfparser.PDFParser.push is push  # the bound is lifted after the read
@@ -737,7 +737,7 @@ def test_annots_cap_in_object_stream(test_cfg, tmp_path, monkeypatch):
     path = tmp_path / "objstm.pdf"
     path.write_bytes(annots_pdf(1_000_000, "objstm"))
     d = pdf.read_pages(path, test_cfg, isolated=False)
-    assert pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
+    assert pdf.MAX_ARRAY_ITEMS <= pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
     assert "page /Annots holds more than" in d["pages"][0]["skipped"]
     small = tmp_path / "small.pdf"
     small.write_bytes(annots_pdf(2, "objstm"))
@@ -750,7 +750,7 @@ def test_annots_inline_array_ends_the_read_listed(test_cfg, tmp_path, monkeypatc
     path.write_bytes(annots_pdf(1_000_000, "inline"))
     with pytest.raises(csv_xlsx.InputError, match=r"inline\.pdf has an array of more than 200000"):
         pdf.read_pages(path, test_cfg, isolated=False)
-    assert pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
+    assert pdf.MAX_ARRAY_ITEMS <= pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
 
 
 def test_annots_array_shared_by_pages_parsed_once(test_cfg, tmp_path, monkeypatch):
@@ -769,7 +769,7 @@ def test_annots_array_shared_by_pages_parsed_once(test_cfg, tmp_path, monkeypatc
     path = tmp_path / "shared.pdf"
     path.write_bytes(raw_pdf(dict(sorted(objs.items()))))
     d = pdf.read_pages(path, test_cfg, isolated=False)
-    assert pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
+    assert pdf.MAX_ARRAY_ITEMS <= pushes[0] < 4 * pdf.MAX_ARRAY_ITEMS
     assert all("holds more than" in p["skipped"] for p in d["pages"])
 
 
