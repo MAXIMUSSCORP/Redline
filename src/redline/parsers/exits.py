@@ -210,18 +210,16 @@ def _paths(path: Path, project: Project, sheets: dict[str, str]) -> None:
             groups.setdefault((sheet, cells.get("path", "")), []).append((n, cells, raw))
         else:
             dropped.setdefault(cells.get("path", ""), []).append(n)
-    stubs: dict[str, list[str]] = {}  # a lone row may be a vertex whose path name has a typo
+    stubs: dict[str, set[str]] = {}  # a lone row may be a vertex whose path name has a typo
     for (sheet, name), rows in groups.items():
         if len(rows) < 2:
-            stubs.setdefault(sheet, []).append(name)
+            stubs.setdefault(sheet, set()).add(name)
     for (sheet, name), rows in groups.items():
         points, seen = [], set()
         notes = [f"row {n}: names no sheet that was read" for n in dropped.get(name, [])]
-        notes += [
-            f"path {clip(s)} on this sheet has fewer than two vertex rows"
-            for s in stubs.get(sheet, [])
-            if s != name
-        ]
+        others = len(stubs.get(sheet, ())) - (name in stubs.get(sheet, ()))
+        if others:
+            notes.append(f"{others} other path(s) on this sheet have fewer than two vertex rows")
         if f.cut:
             notes.append(f"rows past {MAX_ROWS} are not read")
         for n, cells, raw in rows:
