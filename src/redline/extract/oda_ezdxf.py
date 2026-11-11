@@ -355,7 +355,7 @@ def convert(
     if kind == "TEXT":
         out["text"] = _cut(g("text", ""), handle, notes)
         out["text_height"] = _pos(g("height"))
-        out["insertion_point"] = _pt(g("insert") or ())
+        out["insertion_point"] = _pt(g("insert"))
         out["rotation_deg"] = _num(g("rotation", 0))
         if _has_field(e):
             out["evaluated"] = False
@@ -364,7 +364,7 @@ def convert(
 
         out["text"] = _cut(plain_mtext(e.text, split=False), handle, notes)
         out["text_height"] = _pos(g("char_height"))
-        out["insertion_point"] = _pt(g("insert") or ())
+        out["insertion_point"] = _pt(g("insert"))
         out["rotation_deg"] = _num(g("rotation", 0))
         if _has_field(e):
             out["evaluated"] = False
@@ -378,7 +378,7 @@ def convert(
             }
             for a in e.attribs
         ]
-        out["insertion_point"] = _pt(g("insert") or ())
+        out["insertion_point"] = _pt(g("insert"))
         out["rotation_deg"] = _num(g("rotation", 0))
     elif kind == "ACAD_TABLE":
         table = _table(e, handle, notes, acad_table, ctx)
@@ -386,14 +386,14 @@ def convert(
             return None
         out["table"] = table
         ref = _probe(lambda: e.xtags.get_subclass("AcDbBlockReference").get_first_value(10, None))
-        out["insertion_point"] = _pt(ref or ())
+        out["insertion_point"] = _pt(ref)
     elif kind == "MLEADER":
         out["text"] = _cut(_probe(e.get_mtext_content) or "", handle, notes)
         out["attributes"] = _mleader_attribs(e)
-        out["insertion_point"] = _pt(_probe(lambda: e.context.mtext.insert) or ())
+        out["insertion_point"] = _pt(_probe(lambda: e.context.mtext.insert))
         out["text_height"] = _pos(_probe(lambda: e.context.char_height))
     elif kind == "LINE":
-        a, b = _pt(g("start") or ()), _pt(g("end") or ())
+        a, b = _pt(g("start")), _pt(g("end"))
         out["insertion_point"] = a
         if a and b:
             out["bbox"] = [min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])]
