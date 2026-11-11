@@ -1,4 +1,5 @@
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -6,11 +7,15 @@ import yaml
 
 from redline.config import (
     CONFIG_FILES,
+    FIRE_ALARM_LIMITS,
+    FIRE_ALARM_TABLE,
     TEST_EDITION_LABEL,
     TEST_SOURCE_LABEL,
     ConfigError,
     apply_verification_gate,
     default_value,
+    device_classes,
+    fire_alarm_limit,
     is_test_config,
     load_config,
     lookup,
@@ -725,3 +730,136 @@ def test_pdf_title_shape_keys_validated(tmp_path):
         for ok in (1, 4, 64):
             d = _cm(tmp_path, _parsing(**{key: ok}))
             assert load_config(d).column_maps["parsing"][key] == ok
+
+
+def _fa(**kw):
+    return lambda c: c.update(kw)
+
+
+def test_fire_alarm_shape_checked(tmp_path):
+    def sec(s, **kw):
+        return lambda c: c[s].update(kw)
+
+    edits = [
+        _fa(verified="yes"),
+        _fa(source=None),
+        _fa(config_version=1),
+        _fa(device_blocks=["x"]),
+        lambda c: c["device_blocks"].update(exit_sign=["TEST_EXIT", ""]),
+        lambda c: c["device_blocks"].update(exit_sign="TEST_EXIT"),
+        lambda c: c["device_blocks"].pop("exit_door"),
+        _fa(exit_signs=None),
+        sec("exit_signs", rule_ref=None),
+        lambda c: c["pull_stations"].pop("max_distance_from_exit_m"),
+        sec("exit_signs", require_at_each_exit="yes"),
+        sec("exit_signs", max_distance_from_path_to_sign_m=0),
+        sec("exit_signs", max_distance_from_path_to_sign_m=-1),
+        sec("exit_signs", max_distance_from_path_to_sign_m=True),
+        sec("exit_signs", max_distance_from_path_to_sign_m="10"),
+        sec("exit_signs", max_distance_from_path_to_sign_m=float("inf")),
+        sec("emergency_lighting", coverage_radius_m=float("nan")),
+    ]
+    for i, edit in enumerate(edits):
+        d = tmp_path / str(i)
+        d.mkdir()
+        with pytest.raises(ConfigError, match="fire_alarm.yaml"):
+            load_config(_copy_edit(d, "fire_alarm.yaml", edit))
+
+
+def test_old_exit_sign_spacing_key_is_config_error(tmp_path):
+    def edit(c):
+        s = c["exit_signs"]
+        s["max_spacing_along_path_m"] = s.pop("max_distance_from_path_to_sign_m")
+
+    with pytest.raises(ConfigError, match="max_distance_from_path_to_sign_m"):
+        load_config(_copy_edit(tmp_path, "fire_alarm.yaml", edit))
+    both = tmp_path / "both"
+    both.mkdir()
+    with pytest.raises(ConfigError, match="max_spacing_along_path_m"):
+        load_config(
+            _copy_edit(
+                both,
+                "fire_alarm.yaml",
+                lambda c: c["exit_signs"].update(max_spacing_along_path_m=30),
+            )
+        )
+
+
+def test_device_name_under_two_classes(tmp_path):
+    def edit(c):
+        c["device_blocks"]["pull_station"] = ["SHARED"]
+        c["device_blocks"]["exit_sign"] = ["SHARED"]
+
+    with pytest.raises(ConfigError, match="two classes.*exit_sign.*pull_station"):
+        load_config(_copy_edit(tmp_path, "fire_alarm.yaml", edit))
+
+
+def test_device_names_trimmed_casefold(tmp_path, test_cfg):
+    assert device_classes(test_cfg)["test_exit"] == "exit_sign"
+
+    def edit(c):
+        c["device_blocks"]["pull_station"] = ["Door "]
+        c["device_blocks"]["exit_door"] = [" DOOR"]
+
+    with pytest.raises(ConfigError, match="two classes"):
+        load_config(_copy_edit(tmp_path, "fire_alarm.yaml", edit))
+
+
+def test_fire_alarm_rule_ref_from_yaml(test_cfg, skeleton_cfg):
+    cfg = replace(test_cfg, fire_alarm={**test_cfg.fire_alarm, "exit_signs": {"rule_ref": "R-X"}})
+    assert rule_ref(cfg, "exit_signs") == "R-X"
+    assert rule_ref(cfg, "pull_stations") == "TODO [VERIFY]"
+    assert rule_ref(skeleton_cfg, "emergency_lighting") == "TODO [VERIFY]"
+    gone = replace(test_cfg, fire_alarm={})
+    assert rule_ref(gone, "exit_signs") == "rule_ref missing in config [VERIFY]"
+    assert rule_ref(test_cfg, "ampacity") == "TEST Rule AMP-1"
+
+
+def test_unverified_fire_alarm_downgrades_violation(test_cfg, skeleton_cfg):
+    used = (FIRE_ALARM_TABLE,)
+    assert table_verified(test_cfg, FIRE_ALARM_TABLE)
+    assert apply_verification_gate([_violation()], used, test_cfg)[0].severity == Severity.VIOLATION
+    for cfg in (
+        skeleton_cfg,
+        replace(test_cfg, fire_alarm={**test_cfg.fire_alarm, "verified": False}),
+        replace(test_cfg, fire_alarm={**test_cfg.fire_alarm, "source": " "}),
+    ):
+        assert not table_verified(cfg, FIRE_ALARM_TABLE)
+        out = apply_verification_gate([_violation()], used, cfg)
+        assert out[0].severity == Severity.NEEDS_REVIEW
+        assert FIRE_ALARM_TABLE in out[0].message
+    # a null limit does not unverify the file: the check reports NOT_CHECKED instead
+    pull = {"rule_ref": "r", "max_distance_from_exit_m": None}
+    nulled = {**test_cfg.fire_alarm, "pull_stations": pull}
+    assert table_verified(replace(test_cfg, fire_alarm=nulled), FIRE_ALARM_TABLE)
+
+
+def test_unfilled_limit_not_checked(test_cfg, skeleton_cfg):
+    for sec, keys in FIRE_ALARM_LIMITS.items():
+        for k in keys:
+            assert fire_alarm_limit(skeleton_cfg, sec, k) is None, (sec, k)
+            assert fire_alarm_limit(test_cfg, sec, k) is not None, (sec, k)
+    assert fire_alarm_limit(test_cfg, "nope", "x") is None
+
+
+def test_exit_sign_distance_key_present(skeleton_cfg, test_cfg, tmp_path):
+    assert "max_distance_from_exit_m" in skeleton_cfg.fire_alarm["exit_signs"]
+    assert test_cfg.fire_alarm["exit_signs"]["max_distance_from_exit_m"] == 2
+    with pytest.raises(ConfigError, match="exit_signs.max_distance_from_exit_m"):
+        load_config(
+            _copy_edit(
+                tmp_path,
+                "fire_alarm.yaml",
+                lambda c: c["exit_signs"].pop("max_distance_from_exit_m"),
+            )
+        )
+
+
+def test_skeleton_fire_alarm_empty_and_null(skeleton_cfg):
+    fa = skeleton_cfg.fire_alarm
+    assert fa["verified"] is False and fa["source"].endswith("[VERIFY]")
+    assert len(fa["device_blocks"]) == 6 and not any(fa["device_blocks"].values())
+    for sec, keys in FIRE_ALARM_LIMITS.items():
+        assert fa[sec]["rule_ref"] == "TODO [VERIFY]"
+        assert all(fa[sec][k] is None for k in keys)
+    assert not table_verified(skeleton_cfg, FIRE_ALARM_TABLE)

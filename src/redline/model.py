@@ -22,6 +22,7 @@ class Method(StrEnum):
     DXF_TABLE = "dxf_table"
     DXF_ATTRIB = "dxf_attrib"
     DXF_TEXT = "dxf_text"
+    DXF_BLOCK = "dxf_block"
     PDF_TEXT = "pdf_text"
     PDF_ANNOT = "pdf_annot"
     OCR = "ocr"
@@ -30,8 +31,9 @@ class Method(StrEnum):
     DERIVED = "derived"
 
 
+DETECTIONS = ("list", "block", "paper", "nested", "unused", "detector")
 LOAD_TYPES = ("continuous", "noncontinuous", "motor", "receptacle", "spare", "unknown")
-UNPARSED_KINDS = ("column", "row", "table", "page", "sheet", "xref", "layout")
+UNPARSED_KINDS = ("column", "row", "table", "page", "sheet", "xref", "layout", "block")
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,14 @@ class Device:
 
 
 @dataclass
+class EgressPath:
+    name: str
+    sheet: str
+    source: Source  # HIGH from paths.csv; LOW when a vertex is bad
+    points: list[tuple[float, float]] = field(default_factory=list)  # drawing units, seq order
+
+
+@dataclass
 class Unparsed:
     kind: str
     raw: str
@@ -184,6 +194,10 @@ class Project:
     panels: list[Panel] = field(default_factory=list)
     feeders: list[Feeder] = field(default_factory=list)
     devices: list[Device] = field(default_factory=list)
+    paths: list[EgressPath] = field(default_factory=list)
+    sheet_units: dict[str, Value] = field(
+        default_factory=dict
+    )  # sheet -> mm, cm, m, in, ft or None
     unparsed: list[Unparsed] = field(default_factory=list)
     coverage: list[CoverageEntry] = field(default_factory=list)
     run_info: RunInfo | None = None
@@ -399,6 +413,8 @@ def project_from_dict(data: Any) -> Project:
     data = _dict(data, "project")
     # A lone surrogate cannot be written out as UTF-8. Refuse it here, wherever it sits.
     json.dumps(data, ensure_ascii=False).encode("utf-8")
+    if refused := sorted({"paths", "sheet_units"} & set(data)):
+        raise ValueError(f"{', '.join(refused)} not read from a demo project")
     if unknown := sorted(set(data) - _PROJECT_KEYS):
         raise ValueError(f"unknown key in project: {', '.join(unknown)}")
     panels = []
@@ -415,6 +431,9 @@ def project_from_dict(data: Any) -> Project:
     ):
         if dup := next((n for n, k in Counter(names).items() if k > 1), None):
             raise ValueError(f"repeated {kind}: {dup}")
+    devices = [_build(Device, x) for x in _list(data, "devices")]
+    if bad := next((d.detection for d in devices if d.detection not in DETECTIONS), None):
+        raise ValueError(f"unknown detection: {bad}")
     ri = data.get("run_info")
     return Project(
         name=_text(data["name"], "project name", True),
@@ -422,7 +441,7 @@ def project_from_dict(data: Any) -> Project:
         inputs=[_text(i, "input", True) for i in _list(data, "inputs")],
         panels=panels,
         feeders=feeders,
-        devices=[_build(Device, x) for x in _list(data, "devices")],
+        devices=devices,
         unparsed=[_build(Unparsed, u) for u in _list(data, "unparsed")],
         coverage=[_build(CoverageEntry, c) for c in _list(data, "coverage")],
         run_info=_run_info(ri) if ri is not None else None,

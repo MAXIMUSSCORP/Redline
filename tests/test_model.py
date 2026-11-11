@@ -5,8 +5,11 @@ from redline.model import (
     MAX_INT,
     Circuit,
     Confidence,
+    Device,
+    EgressPath,
     Method,
     Panel,
+    Project,
     Source,
     Value,
     check_value,
@@ -286,3 +289,31 @@ def test_phases_not_one_or_three_not_usable(n, val):
     assert not v.usable and v.confidence == Confidence.LOW
     assert check_value("phases", val(1)).usable and check_value("phases", val(3)).usable
     assert check_value("phases", val(1.0)).usable
+
+
+@pytest.mark.parametrize("key", ["paths", "sheet_units"])
+def test_project_json_refuses_paths_and_sheet_units(key):
+    with pytest.raises(ValueError, match=f"{key}.*not read from a demo project"):
+        project_from_dict({"name": "demo", key: []})
+
+
+def test_device_detection_checked():
+    src = {"file": "a.csv", "locator": "r", "method": "csv", "confidence": "HIGH"}
+
+    def proj(detection):
+        dev = {"type": "x", "source": src, "detection": detection}
+        return project_from_dict({"name": "d", "devices": [dev]})
+
+    for d in ("list", "block", "paper", "nested", "unused", "detector"):
+        assert proj(d).devices[0].detection == d
+    with pytest.raises(ValueError, match="unknown detection: guess"):
+        proj("guess")
+
+
+def test_egress_path_defaults():
+    s = _src()
+    a, b = EgressPath("P1", "E-101", s), EgressPath("P2", "E-101", s)
+    assert a.points == [] and a.points is not b.points
+    p = Project("demo")
+    assert p.paths == [] and p.sheet_units == {}
+    assert Device("exit_sign", s).detection == "list"

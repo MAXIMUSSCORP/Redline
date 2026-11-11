@@ -109,6 +109,26 @@ The `samples/pdf/acad/` sub-folder holds real AutoCAD plots for developers. A fo
 
 Some tests in `tests/test_parser_pdf.py` assert that a crafted PDF is read within 1 or 2 seconds. They fail when the PC is on battery in Silent mode, and pass on mains power. Run `pytest -q` on mains power.
 
+## Check fire alarm devices and exits
+
+    redline check samples/plans --config config/ --out report.html
+
+A folder of `.dxf` or `.dwg` plan sheets is read for device blocks. Redline counts blocks by name; it does not read symbols from a picture, and PDF sheets give no devices until the detector (L5.3) is built.
+
+1. Run once. The report section "Devices and exits" lists every block name that matches no device class, with the number of placements. A long list is cut at 500 names per file, and "Needs manual check" says how many are not shown.
+2. Put the names you want read under `device_blocks` in `config/fire_alarm.yaml`, one list per class. See `docs/labeling_guide.md`. Run again.
+3. Give the exits and egress paths in two files next to the sheets:
+   - `exits.csv`, columns `sheet,x,y,label`, and an optional `units` column. One row per exit, in drawing units.
+   - `paths.csv`, columns `sheet,path,seq,x,y`. One path is its rows in `seq` order.
+   A file in the folder named `exits.csv` or `paths.csv` is read after the drawings. A row that cannot be read is listed and that exit or path gets no check.
+4. Exits: when `exits.csv` has rows for a sheet, that list wins for the sheet and the exit door blocks of that sheet are shown as `unused`.
+5. Units: the drawing header gives the length unit. A sheet with no usable unit gives NOT_CHECKED for every distance. The owner can state the unit in the `units` column of `exits.csv` (`mm`, `cm`, `m`, `in` or `ft`); that overrides the header, and the report names both. When the header states a different unit, the sheet is listed under "Needs manual check" with both units and the unit used, and the unit is then a MEDIUM input.
+6. Limits: each limit in `fire_alarm.yaml` that is `null` gives NOT_CHECKED for that check. Nothing is passed by silence.
+7. `exit_signs.max_distance_from_path_to_sign_m` is read as the farthest a point of an egress path may lie from an exit sign. A point within that distance of a sign is covered, so signs up to twice the value apart pass. The old name `max_spacing_along_path_m` is a config error. The reviewer confirms this meaning [VERIFY].
+8. `fire_alarm.yaml` carries `verified: false` until a qualified reviewer fills and verifies it. While it is false, every VIOLATION from the fire alarm rule is shown as NEEDS_REVIEW, and the Config tables row for `fire_alarm.yaml` reads NOT VERIFIED.
+
+Devices read from blocks are never worse than their confidence: a block inside another block or an xref is LOW and is not measured.
+
 ## Compare the two extractors
 
     redline xcheck plan.dwg --config config/

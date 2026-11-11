@@ -24,6 +24,7 @@ from redline.model import (
     Unparsed,
     project_from_dict,
 )
+from redline.parsers import exits
 from redline.parsers.csv_xlsx import SUFFIXES, InputError, parse_file
 from redline.parsers.tabular import Parsed
 from redline.registry import RULES
@@ -108,6 +109,24 @@ def _flag_repeated_panels(project: Project) -> None:
         project.unparsed.append(Unparsed("panel", group[0].name, why, group[0].source))
 
 
+def _merge_units(project: Project, parsed: Parsed) -> None:
+    """Add the sheet units of one drawing. A sheet read twice has its devices counted twice, so
+    its units are made not usable and the repeat is listed."""
+    have = {k.casefold(): k for k in project.sheet_units}
+    for sheet, v in parsed.sheet_units.items():
+        if (old := have.get(sheet.casefold())) is None:
+            project.sheet_units[sheet] = v
+            continue
+        why = f"sheet {sheet} is read more than once, so its devices are counted twice"
+        note = exits.REPEATED_SHEET_NOTE
+        base = v.source or project.sheet_units[old].source
+        low = dataclasses.replace(base, confidence=Confidence.LOW, note=note)
+        project.sheet_units[old] = dataclasses.replace(
+            project.sheet_units[old], value=None, source=low
+        )
+        project.unparsed.append(Unparsed("sheet", sheet, why, low))
+
+
 def _reader(f: Path) -> Callable[[Path, Config], Parsed] | None:
     """The parse function for a file, or None when no reader takes the file type. The DWG, WDP
     and PDF readers are imported only when a file may need them."""
@@ -130,6 +149,7 @@ def _load_inputs(paths: list[str], cfg: Config) -> tuple[Project, int, list[Path
     tried and the input folders. A failing file is listed and the rest are still read."""
     project = Project(name=Path(paths[0]).resolve().name)
     read, tried, folders = 0, [], []
+    side: list[Path] = []  # exits.csv and paths.csv, read after every drawing
     versions: dict[str, str] = {}
     for raw in paths:
         p = Path(raw)
@@ -152,6 +172,10 @@ def _load_inputs(paths: list[str], cfg: Config) -> tuple[Project, int, list[Path
         for f in files:
             tried.append(f)
             project.inputs.append(f.name)
+            if f.name.lower() in exits.NAMES and f.is_file():
+                side.append(f)
+                read += 1
+                continue
             parse = _reader(f)
             if parse is None and f.exists():
                 project.coverage.append(
@@ -170,11 +194,14 @@ def _load_inputs(paths: list[str], cfg: Config) -> tuple[Project, int, list[Path
             project.panels += parsed.panels
             project.unparsed += parsed.unparsed
             project.coverage += parsed.coverage
+            project.devices += parsed.devices
+            _merge_units(project, parsed)
             for key, text in parsed.provenance.items():
                 n = 1
                 while (name := key if n == 1 else f"{key} #{n}") in versions:
                     n += 1
                 versions[name] = text
+    exits.apply(side, project, cfg)
     if versions:
         project.run_info = RunInfo(tool_version="", extractor_versions=versions)
     _flag_repeated_panels(project)

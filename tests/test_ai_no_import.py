@@ -125,3 +125,24 @@ def test_pdf_run_imports_no_model(tmp_path):
     )
     out = json.loads(p.stdout.strip().splitlines()[-1])
     assert out == {"code": 0, "seen": []}
+
+
+def test_plans_run_imports_no_model(tmp_path):
+    # The parent checks ezdxf with find_spec (C20), so nothing in BLOCKED loads.
+    blocked = list(BLOCKED)
+    args = [
+        str(ROOT / "samples/plans"),
+        str(ROOT / "tests/test_config"),
+        str(tmp_path / "r.html"),
+        json.dumps(blocked),
+    ]
+    env = {**__import__("os").environ, "PYTHONPATH": str(ROOT / "src")}
+    p = subprocess.run(
+        [sys.executable, "-c", _CSV_CODE, *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    out = json.loads(p.stdout.strip().splitlines()[-1])
+    assert out == {"code": 0, "seen": []}
