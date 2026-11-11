@@ -1,9 +1,15 @@
 import csv
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from redline.tools import gold_eval
-from redline.tools.gold_eval import distance, norm, run
+from redline.tools.gold_eval import distance, near, norm, run
 
 ROOT = Path(__file__).resolve().parent.parent
 GOLD = ROOT / "samples" / "gold" / "tables"
@@ -80,6 +86,7 @@ def test_silent_missing_row_counted(tmp_path, test_cfg):
     text, _ = run(d, test_cfg, tmp_path / "o")
     assert lines(text)["silent missing rows"] == "1"
     assert results(tmp_path / "o")[("table", "t1", "rows", "row_recall")] == (1, 2)
+    assert results(tmp_path / "o")[("table", "t1", "rows", "gold_row_not_pairable")] == (0, 2)
     d = make(tmp_path / "b", SOURCE, GOOD, panel="NOPE")
     text, _ = run(d, test_cfg, tmp_path / "o2")
     assert lines(text)["silent missing rows"] == "2"
@@ -235,3 +242,186 @@ def test_synthetic_gold_layout():
         with (GOLD / "truth" / f"{i}.csv").open(encoding="utf-8", newline="") as f:
             assert next(csv.reader(f)) == gold_eval.TRUTH_HEADER
     assert sorted(p.stem for p in (GOLD / "check").glob("*.csv")) == [ids[0], ids[5], ids[10]]
+
+
+UNKEYED = "1,Lighting,20 A,1,12 AWG,1350\n[unreadable],Receptacles,15,1,12 AWG,1500\n"
+
+
+def _cells(out):
+    return (out / "cells.csv").read_text(encoding="utf-8")
+
+
+def test_no_truth_read_exits_2(tmp_path, test_cfg, monkeypatch):
+    d = tmp_path / "gold"
+    (d / "truth").mkdir(parents=True)
+    (d / "manifest.csv").write_text(
+        MANIFEST + "t1,src.csv,,T-1,csv,,x,,\nt2,src.csv,,T-1,csv,,x,,\n", encoding="utf-8"
+    )
+    (d / "truth" / "t2.csv").write_text("circuit,description\n", encoding="utf-8")
+
+    def boom(*a):
+        raise AssertionError("a source was parsed")
+
+    monkeypatch.setattr(gold_eval, "_load_inputs", boom)
+    text, code = run(d, test_cfg, tmp_path / "o")
+    assert code == 2
+    assert "no truth file could be read" in text and "t1" in text and "t2" in text
+    assert not (tmp_path / "o").exists()
+
+
+def test_some_truth_unread_exits_0_and_named(tmp_path, test_cfg):
+    d = make(tmp_path, SOURCE, GOOD)
+    (d / "manifest.csv").write_text(
+        MANIFEST + "t1,src.csv,,T-1,csv,,x,,\nt2,src.csv,,T-1,csv,,x,,\n", encoding="utf-8"
+    )
+    text, code = run(d, test_cfg, tmp_path / "o")
+    assert code == 0 and lines(text)["truth file not read"] == "t2"
+    assert text.startswith("tables: 2 in manifest, 1 read, 0 listed")
+    r = results(tmp_path / "o")
+    assert r[("table", "t1", "table", "truth_read")] == (1, 1)
+    assert r[("table", "t2", "table", "truth_read")] == (0, 1)
+    assert r[("total", "", "table", "truth_read")] == (1, 2)
+    assert r[("kind:csv", "", "table", "truth_read")] == (1, 2)
+    assert [k for k in r if k[1] == "t2"] == [("table", "t2", "table", "truth_read")]
+    assert r[("total", "", "table", "table_read")] == (1, 1)
+
+
+def test_unreadable_circuit_not_pairable(tmp_path, test_cfg):
+    d = make(tmp_path, SOURCE, UNKEYED)
+    text, _ = run(d, test_cfg, tmp_path / "o")
+    assert lines(text)["silent missing rows"] == "0"
+    assert lines(text)["gold rows not pairable"] == "1"
+    r = results(tmp_path / "o")
+    assert r[("table", "t1", "rows", "row_recall")] == (1, 1)
+    assert r[("table", "t1", "rows", "row_hallucination")] == (0, 1)
+    assert r[("table", "t1", "rows", "silent_missing_row")] == (0, 1)
+    assert r[("table", "t1", "rows", "gold_row_not_pairable")] == (1, 2)
+    assert r[("table", "t1", "description", "cell_correct")] == (1, 1)
+    assert r[("table", "t1", "all", "cell_not_read")] == (0, 5)
+    cells = _cells(tmp_path / "o")
+    assert "t1,[unreadable],(row),circuit unreadable,,,circuit unreadable" in cells
+    assert "unpaired row" in cells and "extra row" not in cells
+
+
+def test_unreadable_circuit_surplus_is_missed(tmp_path, test_cfg):
+    d = make(tmp_path, SOURCE.splitlines(True)[0], UNKEYED)
+    text, _ = run(d, test_cfg, tmp_path / "o")
+    assert lines(text)["silent missing rows"] == "1"
+    assert "gold rows not pairable" not in text
+    r = results(tmp_path / "o")
+    assert r[("table", "t1", "rows", "row_recall")] == (1, 2)
+    assert r[("table", "t1", "rows", "silent_missing_row")] == (1, 2)
+    assert r[("table", "t1", "rows", "row_hallucination")] == (0, 1)
+    assert r[("table", "t1", "rows", "gold_row_not_pairable")] == (0, 2)
+    d = make(tmp_path / "b", SOURCE, UNKEYED, panel="NOPE")
+    text, _ = run(d, test_cfg, tmp_path / "o2")
+    assert lines(text)["silent missing rows"] == "2"
+    assert results(tmp_path / "o2")[("table", "t1", "rows", "row_recall")] == (0, 2)
+
+
+def test_unreadable_circuit_extra_beyond_unkeyed_counted(tmp_path, test_cfg):
+    d = make(tmp_path, SOURCE + "T-1,9,Spare,0,15,1,12 AWG\n", UNKEYED)
+    run(d, test_cfg, tmp_path / "o")
+    r = results(tmp_path / "o")
+    assert r[("table", "t1", "rows", "row_recall")] == (1, 1)
+    assert r[("table", "t1", "rows", "row_hallucination")] == (1, 2)
+    assert r[("table", "t1", "rows", "gold_row_not_pairable")] == (1, 2)
+    assert sum("unpaired row" in x for x in _cells(tmp_path / "o").splitlines()) == 2
+
+
+def test_check_unreadable_circuit_not_one_file(tmp_path, test_cfg):
+    d = make(tmp_path, SOURCE, UNKEYED, check=GOOD)
+    run(d, test_cfg, tmp_path / "o")
+    r = results(tmp_path / "o")
+    assert r[("table", "t1", "rows", "check_rows_in_one_file")] == (0, 1)
+    assert r[("table", "t1", "rows", "check_row_not_pairable")] == (1, 2)
+
+
+def _proj(kind, raw, reason):
+    # _lists reads only kind, raw and reason of each unparsed entry
+    return SimpleNamespace(unparsed=[SimpleNamespace(kind=kind, raw=raw, reason=reason)])
+
+
+def test_lists_matches_whole_panel_name():
+    a = _proj("row", "LP-2,3,Fan", "too few cells to be a schedule")
+    assert not gold_eval._lists(a, "A", True)
+    assert not gold_eval._lists(a, "A", False)
+    assert not gold_eval._lists(_proj("row", "LP-10, 20, 1", "row not read"), "LP-1", True)
+    assert gold_eval._lists(_proj("row", "LP-1, 3", "row not read"), "LP-1", True)
+    assert gold_eval._lists(_proj("row", "panel A: circuit 3", "row not read"), "a", True)
+
+
+def test_out_unwritable_exits_2_before_parse(tmp_path, test_cfg, monkeypatch):
+    d = make(tmp_path, SOURCE, GOOD)
+    blocker = tmp_path / "afile"
+    blocker.write_text("x", encoding="utf-8")
+
+    def boom(*a):
+        raise AssertionError("a source was parsed")
+
+    monkeypatch.setattr(gold_eval, "_load_inputs", boom)
+    text, code = run(d, test_cfg, blocker)
+    assert code == 2 and "cannot write results" in text and "\n" not in text
+    assert blocker.read_text(encoding="utf-8") == "x"
+
+
+def test_late_write_failure_names_file(tmp_path, test_cfg, monkeypatch):
+    d = make(tmp_path, SOURCE, GOOD)
+    real = gold_eval._write_csv
+
+    def locked(path, header, rows):
+        if path.name == "results.csv":
+            raise PermissionError(path.name)
+        real(path, header, rows)
+
+    monkeypatch.setattr(gold_eval, "_write_csv", locked)
+    text, code = run(d, test_cfg, tmp_path / "o")
+    assert code == 0 and lines(text)["not written"] == "results.csv"
+    assert text.startswith("tables: 1 in manifest, 1 read")
+    assert (tmp_path / "o" / "cells.csv").is_file()
+
+
+@pytest.mark.parametrize("bad", ["x..y", "a b", "..", "a/b", "a;b"])
+def test_table_id_confined(tmp_path, test_cfg, bad):
+    d = make(tmp_path, SOURCE, GOOD)
+    (d / "truth" / f"{bad}.csv").parent.mkdir(parents=True, exist_ok=True)
+    try:
+        (d / "truth" / f"{bad}.csv").write_text(TRUTH + GOOD, encoding="utf-8")
+    except OSError:
+        pass  # a name the file system refuses is still rejected by the id test
+    (d / "manifest.csv").write_text(
+        MANIFEST + f'"{bad}",src.csv,,T-1,csv,,x,,\nt1,src.csv,,T-1,csv,,x,,\n', encoding="utf-8"
+    )
+    text, code = run(d, test_cfg, tmp_path / "o")
+    assert code == 0 and lines(text)["table_id not allowed, not read"] == bad
+    assert results(tmp_path / "o")[("table", bad, "table", "truth_read")] == (0, 1)
+    assert text.startswith("tables: 2 in manifest, 1 read")
+
+
+def test_distance_skipped_when_lengths_differ(monkeypatch):
+    def boom(a, b):
+        raise AssertionError("distance computed")
+
+    monkeypatch.setattr(gold_eval, "distance", boom)
+    assert near("a" * 200_000, "a") is False
+    assert near("abc", "abcdef") is False
+
+
+def test_results_repeat_across_hash_seeds(tmp_path):
+    outs = []
+    for seed in ("1", "2"):
+        out = tmp_path / seed
+        env = {**os.environ, "PYTHONPATH": str(ROOT / "src"), "PYTHONHASHSEED": seed}
+        argv = ["gold", "eval", str(GOLD), "--config", str(ROOT / "tests" / "test_config")]
+        p = subprocess.run(
+            [sys.executable, "-m", "redline.cli", *argv, "--out", str(out)],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=tmp_path,
+            check=False,
+        )
+        assert p.returncode == 0, p.stderr
+        outs.append(out)
+    for name in ("results.csv", "cells.csv"):
+        assert (outs[0] / name).read_bytes() == (outs[1] / name).read_bytes(), name
