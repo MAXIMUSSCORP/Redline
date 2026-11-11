@@ -154,18 +154,50 @@ def run(
     return text, (0 if read else 2)
 
 
-def _batch_files(inputs: list[Path]) -> list[Path]:
-    """Files as given; a folder gives its .dwg and .dxf files in name order, no sub-folders."""
-    out: list[Path] = []
+def _batch_files(inputs: list[Path]) -> tuple[list[tuple[Path, str]], list[str]]:
+    """(path, label) pairs and the entries not read, with reasons.
+
+    A folder gives its .dwg and .dxf files in name order. Sub-folders, other files and
+    symlinks are listed, never dropped. A label is the file name, and the input folder's
+    name is put before it only when two files would share one label.
+    """
+    found: list[tuple[Path, str]] = []
+    skipped: list[str] = []
     for p in map(Path, inputs):
-        if p.is_dir():
-            out += sorted(
-                (f for f in p.iterdir() if f.is_file() and f.suffix.lower() in (".dwg", ".dxf")),
-                key=lambda f: f.name,
-            )
+        if p.is_symlink():
+            skipped.append(f"{p.name}: symlinks are not read")
+        elif p.is_dir():
+            try:
+                entries = sorted(p.iterdir(), key=lambda f: f.name)
+            except OSError as e:
+                skipped.append(f"{p.name}: folder cannot be read: {type(e).__name__}")
+                continue
+            for f in entries:
+                if f.is_symlink():
+                    skipped.append(f"{p.name}/{f.name}: symlinks are not read")
+                elif f.is_dir():
+                    skipped.append(f"{p.name}/{f.name}: subfolders are not read")
+                elif f.suffix.lower() not in (".dwg", ".dxf"):
+                    skipped.append(f"{p.name}/{f.name}: not a .dwg or .dxf file")
+                elif f.is_file():
+                    found.append((f, f.name))
         else:
-            out.append(p)
-    return out
+            found.append((p, p.name))
+    count = Counter(label for _, label in found)
+    return [
+        (f, label if count[label] == 1 else f"{f.parent.name}/{label}") for f, label in found
+    ], skipped
+
+
+def _write_csv(path: Path, rows: list[LossRow]) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(["file", "item", "primary", "fallback"])
+        for r in rows:
+            w.writerow(
+                [_safe(r.file), _safe(r.item)]
+                + [_NOT_RUN if x is None else str(x) for x in (r.primary, r.fallback)]
+            )
 
 
 def _summary(rows: list[LossRow], names: list[str]) -> list[str]:
@@ -199,11 +231,22 @@ def run_batch(
     names = list(fns)[:2]
     if len(names) != 2:
         raise ValueError("xcheck needs exactly two extractors")
-    files = _batch_files(inputs)
+    out_dir = Path(out_dir)
+    target = out_dir / "xcheck.csv"
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink():
+            raise OSError("it is a symlink")
+        with open(target, "ab"):
+            pass
+    except OSError as e:
+        why = " ".join(str(e).split()) or type(e).__name__
+        return f"redline: cannot write {target}: {why}.", 2
+    files, skipped = _batch_files(inputs)
     rows: list[LossRow] = []
-    reasons: list[str] = []
+    reasons: list[str] = list(skipped)
     read = 0
-    for path in files:
+    for path, label in files:
         got: list[dict | None] = []
         for name in names:
             try:
@@ -213,27 +256,26 @@ def run_batch(
             except Exception as e:  # noqa: BLE001 - any failure is reported, never hidden
                 got.append(None)
                 msg = " ".join(f"{type(e).__name__}: {e}".split())
-                reasons.append(f"{path.name}: {name} read nothing: {msg}")
+                reasons.append(f"{label}: {name} read nothing: {msg}")
             else:
                 got.append(d)
                 read += 1
-        rows += diff(path.name, got[0], got[1])
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    with open(out_dir / "xcheck.csv", "w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f, lineterminator="\n")
-        w.writerow(["file", "item", "primary", "fallback"])
-        for r in rows:
-            w.writerow(
-                [_safe(r.file), _safe(r.item)]
-                + [_NOT_RUN if x is None else str(x) for x in (r.primary, r.fallback)]
-            )
+        rows += diff(label, got[0], got[1])
+    unwritten = ""
+    try:
+        _write_csv(target, rows)
+    except OSError as e:
+        unwritten = (
+            f"{target.name} was not written: {' '.join(str(e).split()) or type(e).__name__}."
+        )
     lines = [f"xcheck batch: {len(files)} files, {read} extractor reads.", ""]
     lines += _summary(rows, names)
     differing = sorted({r.file for r in rows if r.item == "cell text differs" and r.primary})
     lines += ["", "Files with cell text differences: " + (", ".join(differing) or "none") + "."]
     if reasons:
         lines += ["", "Not read:", *reasons]
+    if unwritten:
+        lines += ["", unwritten]
     if not read:
         lines += ["", "No extractor read any file. Nothing is checked."]
     return "\n".join(lines), (0 if read else 2)
