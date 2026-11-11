@@ -1,9 +1,13 @@
 import copy
 import csv
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from redline.config import load_config
 from redline.rawdrawing import read
+from redline.tools import xcheck
 from redline.tools.xcheck import run_batch
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +39,8 @@ def pair(a=PLUGIN, b=FALLBACK, seen=None):
 
 
 def rows_of(out):
-    return list(csv.reader((out / "xcheck.csv").open(encoding="utf-8", newline="")))
+    with (out / "xcheck.csv").open(encoding="utf-8", newline="") as f:
+        return list(csv.reader(f))
 
 
 def test_batch_folder_without_subfolders(tmp_path):
@@ -47,10 +52,11 @@ def test_batch_folder_without_subfolders(tmp_path):
 
 
 def test_batch_dwg_and_dxf_in_name_order(tmp_path):
-    d = touch(tmp_path / "in", "c.dwg", "A.dxf", "b.DWG")
+    # Case-sensitive order puts B.dwg first; NTFS lists a.dwg first, so sorted() is what decides.
+    d = touch(tmp_path / "in", "a.dwg", "B.dwg", "c.dwg")
     seen = []
     run_batch([d], CFG, tmp_path / "o", pair(seen=seen))
-    assert seen[::2] == ["A.dxf", "b.DWG", "c.dwg"]
+    assert seen[::2] == ["B.dwg", "a.dwg", "c.dwg"]
 
 
 def test_batch_csv_columns(tmp_path):
@@ -126,3 +132,132 @@ def test_batch_csv_repeats_byte_identical(tmp_path):
     assert (tmp_path / "o1" / "xcheck.csv").read_bytes() == (
         tmp_path / "o2" / "xcheck.csv"
     ).read_bytes()
+
+
+def test_batch_unwritable_output_refused_before_reads(tmp_path, monkeypatch):
+    d = touch(tmp_path / "in", "a.dwg")
+    real = open
+
+    def locked(file, mode="r", *a, **k):
+        if str(file).endswith("xcheck.csv"):
+            raise PermissionError(13, "in use")
+        return real(file, mode, *a, **k)
+
+    monkeypatch.setattr("builtins.open", locked)
+    seen = []
+    text, code = run_batch([d], CFG, tmp_path / "o", pair(seen=seen))
+    assert code == 2
+    assert text.startswith("redline: cannot write ")
+    assert seen == []
+
+
+def test_batch_csv_not_written_still_prints_summary(tmp_path, monkeypatch):
+    d = touch(tmp_path / "in", "a.dwg")
+
+    def boom(path, rows):
+        raise PermissionError(13, "in use")
+
+    monkeypatch.setattr(xcheck, "_write_csv", boom)
+    text, code = run_batch([d], CFG, tmp_path / "o", pair())
+    assert code == 0
+    assert "xcheck batch: 1 files" in text
+    assert "xcheck.csv was not written" in text
+
+
+def test_batch_same_name_files_in_two_folders(tmp_path):
+    a = touch(tmp_path / "a", "panel.dwg")
+    b = touch(tmp_path / "b", "panel.dwg")
+    changed = copy.deepcopy(FALLBACK)
+    next(e for e in changed["entities"] if e.get("text") == "LP-11")["table"]["cells"][5][
+        "text"
+    ] = "z"
+
+    def f(path, cfg):
+        return PLUGIN
+
+    def g(path, cfg):
+        return changed if path.parent.name == "b" else FALLBACK
+
+    text, _ = run_batch([a, b], CFG, tmp_path / "o", {"acad_plugin": f, "oda_ezdxf": g})
+    assert {x[0] for x in rows_of(tmp_path / "o")[1:]} == {"a/panel.dwg", "b/panel.dwg"}
+    assert "Files with cell text differences: b/panel.dwg." in text
+
+
+def test_batch_skips_listed(tmp_path):
+    d = touch(tmp_path / "in", "a.dwg", "notes.txt")
+    touch(d / "sub", "deep.dwg")
+    text, code = run_batch([d], CFG, tmp_path / "o", pair())
+    assert code == 0
+    assert "Not read:" in text
+    assert "in/sub: subfolders are not read" in text
+    assert "in/notes.txt: not a .dwg or .dxf file" in text
+
+
+def test_batch_unreadable_folder_listed(tmp_path, monkeypatch):
+    d = touch(tmp_path / "in", "a.dwg")
+    ok = touch(tmp_path / "ok", "b.dwg")
+    real = Path.iterdir
+
+    def iterdir(self):
+        if self.name == "in":
+            raise PermissionError(13, "denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    text, code = run_batch([d, ok], CFG, tmp_path / "o", pair())
+    assert code == 0
+    assert "in: folder cannot be read: PermissionError" in text
+
+
+def test_batch_symlink_inputs_listed(tmp_path, monkeypatch):
+    d = touch(tmp_path / "in", "a.dwg", "link.dwg")
+    real = Path.is_symlink
+    monkeypatch.setattr(Path, "is_symlink", lambda self: self.name == "link.dwg" or real(self))
+    seen = []
+    text, _ = run_batch([d], CFG, tmp_path / "o", pair(seen=seen))
+    assert set(seen) == {"a.dwg"}
+    assert "in/link.dwg: symlinks are not read" in text
+
+
+def test_batch_symlink_csv_refused(tmp_path, monkeypatch):
+    d = touch(tmp_path / "in", "a.dwg")
+    real = Path.is_symlink
+    monkeypatch.setattr(Path, "is_symlink", lambda self: self.name == "xcheck.csv" or real(self))
+    seen = []
+    text, code = run_batch([d], CFG, tmp_path / "o", pair(seen=seen))
+    assert code == 2
+    assert "symlink" in text
+    assert seen == []
+
+
+_HASHSEED_CODE = """
+import sys
+from pathlib import Path
+from redline.config import load_config
+from redline.rawdrawing import read
+from redline.tools.xcheck import run_batch
+s = Path(sys.argv[1])
+a = read(s / "panel_sheet.acad_plugin.rawdrawing.json")
+b = read(s / "panel_sheet.oda_ezdxf.rawdrawing.json")
+run_batch([Path(sys.argv[2])], load_config(sys.argv[3]), Path(sys.argv[4]),
+          {"acad_plugin": lambda p, c: a, "oda_ezdxf": lambda p, c: b})
+"""
+
+
+def test_batch_csv_identical_across_hash_seeds(tmp_path):
+    d = touch(tmp_path / "in", "a.dwg", "b.dxf")
+    outs = []
+    for seed in ("1", "2"):
+        out = tmp_path / f"o{seed}"
+        env = {**os.environ, "PYTHONPATH": str(ROOT / "src"), "PYTHONHASHSEED": seed}
+        args = [str(SAMPLES), str(d), str(ROOT / "tests" / "test_config"), str(out)]
+        p = subprocess.run(
+            [sys.executable, "-c", _HASHSEED_CODE, *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        assert p.returncode == 0, p.stderr
+        outs.append((out / "xcheck.csv").read_bytes())
+    assert outs[0] == outs[1]
