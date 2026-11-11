@@ -1,6 +1,6 @@
 # M1 real-file research: AutoCAD Electrical and Revit exports
 
-Date: 2026-11-07, M1 stage 1. Three Sonnet research agents gathered this, two working on the web and one on the dev PC. No code was written. VERIFIED means the claim was read on the cited page. UNVERIFIED means it came from a search snippet or an inference. Decision: PLAN.md row 33.
+Date: 2026-11-07, M1 research. Three searches gathered this, two on the web and one on the dev PC. No code was written. VERIFIED means the claim was read on the cited page. UNVERIFIED means it came from a search snippet or an inference. Decision: PLAN.md row 33.
 
 ## 1. AutoCAD Electrical
 
@@ -11,7 +11,7 @@ Date: 2026-11-07, M1 stage 1. Three Sonnet research agents gathered this, two wo
 - AutoCAD Electrical cannot produce an MEP or Revit-style panel schedule. UNVERIFIED: a forum thread summary only (https://forums.autodesk.com/t5/autocad-electrical-forum/electrical-one-line-diagrams/m-p/5636602), and the page returned 403.
 - Block attributes named CKT, DESC or LOAD: not found on any Autodesk page. Do not assume them.
 - Dev PC: AutoCAD Electrical is not installed. `D:\Autodesk` has AutoCAD 2026 and Revit 2026 only. No `.wdp`, `.set`, WDDEMO or panel template exists on C: or D:.
-- Consequence: `aecad_export.headers` stays empty, and every AutoCAD Electrical column goes to `unparsed` (CLAUDE.md section 6).
+- Consequence: `aecad_export.headers` stays empty, and every AutoCAD Electrical column goes to `unparsed`.
 
 ## 2. AutoCAD MEP (a different product, for reference only)
 
@@ -33,7 +33,7 @@ AutoCAD MEP panel schedule table-style circuit fields: Circuit Name, Circuit Des
 
 ### Second search, M1 stage 4 (2026-11-07)
 
-Three Sonnet agents searched again: two on the web, one on the dev PC (read-only). Nothing was downloaded or opened.
+Three searches ran again: two on the web, one on the dev PC (read-only). Nothing was downloaded or opened.
 
 - No public file holds a real Revit-written circuit schedule export. GitHub code search, the Autodesk, Dynamo and Reddit forums and add-in docs gave only parameter lists, API code and screenshots. VERIFIED as searched. A schedule's columns are whatever fields its author picks, so no standard header row exists to find.
   - Two old threads may carry an attached export, but both returned 403: https://forums.augi.com/showthread.php?128633-Extracting-circuits-data-from-model and https://www.revitforum.org/forum/revit-mechanical-electrical-plumbing-forum-mep/mep-general/31517-electrical-panel-schedule-export-to-excel-revit-2016. UNVERIFIED.

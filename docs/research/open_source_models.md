@@ -1,6 +1,6 @@
 # Open-Source / Open-Weights Stack for Redline (local-only AI layer)
 
-Access date for every URL below: 2026-11-06. Companion to `ai_vision.md`. Marker meanings: **VERIFIED** = read on the primary page this session; **SECONDARY** = blog, aggregator or search summary only; **UNVERIFIED** = from memory or inference, check before relying on it. Model names move fast (PaddleOCR-VL is already at 1.6, PP-OCRv6 exists), so re-check versions before building.
+Access date for every URL below: 2026-11-06. Companion to `ai_vision.md`. Marker meanings: **VERIFIED** = read on the primary page at the access date; **SECONDARY** = blog, aggregator or search summary only; **UNVERIFIED** = from memory or inference, check before relying on it. Model names move fast (PaddleOCR-VL is already at 1.6, PP-OCRv6 exists), so re-check versions before building.
 
 Headline: no open model has been shown reliable on electrical panel schedules, and the only direct evidence on drawings says open VLMs trail frontier cloud models. A local stack is feasible for Redline only as "OCR/table-structure engine plus VLM as second reader plus hard validators", never as a single-pass oracle.
 
@@ -70,7 +70,7 @@ Practical point for CAD: for DXF/vector PDF Redline already has exact text with 
 | D-FINE, DEIM, DEIMv2, RT-DETRv2 | Apache-2.0 (SECONDARY) | Apache-2.0 | COCO AP: DEIMv2-X 57.8, DEIM-X 56.5, D-FINE-X 55.8, RT-DETRv2-X 54.3. https://arxiv.org/pdf/2509.20787 , https://blog.roboflow.com/rf-detr-vs-alternatives/ |
 | YOLOX | Apache-2.0 (SECONDARY) | Apache-2.0 | Old but proven, MIT-friendly. |
 | YOLO-NAS | Apache-2.0 super-gradients code | Deci licence: research/non-commercial only (VERIFIED in forum quote and HF licence copy); library unmaintained | Avoid. https://forums.developer.nvidia.com/t/licensing-and-usage-terms-for-yolo-nas-model/326342 |
-| Detectron2 / MMDetection / PaddleDetection | Apache-2.0 (general knowledge, UNVERIFIED this session) | Model zoo weights vary | Heavier toolchains, Windows installs are painful. |
+| Detectron2 / MMDetection / PaddleDetection | Apache-2.0 (general knowledge, UNVERIFIED) | Model zoo weights vary | Heavier toolchains, Windows installs are painful. |
 
 Windows install note: RF-DETR page says only `pip install rfdetr`, no Windows guidance (VERIFIED).
 
@@ -92,7 +92,7 @@ No source I found benchmarks any of these on electrical symbols except YOLOv8/Fa
 | Digitize-PID | 500 synthetic P&IDs, YOLO format | check original (arXiv 2109.03794); HF copies are not by the author | Useful to test detector pipeline only. https://huggingface.co/datasets/SherifAhmed/digitize-pid-yolo |
 | Roboflow Universe P&ID sets | tens to few hundred images, CC BY 4.0 on one | per project | Toy scale. https://universe.roboflow.com/pid-yolo/p-id-nddv7/model/2 |
 
-Labeling tools (general knowledge, UNVERIFIED this session): Label Studio (Apache-2.0, self-host), CVAT (MIT, self-host), Roboflow free tier (public-workspace data on the free plan; confirm terms before uploading client drawings). Because project drawings are client-confidential, self-host Label Studio or CVAT.
+Labeling tools (general knowledge, UNVERIFIED): Label Studio (Apache-2.0, self-host), CVAT (MIT, self-host), Roboflow free tier (public-workspace data on the free plan; confirm terms before uploading client drawings). Because project drawings are client-confidential, self-host Label Studio or CVAT.
 
 ## 4. Local serving and hardware
 

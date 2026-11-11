@@ -1,6 +1,6 @@
 # DWG extractor verification on the dev PC
 
-Leaf L2.0, written 2026-11-09 on the Windows 11 dev PC, from a shell inside the MSIX-packaged Claude app. Rev 3 re-run (PLAN row 42). Section 8 was refreshed at 3bff5d7 (fix loop W1-FX5). Every figure below was measured here. Anything not measured is marked UNVERIFIED or BLOCKED with its reason.
+Leaf L2.0, written 2026-11-09 on the Windows 11 dev PC, from a shell inside an MSIX-packaged app. Rev 3 re-run (PLAN row 42). Section 8 was refreshed at 3bff5d7. Every figure below was measured here. Anything not measured is marked UNVERIFIED or BLOCKED with its reason.
 
 Headline: the AutoCAD 2026 `accoreconsole.exe` crashes in `AcPal.dll` (history, row 41, kept below). The AutoCAD 2027 `accoreconsole.exe` runs: both smoke tests exit 0 in about 2 s with no licence dialog. ODA File Converter 27.10.0 converts DWG to DXF and ezdxf reads the result. The 2026 results are history only. The Redline plugin now loads in the 2027 console (section 4), and section 8 compares both extractors on 14 real drawings.
 
@@ -9,7 +9,7 @@ Headline: the AutoCAD 2026 `accoreconsole.exe` crashes in `AcPal.dll` (history, 
 - Path: `D:/Autodesk/AutoCAD 2026/accoreconsole.exe`, 504152 bytes, dated 2025-10-24.
 - File version 25.1.122.0.0, product name `AcCoreConsole`. The banner reads "AutoCAD Core Engine Console - Copyright 2025 Autodesk, Inc. (W.122.0.0)".
 - Search: `find "C:/Program Files/Autodesk" "D:/Autodesk" -maxdepth 4 -iname accoreconsole.exe` returned only the D: path. `C:/Program Files/Autodesk` does not exist on this PC.
-- `D:/Autodesk` holds AutoCAD 2026 and several Revit 2026 items. No AutoCAD Electrical folder exists, which matches CLAUDE.md section 9.
+- `D:/Autodesk` holds AutoCAD 2026 and several Revit 2026 items. No AutoCAD Electrical folder exists, which matches the machine notes.
 
 ### Rev 3 (2027): the core console now used
 
@@ -35,7 +35,7 @@ Script `q.scr` holds one line, `_QUIT`. Each run used a copy in its own empty fo
 "C:\Program Files\Autodesk\AutoCAD 2027\accoreconsole.exe" /i "<temp>\s27_etsu\etsu.dwg" /s "<temp>\q.scr" /l en-US
 ```
 
-`<temp>` is `C:\Users\Zaidz\AppData\Local\Temp\redline-m2\L2.0`.
+`<temp>` is `C:\Users\<user>\AppData\Local\Temp\redline-m2\L2.0`.
 
 ### Result (2027): both runs complete
 
@@ -75,18 +75,18 @@ Measured with the 2027 core console, on copies of ETSU in empty folders (one fol
 
 ### MSIX probe
 
-A 2027 core console script ran `(open "C:/Users/Zaidz/AppData/Local/redline/l20_acc_probe.txt" "w")`, `write-line`, `close`, then `_QUIT` (exit 0).
+A 2027 core console script ran `(open "C:/Users/<user>/AppData/Local/redline/l20_acc_probe.txt" "w")`, `write-line`, `close`, then `_QUIT` (exit 0).
 
-- Path written: `C:/Users/Zaidz/AppData/Local/redline/l20_acc_probe.txt`.
+- Path written: `C:/Users/<user>/AppData/Local/redline/l20_acc_probe.txt`.
 - The redline venv python saw it at that path: `os.path.exists` True, content read back.
-- The same file was also visible at `C:/Users/Zaidz/AppData/Local/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Local/redline/l20_acc_probe.txt`, and that folder lists the same entries as the plain path (`venv`, `wt`). Inside the Claude app shell the two paths show one folder.
-- Where the bytes physically sit, and whether a process outside the app sees the plain path, is UNVERIFIED (every process here runs under the app). The probe file was deleted afterwards.
+- The same file was also visible at a path under `AppData/Local/Packages/<app package>/LocalCache/Local/redline/l20_acc_probe.txt`, and that folder lists the same entries as the plain path (`venv`, `wt`). Inside the packaged shell the two paths show one folder.
+- Where the bytes physically sit, and whether a process outside the app sees the plain path, is UNVERIFIED (every process here runs under the packaged app). The probe file was deleted afterwards.
 
 History, 2026 era: the probe could not run through the core console; PowerShell and the venv python showed the same one-folder behaviour. For the plugin DLL path see `extractors/acad_plugin/README.md` (leaf L2.1).
 
 ## 3. Core Console licensing (M2.3 task 3)
 
-Resolved, SECURELOAD: the plugin DLL was refused at first because SECURELOAD is 1 and TRUSTEDPATHS was empty. The owner added `C:/Users/Zaidz/redline/plugin` to TRUSTEDPATHS in AutoCAD 2027 (D10). SECURELOAD stays 1. The plugin loads from that folder (section 4).
+Resolved, SECURELOAD: the plugin DLL was refused at first because SECURELOAD is 1 and TRUSTEDPATHS was empty. The owner added `C:/Users/<user>/redline/plugin` to TRUSTEDPATHS in AutoCAD 2027 (D10). SECURELOAD stays 1. The plugin loads from that folder (section 4).
 
 Owner line, licensing: the owner asks the reseller in writing whether headless Core Console use on a shared machine is allowed, and checks seat use in the Autodesk account. The answer is quoted here when given. No answer yet. Until then, run only on the named user's own workstation.
 
@@ -94,7 +94,7 @@ Run-with-AutoCAD-closed versus open: UNVERIFIED, not measured in the 2027 re-run
 
 ## 4. NETLOAD on 2025 and later (M2.3 task 4)
 
-Owned by leaf L2.1. See `extractors/acad_plugin/README.md`, section "Load test". Outcome there: LOADED in the 2027 Core Console from the trusted folder `C:/Users/Zaidz/redline/plugin`. A copy of the DLL anywhere else is refused. The 2026 Core Console crashed before any command ran (section 2).
+Owned by leaf L2.1. See `extractors/acad_plugin/README.md`, section "Load test". Outcome there: LOADED in the 2027 Core Console from the trusted folder `C:/Users/<user>/redline/plugin`. A copy of the DLL anywhere else is refused. The 2026 Core Console crashed before any command ran (section 2).
 
 ## 5. FIELD and DATALINK evaluation (M2.3 task 5)
 
@@ -137,7 +137,7 @@ The questions on staff AutoCAD versions and how schedules are made go to the own
 
 ## 8. xcheck corpus run and real-file checks
 
-Leaf L2.7, first run 2026-11-09 at df9fea8, refreshed 2026-11-09 at 3bff5d7 (fix loop W1-FX5) on the dev PC, main checkout, branch m2. Every figure below was measured in the refresh. The `acad_plugin` extractor now loads (the owner added `C:/Users/Zaidz/redline/plugin` to AutoCAD 2027 TRUSTEDPATHS; SECURELOAD stays 1, D10), so `redline xcheck` runs both extractors on every drawing. No AutoCAD setting was changed. Gates G7.1 and G7.3 are no longer blocked.
+Leaf L2.7, first run 2026-11-09 at df9fea8, refreshed 2026-11-09 at 3bff5d7 on the dev PC, main checkout, branch m2. Every figure below was measured in the refresh. The `acad_plugin` extractor now loads (the owner added `C:/Users/<user>/redline/plugin` to AutoCAD 2027 TRUSTEDPATHS; SECURELOAD stays 1, D10), so `redline xcheck` runs both extractors on every drawing. No AutoCAD setting was changed. Gates G7.1 and G7.3 are no longer blocked.
 
 ### History
 
@@ -445,7 +445,7 @@ Run 2026-11-09: `redline check` on a temp copy of each of the 20 `.wdp` files un
 
 - Files run: 20.
 - Exit 0: 19. Exit 2: 1.
-- InputError: 1. `JisDemo/Jisdemo.wdp`: "cannot decode the file: character maps to <undefined>". The bytes are not accepted by cp1252, as the `aecad_side.py` docstring says for an East Asian code page. `redline check` on it alone exits 2 ("no input file could be read"), which fits CLAUDE.md section 6.
+- InputError: 1. `JisDemo/Jisdemo.wdp`: "cannot decode the file: character maps to <undefined>". The bytes are not accepted by cp1252, as the `aecad_side.py` docstring says for an East Asian code page. `redline check` on it alone exits 2 ("no input file could be read"), which fits the exit code rule (2 only when no input could be read).
 - Lines listed as unknown shape ("line shape not known"): 0 in all 19 readable files.
 - `Project_Drawing_List_NFPA.wdp` lists 0 drawings (settings only, 115 lines not read), as the docstring says for one sample.
 - Drawings listed per file: wddemo 9, Extra Library Demo 3, Gbdemo 29, H-S244test 156, Iec60617Demo 29, iecdemo 29, Ieeedemo 29, Jisdemo unread, Nfpademo 9, perf_2340 147, Project_Basics_NFPA 13, Project_Drawing_List_NFPA 0, then 10 each for Schematic_Wiring, Schematic_Components, Schematic_Editing, Schematic_Reports, Panel_Layouts, Custom_Components, Custom_Data, PLC_Modules.

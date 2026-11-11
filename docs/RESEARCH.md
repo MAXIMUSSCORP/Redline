@@ -419,7 +419,7 @@ PDF
 AI, OCR, vision
 42. https://platform.claude.com/docs/en/build-with-claude/vision
 43. https://platform.claude.com/docs/en/about-claude/pricing
-44. Claude API skill reference bundled with the tooling (cached 2026-10-06), no URL
+44. Vendor published pricing and model list for Claude (cached 2026-10-06), no URL
 45. https://dev.to/businessware/benchmark-how-well-ai-models-handle-table-processing-29kl
 46. https://aistudio.google.com/docs/pricing
 47. https://arxiv.org/html/2607.15418v1

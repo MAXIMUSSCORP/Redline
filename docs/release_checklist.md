@@ -1,6 +1,6 @@
 # Release checklist
 
-An agent produces the evidence on this page. The owner reads it and signs. Unsigned means not released.
+The evidence on this page comes from commands and scripts. The owner reads it and signs. Unsigned means not released.
 Nothing here states a licence for Redline. Nothing here is a CEC value.
 
 ## Licence audit
@@ -42,26 +42,23 @@ The plugin DLL SHA-256 is recorded here at release. `redline doctor` printed `08
 
 Scope: every tracked file under `samples/`, `tests/`, `config/`, `docs/` and `extractors/`, and the contents of the built wheel.
 
-Checks and what the agent scan found on 2026-11-11 (checks 3 and 5 only; checks 1, 2 and 4 are not run in this leaf):
+Checks and what the scan found on 2026-11-11 (checks 3 and 5 only; checks 1, 2 and 4 are not run):
 
 | Check | Result |
 |---|---|
 | 1. Each sample has a recorded origin | not run |
 | 2. Embedded metadata holds no person, firm or path (PDF info, DWG and DXF header, XLSX properties, RawDrawing path fields) | not run |
-| 3. Search of tracked files for the Windows user name | 65 tracked files hold it. None is under `samples/`. They are listed below. |
+| 3. Search of tracked files for the Windows user name | 3 tracked files hold it (`git grep -l -i` on the user name). None is under `samples/`. They are listed below. The user name in the two documentation files is generalised to `<user>`. |
 | 4. No file name or title block text from `gold/` appears in a tracked file | not run |
 | 5. `git ls-files` and `git log --all` show nothing under `gold/`, `.playwright-mcp/` or `ErrorReports/` | nothing found in either |
 
 Tracked files that hold the Windows user name, by path or folder:
 
-- `config/column_maps.yaml`: the three machine paths under `parsing:` (`accoreconsole_path`, `acad_plugin_dll`, `odafc_path`) as found; the user name sits in `acad_plugin_dll`. Found, not fixed. Set the three paths to `null` in any copy that leaves this PC.
-- `extractors/acad_plugin/README.md`: the load test path. Trim it in any copy that leaves this PC.
-- `PROGRESS.md`: the progress log.
-- `docs/research/`: three research notes.
-- `docs/handoffs/`: three handoff notes.
-- `.unlazy/`: planning and gate ledgers for M0 to M6 (about 50 files, paths in commands).
+- `config/column_maps.yaml`: the three machine paths under `parsing:` (`accoreconsole_path`, `acad_plugin_dll`, `odafc_path`) as found; the user name sits in `acad_plugin_dll`. Found, left as is on purpose: `acad_plugin_dll` is a working machine path. Set the three paths to `null` in any copy that leaves this PC.
+- `extractors/acad_plugin/README.md`: the load test path, now `C:/Users/<user>/...` (documentation only).
+- `docs/research/dwg_verification.md`: the temp, probe and trusted-folder paths, now `C:/Users/<user>/...` (documentation only).
 
-An agent scan finds strings. It cannot know a client's project name. The owner opens each sample before signing.
+A scan finds strings. It cannot know a client's project name. The owner opens each sample before signing.
 
 ## Owner-blocked items
 

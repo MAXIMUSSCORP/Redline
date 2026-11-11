@@ -610,7 +610,7 @@ def test_csv_wide_header_with_many_rows_parses_in_linear_time(cfg):
         assert time.perf_counter() - t0 < 5
 
 
-# Layout corpus (RV36). Every table shape a review round found, pinned to its expected panels,
+# Layout corpus. Every table shape a review round found, pinned to its expected panels,
 # circuits, header-block values and unparsed rows. A change to the header or block-line
 # heuristic that breaks an earlier shape fails here. "residual" ids pin an accepted limit.
 _D = "Description,Ckt,Breaker,Poles"
@@ -1719,7 +1719,7 @@ LAYOUTS = [
         id="RV92_float_written_circuit_numbers_read",
     ),
     pytest.param(
-        # RV89: a label with other letters than the row above ends the table; it is listed.
+        # A label with other letters than the row above ends the table; it is listed.
         ["Panel,LP-3", "Bus,100", _H, "CB1,a,20,1", "CB2,b,20,1", "SPD1,c,20,1"],
         [("LP-3", ["CB1", "CB2"], {"bus": 100.0, "incomplete": True})],
         [("SPD1, c, 20, 1", "no circuit number")],
@@ -1759,14 +1759,14 @@ LAYOUTS = [
             "Total,2,20,1",
             "c,3,20,1",
         ],
-        # RV90: a TOTAL-like first cell is never a circuit row, whatever number follows.
+        # A TOTAL-like first cell is never a circuit row, whatever number follows.
         [("LP-1", ["1"], {"bus": 100.0, "incomplete": True})],
         [("Total, 2, 20, 1", "no circuit number"), ("c, 3, 20, 1", "no circuit number")],
         id="RV90_total_description_with_circuit_number_ends_table",
     ),
     pytest.param(
         ["Panel,LP-1", "Bus,100", _H, "1,a,20,1", "2,b,20,1", ",Subtotal,40,", "3,c,20,1"],
-        # RV83 abandoned (RV85): a row without a circuit number ends the table. The rest is
+        # A row without a circuit number ends the table. The rest is
         # listed and the panel is marked.
         [("LP-1", ["1", "2"], {"bus": 100.0, "incomplete": True})],
         [("Subtotal, 40", "no circuit number"), ("3, c, 20, 1", "no circuit number")],
@@ -2542,7 +2542,7 @@ def test_total_then_notes_without_blank_not_circuits(cfg):
         assert _marked(parsed.panels[0]), tail
         listed = {u.raw for u in parsed.unparsed}
         assert "1, Provide GFCI" in listed, tail
-    # RV27 short last rows and lone digits directly under circuits stay circuits.
+    # Short last rows and lone digits directly under circuits stay circuits.
     parsed = parse(head + [["7"], ["9A"]], cfg)
     assert [c.number for c in parsed.panels[0].circuits] == ["1", "3", "7", "9A"]
 
@@ -2579,7 +2579,7 @@ def test_letter_prefixed_circuit_labels_read_or_mark_panel(cfg):
         assert [c.number for c in panel.circuits] == labels
         assert sum(c.load_va.value for c in panel.circuits) == 6000.0
         assert panel.bus_rating_a.confidence != Confidence.LOW
-    # RV89: a label whose letters differ from the circuit row above is not read; it is listed.
+    # A label whose letters differ from the circuit row above is not read; it is listed.
     rows = top + [_full_row(c, 1000) for c in ("1", "2", "SPD1")]
     parsed = parse(rows, cfg)
     assert [c.number for c in parsed.panels[0].circuits] == ["1", "2"]
@@ -2618,7 +2618,7 @@ def test_panel_key_cell_with_designation_not_named_from_next_cell(cfg):
 
 
 def test_subtotal_row_in_combined_schedule_ends_table_later_panels_marked(cfg):
-    # RV83 is abandoned: the TOTAL row ends the table, so LP-2 is listed and LP-1 is marked.
+    # The TOTAL row ends the table, so LP-2 is listed and LP-1 is marked.
     rows = [
         ["Panel", "Ckt", "Description", "Load VA", "Breaker", "Poles"],
         ["LP-1", "1", "a", "800", "20", "1"],
@@ -2676,7 +2676,7 @@ def test_strict_circuit_row_whitelist(cfg):
     (panel,) = parse(rows, cfg).panels
     assert [c.number for c in panel.circuits] == [s.replace(".0", "") for s in shapes]
     assert not _marked(panel)
-    # A letter label is a circuit directly under the header or under the same letters (RV89).
+    # A letter label is a circuit directly under the header or under the same letters.
     for labels in (["CB1", "CB2"], ["CKT12", "CKT13"], ["BKR1", "BKR2"], ["A1", "A2"], ["L1"]):
         rows = _TOP + [[n, "x", "20", "1"] for n in labels]
         (panel,) = parse(rows, cfg).panels
@@ -2801,7 +2801,7 @@ def test_panel_key_cell_name_single_token_or_listed(cfg):
 
 
 def test_hyphenless_title_between_tables_not_a_circuit(cfg):
-    # RV89: "LP2,225A" and "LP2,Lighting Panel" are titles, not circuit LP2 of the table above.
+    # "LP2,225A" and "LP2,Lighting Panel" are titles, not circuit LP2 of the table above.
     t2 = [["Panel", "LP2"], ["Bus", "225"], _CKT_HEAD, ["1", "Heater", "20", "1"]]
     for title in (
         ["LP2", "225A"],
@@ -2829,7 +2829,7 @@ def test_hyphenless_title_between_tables_not_a_circuit(cfg):
 
 
 def test_total_row_with_number_in_circuit_column_ends_table(cfg):
-    # RV90: a TOTAL-like first cell never passes, whatever number follows.
+    # A TOTAL-like first cell never passes, whatever number follows.
     for total in ("Total Connected Load", "Demand Load", "Subtotal", "SUB-TOTAL", "Totals:"):
         # Panel column: no panel is invented from the label.
         pc = [["Panel", "Ckt", "Description", "Breaker"], ["LP-1", "1", "a", "20"]]
@@ -2848,7 +2848,7 @@ def test_total_row_with_number_in_circuit_column_ends_table(cfg):
 
 
 def test_lone_range_or_date_cut_marks_panel(cfg):
-    # RV91: a lone range or date is circuit-like and marks the panel; a lone word does not.
+    # A lone range or date is circuit-like and marks the panel; a lone word does not.
     for lone in ("5-7", "2026-04-02 00:00:00", "4/5"):
         parsed = parse(_TOP + _TWO + [[lone]], cfg)
         assert [c.number for c in parsed.panels[0].circuits] == ["1", "3"], lone
@@ -2859,7 +2859,7 @@ def test_lone_range_or_date_cut_marks_panel(cfg):
 
 
 def test_float_written_circuit_numbers_read(cfg):
-    # RV92: pandas writes an integer column with a missing value as 1.0, 2.0.
+    # Pandas writes an integer column with a missing value as 1.0, 2.0.
     rows = [["Panel", "LP-1"], ["Bus", "100"], _CKT_HEAD]
     rows += [["1.0", "a", "20", "1"], ["2.0", "b", "20", "1"], ["3.0", "c", "20", "1"]]
     parsed = parse(rows, cfg)
@@ -2872,7 +2872,7 @@ def test_float_written_circuit_numbers_read(cfg):
 
 
 def test_digit_letter_title_between_tables_not_a_circuit(cfg):
-    # RV93: "2A,225A,MLO" and "2A,Lighting Panel" are titles, not circuit 2A of the table above.
+    # "2A,225A,MLO" and "2A,Lighting Panel" are titles, not circuit 2A of the table above.
     t2 = [_CKT_HEAD, ["1", "Heater", "20", "1"]]
     for title, mid in (
         (["2A", "225A", "MLO"], []),
@@ -2892,12 +2892,12 @@ def test_digit_letter_title_between_tables_not_a_circuit(cfg):
     assert [c.number for c in parse(_TOP + sfx, cfg).panels[0].circuits] == ["1A", "2A"]
     mid = _TOP + [["1", "a", "20", "1"], ["2A", "b", "20", "1"], ["3", "c", "20", "1"]]
     assert [c.number for c in parse(mid, cfg).panels[0].circuits] == ["1", "2A", "3"]
-    # A lone letter-suffixed number keeps RV70.
+    # A lone letter-suffixed number keeps reading as a circuit.
     assert [c.number for c in parse(_TOP + _TWO + [["7A"]], cfg).panels[0].circuits][-1] == "7A"
 
 
 def test_two_line_digit_letter_title_not_circuits(cfg):
-    # RV97: a two-line title ("2A,Lighting Panel" then "225A,MLO") is a run of letter-suffixed
+    # A two-line title ("2A,Lighting Panel" then "225A,MLO") is a run of letter-suffixed
     # rows with different numbers; none is a circuit of the table above.
     t2 = [_CKT_HEAD, ["1", "Heater", "20", "1"]]
     for title in (
@@ -2916,7 +2916,7 @@ def test_two_line_digit_letter_title_not_circuits(cfg):
                 nums = {c.number for p in parsed.panels for c in p.circuits}
                 assert not nums & {"2A", "225A", "208Y/120V"}, title
                 assert all(c.load_va.value in (None, 800.0, 900.0, 8000.0) for c in lp1.circuits)
-    # Paired half-size breakers keep reading; a lone suffixed row keeps RV93.
+    # Paired half-size breakers keep reading; a lone suffixed row keeps its title rule.
     pair = _TOP + _TWO + [["41A", "x", "20", "1"], ["41B", "y", "20", "1"]]
     assert [c.number for c in parse(pair, cfg).panels[0].circuits][-2:] == ["41A", "41B"]
     pair = _TOP + _TWO + [[], ["2A", "x", "20", "1"], ["2B", "y", "20", "1"]]
@@ -2926,7 +2926,7 @@ def test_two_line_digit_letter_title_not_circuits(cfg):
 
 
 def test_total_wordings_never_circuits_or_panels(cfg):
-    # RV94 (and RV90): any first cell with the whole word total, in any wording.
+    # Any first cell with the whole word total, in any wording.
     labels = ["Total VA", "Total Conn. Load", "Total Conn. Load:", "Phase Totals", "TOTAL KVA"]
     labels += ["Total Connected Load", "Demand Load", "Subtotal", "SUB-TOTAL", "Totals:"]
     for total in labels:
@@ -2947,7 +2947,7 @@ def test_total_wordings_never_circuits_or_panels(cfg):
 
 
 def test_letter_labels_with_blank_spacer_rows_read(cfg):
-    # RV95: the letter-prefix check looks at the nearest non-blank row above.
+    # The letter-prefix check looks at the nearest non-blank row above.
     labels = [["CB1", "a", "20", "1"], [], ["CB2", "b", "20", "1"], [], ["CB3", "c", "20", "1"]]
     parsed = parse(_TOP + labels, cfg)
     assert [c.number for c in parsed.panels[0].circuits] == ["CB1", "CB2", "CB3"]
@@ -2955,7 +2955,7 @@ def test_letter_labels_with_blank_spacer_rows_read(cfg):
     # Blank rows under the header: the first label is still first under the header.
     parsed = parse(_TOP + [[]] + labels, cfg)
     assert [c.number for c in parsed.panels[0].circuits] == ["CB1", "CB2", "CB3"]
-    # RV89 titles still end the table, with or without blank rows.
+    # Titles still end the table, with or without blank rows.
     for title in (["LP2", "225A"], ["H1", "480Y/277V"]):
         parsed = parse(_TOP + _TWO + [[], title, []] + [_CKT_HEAD, ["1", "Heater", "20", "1"]], cfg)
         assert all(c.number != title[0] for p in parsed.panels for c in p.circuits), title
@@ -2963,7 +2963,7 @@ def test_letter_labels_with_blank_spacer_rows_read(cfg):
 
 
 def test_more_units_rows_under_header_are_part_of_header(cfg):
-    # RV98: bracketed headings with no digit, more unit words, and two or more units rows.
+    # Bracketed headings with no digit, more unit words, and two or more units rows.
     for rows_ in (
         [["", "", "(HP)", ""]],
         [["", "", "(FLA)", "(Hz)"]],
@@ -2985,7 +2985,7 @@ def test_more_units_rows_under_header_are_part_of_header(cfg):
 
 
 def test_units_row_under_header_is_part_of_header(cfg):
-    # RV96: a units row directly under the header is neither listed nor the end of the table.
+    # A units row directly under the header is neither listed nor the end of the table.
     for units in (
         ["", "", "(A)", ""],
         ["", "", "A", "%"],
@@ -3014,7 +3014,7 @@ _DESC_HEAD = ["Description", "Ckt", "Load VA", "Breaker"]
 
 
 def test_digit_letter_title_above_block_line_desc_first_listed(cfg):
-    # RV100: in a description-first table, "LP2,225A" above a header-block line is a title,
+    # In a description-first table, "LP2,225A" above a header-block line is a title,
     # not circuit 225A of the panel above, and the panel is marked.
     for block in (["Bus", "225"], ["Volts", "208"], ["Phases", "3"]):
         rows = [
@@ -3038,7 +3038,7 @@ def test_digit_letter_title_above_block_line_desc_first_listed(cfg):
 
 
 def test_word_block_line_above_panel_desc_first_listed(cfg):
-    # RV102: in a description-first table, a word-matched block line ("Bus Rating (A),225") that
+    # In a description-first table, a word-matched block line ("Bus Rating (A),225") that
     # is the last line above the next panel line or header is listed, not circuit 225; the panel
     # above is marked and neither panel reads its value. After "Panel" it is still a block value.
     for line, blank in (
@@ -3107,7 +3107,7 @@ def test_word_block_line_above_panel_desc_first_listed(cfg):
 
 
 def test_units_row_long_bracket_cell_is_linear(cfg):
-    # RV99: an unclosed bracketed cell under the header costs linear time.
+    # An unclosed bracketed cell under the header costs linear time.
     t0 = time.perf_counter()
     parse(_TOP + [["", "", "(" + "a" * 130000, ""]] + _TWO, cfg)
     assert time.perf_counter() - t0 < 1

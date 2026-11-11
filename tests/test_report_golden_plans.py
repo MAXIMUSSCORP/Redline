@@ -2,7 +2,7 @@ r"""End-to-end run of the plan samples against the golden findings file.
 
 The golden file is made only by this manual command, never by a test. Run it from the repo root
 after a deliberate change to the samples, the parser or a rule, read the CSV by eye, then commit it
-(RL is the redline command; from a worktree, put the worktree's src first on the path):
+(RL is the redline command):
 
     RL check samples/plans --config tests/test_config/ --out %TEMP%\redline-golden-plans\report.html
     copy %TEMP%\redline-golden-plans\findings.csv tests\golden\plans\findings.csv

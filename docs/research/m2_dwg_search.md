@@ -1,6 +1,6 @@
 # M2 real DWG search, 2026-11-09
 
-Three Sonnet agents searched the web for real DWG or DXF drawings with electrical panel schedules, at M2 stage 1. Nothing was downloaded. No usable, redistributable real panel-schedule DWG was found, so M2 uses synthetic fixtures (PLAN.md row 38). The one public real ACAD_TABLE file is the ezdxf integration test file `acad_table_with_blk_ref.dxf` (MIT); whether it holds electrical content is UNVERIFIED.
+Three searches covered the web for real DWG or DXF drawings with electrical panel schedules, at M2 start. Nothing was downloaded. No usable, redistributable real panel-schedule DWG was found, so M2 uses synthetic fixtures (PLAN.md row 38). The one public real ACAD_TABLE file is the ezdxf integration test file `acad_table_with_blk_ref.dxf` (MIT); whether it holds electrical content is UNVERIFIED.
 
 ## Scope: vendor
 
@@ -118,7 +118,7 @@ Public portals will not deliver 10 real DWGs. Realistic route: email requests to
 
 ## Round 2, 2026-11-09
 
-The owner asked for a deeper search. Three Sonnet agents searched code hosts and open datasets, AutoCAD Electrical training material, and free CAD libraries and forums (about 120 searches). Full agent notes stayed in the session scratchpad; the results are below.
+The owner asked for a deeper search. Three searches covered code hosts and open datasets, AutoCAD Electrical training material, and free CAD libraries and forums (about 120 searches). The results are below.
 
 - No filled North American panel schedule DWG with breaker and wire sizes was found under a reusable licence. DesignsCAD lists free files with load schedules, but most are metric, need a login, and state no licence.
 - Real AutoCAD Electrical projects were found, and the owner approved four downloads.

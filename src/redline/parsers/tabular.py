@@ -695,7 +695,7 @@ def _block_line(
 
 _FLOAT_ZERO = re.compile(r"(?<=[0-9])\.0(?![0-9])")
 _LABEL = re.compile(r"([A-Za-z]{1,4})[0-9]+[A-Za-z]?")
-# A first cell holding the whole word total (RV90, RV94) or "demand load" is never a circuit.
+# A first cell holding the whole word total or "demand load" is never a circuit.
 _TOTAL = re.compile(r"\b(?:sub[-\s]?)?totals?\b|\bdemand\s+load\b", re.IGNORECASE)
 _CONNECTED = re.compile(r"connected\s+load\s*:?", re.IGNORECASE)
 _SUFFIXED = re.compile(r"[0-9]+(?:\.0)?[A-Za-z]")
@@ -718,8 +718,7 @@ def _is_unit(c: str) -> bool:
 
 def _units_rows(rows: list[list[str]], h: int, end: int) -> set[int]:
     """The consecutive non-blank rows directly under the header at h whose filled cells are all
-    units, in brackets or bare ("(VA)", "A", "kVA", "%", "(HP)"): they are part of the header
-    (RV96, RV98)."""
+    units, in brackets or bare ("(VA)", "A", "kVA", "%", "(HP)"): they are part of the header."""
     out: set[int] = set()
     for r in range(h + 1, end):
         cells = [c.strip() for c in rows[r] if c.strip()]
@@ -737,12 +736,12 @@ def _label_prefixes(row: list[str], ckt: list[int]) -> set[str]:
 
 
 def _shaped_row(row: list[str], ckt: list[int], above: list[str] | None = None) -> int:
-    """The whitelist (RV85): a circuit cell of circuit shape and another cell filled. Returns the
+    """The whitelist: a circuit cell of circuit shape and another cell filled. Returns the
     number of filled cells, or 0 when the row does not pass. ckt is the circuit column indexes.
-    A TOTAL-like first cell never passes (RV90). With above (the row just over this one, blank
+    A TOTAL-like first cell never passes. With above (the row just over this one, blank
     lines not skipped), a letter-label cell ("CB2") counts only when above holds the same letters
-    ("CB1"), so a panel title like "LP2,225A" between tables is not a circuit (RV89). The
-    trailing run of letter-suffixed rows ("2A") is judged by _table_end (RV93, RV97)."""
+    ("CB1"), so a panel title like "LP2,225A" between tables is not a circuit. The
+    trailing run of letter-suffixed rows ("2A") is judged by _table_end."""
     cells = [c.strip() for c in row if c.strip()]
     filled = len(cells)
     first = cells[0] if cells and len(cells[0]) <= _CKT_TEXT_MAX * 4 else ""
@@ -915,7 +914,7 @@ def _table_end(
 
 def _word_key_line(ctx: _Ctx, row: list[str], keys: list[str | None]) -> bool:
     """A description-first line of at most two cells whose description cell is a header block key
-    by words and units alone ("Bus Rating (A),225"). It is a block line wherever it sits (RV102)."""
+    by words and units alone ("Bus Rating (A),225"). It is a block line wherever it sits."""
     cells = [c.strip() for c in row if c.strip()]
     at = next((j for j, c in enumerate(row) if c.strip()), len(row))
     if (
@@ -936,7 +935,7 @@ def _word_tail(
     ctx: _Ctx, grid: list[list[str]], head: int, end: int, limit: int, keys: list[str | None]
 ) -> tuple[int, list[int]]:
     """The table end and the cut rows when the table's last rows are word-matched block lines
-    directly above the next block line or header (RV102): they are listed, never circuits."""
+    directly above the next block line or header: they are listed, never circuits."""
     units = _units_rows(grid, head, limit + 1)
     cut: list[int] = []
     while end > head and end not in units and _word_key_line(ctx, grid[end], keys):
@@ -979,7 +978,7 @@ def _trim_suffix_run(
     ctx: _Ctx, grid: list[list[str]], head: int, last: int, units: set[int], keys: list[str | None]
 ) -> int | None:
     """The new table end when the table's last rows are a run of letter-suffixed circuit rows
-    that does not belong (RV93, RV97), else None. A run after a row without suffix counts only when
+    that does not belong, else None. A run after a row without suffix counts only when
     its rows share one number ("41A", "41B") and, alone, the number of the row above."""
     ckt = _ckt_cols(keys)
     rows = [

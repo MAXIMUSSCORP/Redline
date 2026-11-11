@@ -1,7 +1,7 @@
 # Design philosophy
 
 Taken from Datum (field data capture for upstream oil and gas): its
-`CLAUDE.md`, `DATUM.md`, `src/styles.css`, and the M4r UI rework plan
+project rules file, `DATUM.md`, `src/styles.css`, and the M4r UI rework plan
 (`docs/ui-rework/DESIGN.md`, 2026-10-11). Written so a new project can adopt
 the same way of thinking about design, words and honesty, with Datum's own
 choices kept as worked examples.
@@ -266,7 +266,7 @@ browser and server so they cannot drift.
 ## 11. How the philosophy is kept, not just written
 
 - **A reference prototype.** Datum kept its original prototype read only as the reference for design, voice and code style. "When in doubt, open the matching file there and follow it."
-- **Decisions that look like bugs are written down.** Deliberate behaviours are listed in `CLAUDE.md`, dated, with who chose them, and "do not fix without asking".
+- **Decisions that look like bugs are written down.** Deliberate behaviours are listed in the project rules, dated, with who chose them, and "do not fix without asking".
 - **Original copy is pinned.** A check script (`pinned-check.mjs`) compares the original texts, and each approved rewording is recorded by name.
 - **Voice is checked by code.** `voice-check.mjs` reads string literals and refuses em dashes and exclamation marks in prose.
 - **Words are tested.** `words.test.js` reads every text the screen can show and refuses retired words.
@@ -283,8 +283,4 @@ browser and server so they cannot drift.
 4. Fix the **skeleton**: top bar, rail, main, inspector, status bar; band, head, scroll, note (section 5).
 5. Start the **glossary** and the **voice rules** (section 6), and a check script for them.
 6. List what is **not real yet** and label it on screen (section 7).
-7. Write the **five rules** (section 2) into the project's `CLAUDE.md`, under its Design system and Voice headings.
-
-Useful skills for the design pass: `frontend-design:frontend-design`,
-`ecc:design-system`, `ecc:frontend-design-direction`, `ecc:accessibility`,
-`ecc:make-interfaces-feel-better`, and the `ecc:a11y-architect` agent.
+7. Write the **five rules** (section 2) into the project's rules, under its Design system and Voice headings.
