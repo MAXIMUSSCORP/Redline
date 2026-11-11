@@ -1,5 +1,8 @@
 """exits.csv and paths.csv: the owner's exit list and egress paths (D5, D8)."""
 
+import csv
+import io
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -213,3 +216,168 @@ def test_repeated_sheet_units_not_usable():
     assert "more than once" in v.source.note
     (u,) = proj.unparsed
     assert u.kind == "sheet"
+
+
+# ---- end to end: a list or path file that is not fully used ----
+
+
+def _drawing(name, inserts, units="mm") -> dict:
+    ents = [
+        {
+            "id": f"e{i}",
+            "type": "INSERT",
+            "layout": "Model",
+            "handle": f"{i:X}",
+            "block_name": blk,
+            "insertion_point": [x, y],
+        }
+        for i, (blk, x, y) in enumerate(inserts)
+    ]
+    return {
+        "schema_version": "1.1",
+        "extractor": "oda_ezdxf",
+        "extractor_version": "0.1.0",
+        "host_version": "synthetic",
+        "source_file": name,
+        "source_sha256": "0" * 64,
+        "extracted_at": "2026-11-11T00:00:00Z",
+        "document": {"units": units, "layouts": ["Model"], "xrefs": [], "warnings": []},
+        "entities": ents,
+    }
+
+
+DOORS = [("TEST_DOOR", 0, 0), ("TEST_EXIT", 500, 0), ("TEST_PULL", 500, 0)]
+
+
+def _check(tmp_path, files, name="in", inserts=DOORS) -> list[dict]:
+    folder = tmp_path / name
+    folder.mkdir()
+    (folder / "sheet.rawdrawing.json").write_text(json.dumps(_drawing("fa.dxf", inserts)))
+    for fname, text in files.items():
+        (folder / fname).write_bytes(text if isinstance(text, bytes) else text.encode("utf-8"))
+    out = tmp_path / f"{name}_out" / "report.html"
+    out.parent.mkdir()
+    argv = ["check", str(folder), "--config", "tests/test_config/", "--out", str(out)]
+    assert cli.main(argv) == 0
+    text = (out.parent / "findings.csv").read_text(encoding="utf-8")
+    return [r for r in csv.DictReader(io.StringIO(text)) if r["rule_id"] == "fire_alarm"]
+
+
+def _exit_rows(rows) -> list[dict]:
+    return [r for r in rows if "exit" in r["message"].casefold()]
+
+
+EXIT_OK = "sheet,x,y,label\nfa.dxf,0,0,E1\nfa.dxf,40000,0,E2\n"
+
+
+def test_unusable_exits_csv_lowers_door_blocks(tmp_path):
+    bad = {
+        "header": "sheet name,x,y,label\nfa.dxf,0,0,E1\nfa.dxf,40000,0,E2\n",
+        "byte": EXIT_OK.encode() + b"fa.dxf,1,1,caf\x81\n",
+        "field": EXIT_OK + "fa.dxf,1,1," + "A" * 140000 + "\n",
+    }
+    for tag, text in bad.items():
+        rows = _check(tmp_path, {"exits.csv": text}, tag)
+        got = _exit_rows(rows)
+        assert got, tag
+        assert not [r for r in rows if r["severity"] == "VIOLATION"], tag
+        assert any(r["severity"] == "NEEDS_REVIEW" for r in got), tag
+
+
+def located(sheet=SHEET) -> Device:
+    d = block(sheet)
+    d.x = d.y = Value(1.0, d.source)
+    return d
+
+
+def test_dropped_exit_rows_lower_door_blocks(tmp_path, monkeypatch):
+    text = "sheet,x,y,label\nfa.dfx,40000,0,E2\n"
+    got = _check(tmp_path, {"exits.csv": text}, "typo")
+    assert not [r for r in got if r["severity"] == "VIOLATION"]
+    assert any(r["severity"] == "NEEDS_REVIEW" for r in _exit_rows(got))
+    proj = project(devices=[located(), located()])
+    run(tmp_path, None, rows(HEAD, "nope.dxf,0,0,E1"), proj=proj)
+    assert all(not d.x.usable for d in proj.devices)
+    other = project(SHEET, "b.dxf", devices=[located("b.dxf")])
+    run(tmp_path, None, rows(HEAD, f"{SHEET},0,0,E1", "nope.dxf,0,0,E2"), proj=other)
+    assert not other.devices[0].x.usable and other.devices[0].x.source.note
+    monkeypatch.setattr(exits, "MAX_ROWS", 1)
+    cut = project(SHEET, "b.dxf", devices=[located("b.dxf")])
+    run(tmp_path, None, rows(HEAD, f"{SHEET},0,0,E1", f"{SHEET},1,0,E2"), proj=cut)
+    assert not cut.devices[0].x.usable and cut.devices[0].x.source.note
+
+
+# ---- paths.csv rows not used ----
+
+
+def _paths(tmp_path, text, name, monkeypatch=None) -> list[dict]:
+    files = {"exits.csv": EXIT_OK, "paths.csv": text}
+    return _check(tmp_path, files, name, inserts=[])
+
+
+def _p1(rows) -> list[dict]:
+    return [r for r in rows if "P1" in r["message"]]
+
+
+def test_path_row_with_bad_sheet_lowers_path(tmp_path):
+    text = "sheet,path,seq,x,y\nfa.dxf,P1,1,0,0\nfa.dxf,P1,2,8000,0\nfa.dfx,P1,3,40000,0\n"
+    got = _p1(_paths(tmp_path, text, "pbad"))
+    assert got and all(r["severity"] == "NEEDS_REVIEW" for r in got)
+    p = run(tmp_path, None, text.replace("fa.dfx", "z.dxf").replace("fa.dxf", SHEET), "paths.csv")
+    (path,) = p.paths
+    assert path.source.confidence == Confidence.LOW and "row 4" in path.source.note
+
+
+def test_paths_row_cap_lowers_paths(tmp_path, monkeypatch):
+    monkeypatch.setattr(exits, "MAX_ROWS", 2)
+    text = rows(PHEAD, f"{SHEET},P1,1,0,0", f"{SHEET},P1,2,10,0", f"{SHEET},P1,3,20,0")
+    p = run(tmp_path, None, text, "paths.csv")
+    (path,) = p.paths
+    assert path.source.confidence == Confidence.LOW and "not read" in path.source.note
+
+
+# ---- units on a sheet read twice ----
+
+
+def test_owner_units_keep_repeated_sheet_unusable(tmp_path):
+    for n in ("a", "b"):
+        d = tmp_path / n
+        d.mkdir()
+        (d / "sheet_fa101.dxf.rawdrawing.json").write_text(
+            json.dumps(_drawing("sheet_fa101.dxf", DOORS))
+        )
+    (tmp_path / "a" / "exits.csv").write_text(
+        "sheet,x,y,label,units\nsheet_fa101.dxf,0,0,E1,mm\n", encoding="utf-8"
+    )
+    out = tmp_path / "o" / "report.html"
+    out.parent.mkdir()
+    argv = ["check", str(tmp_path / "a"), str(tmp_path / "b"), "--config", "tests/test_config/"]
+    assert cli.main([*argv, "--out", str(out)]) == 0
+    text = (out.parent / "findings.csv").read_text(encoding="utf-8")
+    fire = [r for r in csv.DictReader(io.StringIO(text)) if r["rule_id"] == "fire_alarm"]
+    assert any("units not stated" in r["message"].casefold() for r in fire)
+    assert all(r["severity"] != "VIOLATION" for r in fire)
+
+
+# ---- shape of the file ----
+
+
+def test_row_wider_than_header_listed(tmp_path, test_cfg):
+    p = run(tmp_path, test_cfg, rows(HEAD, f"{SHEET},1,000,0,E1"))
+    assert any("more cells" in u.reason for u in listed(p))
+    (d,) = p.devices
+    assert d.x.confidence == Confidence.LOW and not d.x.usable
+    q = run(
+        tmp_path,
+        test_cfg,
+        rows(PHEAD, f"{SHEET},P1,1,0,0", f"{SHEET},P1,2,1,500,0"),
+        "paths.csv",
+    )
+    (path,) = q.paths
+    assert path.source.confidence == Confidence.LOW
+
+
+def test_repeated_header_listed(tmp_path, test_cfg):
+    p = run(tmp_path, test_cfg, rows("sheet,x,y,label,x", f"{SHEET},0,0,E1,9"))
+    (u,) = listed(p, "column")
+    assert "not read" in u.reason and u.raw == "x"

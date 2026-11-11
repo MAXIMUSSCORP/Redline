@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from pathlib import Path
 
@@ -26,6 +27,8 @@ EXIT_COLUMNS = ("sheet", "x", "y", "label")  # plus optional "units"
 PATH_COLUMNS = ("sheet", "path", "seq", "x", "y")
 OWNER_UNITS = ("mm", "cm", "m", "in", "ft")
 _UNITS_UNKNOWN = "exits.csv units are unknown or disagree"
+REPEATED_SHEET_NOTE = "sheet read more than once"
+_WIDE = "row has more cells than the header"
 
 
 def _num(text: str) -> float | None:
@@ -44,6 +47,8 @@ class _File:
         self.project = project
         self.rows: list[tuple[int, dict[str, str], list[str]]] = []  # line number, cells, raw
         self.listed = 0
+        self.cut = False
+        self.wide: set[int] = set()  # lines with a non-blank cell beyond the header
         self.ok = False
         low = Source(self.name, "file", Method.CSV, Confidence.LOW)
         try:
@@ -60,9 +65,11 @@ class _File:
             why = f"file not used: missing column {', '.join(missing)}"
             self.list("table", self.name, why, low)
             return
-        extra = [
-            c.strip() for c, h in zip(raw[0], head, strict=True) if h not in (*required, *optional)
-        ]
+        extra, seen = [], set()
+        for c, h in zip(raw[0], head, strict=True):
+            if h in seen or h not in (*required, *optional):
+                extra.append(c.strip())
+            seen.add(h)
         if extra:
             why = f"column not read: {', '.join(clip(c) for c in extra)}"
             self.list("column", clip(", ".join(extra)), why, low)
@@ -71,11 +78,15 @@ class _File:
             why = f"file has more than {MAX_ROWS} rows; the rest are not read"
             self.list("table", self.name, why, low)
             body = body[:MAX_ROWS]
+            self.cut = True
         for n, r in enumerate(body, 2):
             cells = {}
             for h, c in zip(head, r, strict=False):
                 cells.setdefault(h, c.strip())
             self.rows.append((n, cells, r))
+            if any(c.strip() for c in r[len(head) :]):
+                self.wide.add(n)
+                self.bad_row(n, r, _WIDE)
         self.ok = True
 
     def src(self, n: int, conf: Confidence = Confidence.HIGH, note: str = "") -> Source:
@@ -96,9 +107,25 @@ def _sheet_of(f: _File, n: int, cells: dict, raw: list[str], sheets: dict[str, s
     return sheet
 
 
+def _lower_blocks(project: Project, why: str, keep: set[str] = frozenset()) -> None:
+    """Door-block exits are not trusted when exits.csv is not fully used, except on `keep` sheets."""
+    note = f"exits.csv {why}; this block exit is not checked"
+    for d in project.devices:
+        if d.type != "exit_door" or d.detection != "block":
+            continue
+        if (d.sheet.value or "").casefold() in keep:
+            continue
+        for key in ("x", "y"):
+            v = getattr(d, key)
+            if v.source is not None:
+                low = dataclasses.replace(v.source, confidence=Confidence.LOW, note=note)
+                setattr(d, key, dataclasses.replace(v, source=low))
+
+
 def _exits(path: Path, project: Project, sheets: dict[str, str]) -> None:
     f = _File(path, EXIT_COLUMNS, ("units",), project)
     if not f.ok:
+        _lower_blocks(project, "was not used")
         return
     by_sheet: dict[str, list[tuple[int, dict, list[str]]]] = {}
     for n, cells, raw in f.rows:
@@ -106,14 +133,17 @@ def _exits(path: Path, project: Project, sheets: dict[str, str]) -> None:
             by_sheet.setdefault(sheet, []).append((n, cells, raw))
     for sheet, rows in by_sheet.items():
         for n, cells, raw in rows:
-            xy, bad = [], False
+            xy, bad = [], n in f.wide
             for key in ("x", "y"):
                 v = _num(cells.get(key, ""))
                 bad |= v is None
-                good = f.src(n)
-                low = f.src(n, Confidence.LOW, f"{key} is not a finite number")
-                xy.append(Value(v, good if v is not None else low, raw=cells.get(key, "")))
-            if bad:
+                if v is not None and n not in f.wide:
+                    src = f.src(n)
+                else:
+                    why = _WIDE if n in f.wide else f"{key} is not a finite number"
+                    src = f.src(n, Confidence.LOW, why)
+                xy.append(Value(v, src, raw=cells.get(key, "")))
+            if bad and n not in f.wide:
                 f.bad_row(n, raw, "x or y is not a finite number; this exit gets no distance check")
             src = f.src(n)
             project.devices.append(
@@ -140,6 +170,9 @@ def _exits(path: Path, project: Project, sheets: dict[str, str]) -> None:
         if moved:
             what = f"{moved} exit_door blocks not used: exits.csv lists the exits of this sheet"
             project.coverage.append(CoverageEntry(sheet, "exit_door blocks", what, "dxf_block", ""))
+    if f.cut or len(f.rows) > sum(len(r) for r in by_sheet.values()):
+        keep = {s.casefold() for s in by_sheet}
+        _lower_blocks(project, "has rows that are not used", keep)
     listed_rows = f.listed
     what = f"{len(f.rows)} rows, {len(by_sheet)} sheets with exits, {listed_rows} listed"
     project.coverage.append(CoverageEntry(f.name, "table", what, Method.CSV.value, ""))
@@ -150,6 +183,8 @@ def _owner_units(f: _File, project: Project, sheet: str, rows: list) -> None:
     if not any(words):
         return
     old = project.sheet_units.get(sheet)
+    if old is not None and old.source is not None and old.source.note == REPEATED_SHEET_NOTE:
+        return
     if len(set(words)) == 1 and words[0] in OWNER_UNITS:
         word = words[0]
         said = "unitless" if old is None or old.raw in (None, "") else old.raw
@@ -169,11 +204,17 @@ def _paths(path: Path, project: Project, sheets: dict[str, str]) -> None:
     if not f.ok:
         return
     groups: dict[tuple[str, str], list] = {}
+    dropped: dict[str, list[int]] = {}
     for n, cells, raw in f.rows:
         if (sheet := _sheet_of(f, n, cells, raw, sheets)) is not None:
             groups.setdefault((sheet, cells.get("path", "")), []).append((n, cells, raw))
+        else:
+            dropped.setdefault(cells.get("path", ""), []).append(n)
     for (sheet, name), rows in groups.items():
-        points, notes, seen = [], [], set()
+        points, seen = [], set()
+        notes = [f"row {n}: names no sheet that was read" for n in dropped.get(name, [])]
+        if f.cut:
+            notes.append(f"rows past {MAX_ROWS} are not read")
         for n, cells, raw in rows:
             seq = cells.get("seq", "")
             x, y = _num(cells.get("x", "")), _num(cells.get("y", ""))
@@ -182,14 +223,17 @@ def _paths(path: Path, project: Project, sheets: dict[str, str]) -> None:
             except ValueError:
                 k = None
             why = None
-            if k is None:
+            if n in f.wide:
+                why = _WIDE
+            elif k is None:
                 why = "seq is not a whole number"
             elif k in seen:
                 why = "seq repeats within the path"
             elif x is None or y is None:
                 why = "x or y is not a finite number"
             if why:
-                f.bad_row(n, raw, f"path {clip(name)}: {why}; this vertex is not used")
+                if n not in f.wide:
+                    f.bad_row(n, raw, f"path {clip(name)}: {why}; this vertex is not used")
                 notes.append(f"row {n}: {why}")
                 if k is not None:
                     seen.add(k)
@@ -220,6 +264,8 @@ def apply(files: list[Path], project: Project, cfg: Config) -> None:
         except Exception as ex:  # noqa: BLE001 - an odd file is listed, the rest is still read
             src = Source(path.name, "file", Method.CSV, Confidence.LOW)
             why = f"file could not be read ({type(ex).__name__})"
+            if read is _exits:
+                _lower_blocks(project, "could not be read")
             project.unparsed.append(Unparsed("table", path.name, why, src))
 
 
