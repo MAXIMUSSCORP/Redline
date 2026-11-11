@@ -196,7 +196,7 @@ def _owner_units(f: _File, project: Project, sheet: str, rows: list) -> None:
         project.sheet_units[sheet] = Value(word, src, raw=word)
         if contested:
             why = (
-                f"exits.csv states units {word}, the drawing header states {old.raw}."
+                f"exits.csv states units {word}. The drawing header states {old.raw}."
                 f" Distances on this sheet use {word}. Reviewer to confirm the unit [VERIFY]."
             )
             f.list("sheet", sheet, why, Source(f.name, "units", Method.CSV, Confidence.MEDIUM))

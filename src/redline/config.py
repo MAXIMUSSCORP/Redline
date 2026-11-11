@@ -22,7 +22,11 @@ FIRE_ALARM_TABLE = "fire_alarm.yaml"  # a tables_used name for the gate
 # design cap on pairs compared per sheet part (time and memory), not a code value
 MAX_FIRE_ALARM_PAIRS = 2_000_000
 FIRE_ALARM_LIMITS = {
-    "exit_signs": ("require_at_each_exit", "max_distance_from_exit_m", "max_distance_from_path_to_sign_m"),
+    "exit_signs": (
+        "require_at_each_exit",
+        "max_distance_from_exit_m",
+        "max_distance_from_path_to_sign_m",
+    ),
     "pull_stations": ("max_distance_from_exit_m",),
     "emergency_lighting": ("coverage_radius_m", "max_gap_along_path_m"),
 }
@@ -386,6 +390,11 @@ def _check_fire_alarm(fa: dict[str, Any]) -> None:
                     raise bad(f"{sec}.{k}", "null, true or false")
             elif isinstance(v, bool) or not isinstance(v, int | float) or not 0 < v < math.inf:
                 raise bad(f"{sec}.{k}", "null or " + _POS)
+        extra = sorted(set(node) - set(keys) - {"rule_ref"})
+        if extra:
+            raise bad(
+                f"{sec}.{extra[0]}", "a known key (a renamed key is listed in the operator guide)"
+            )
 
 
 def device_classes(cfg: Config) -> dict[str, str]:

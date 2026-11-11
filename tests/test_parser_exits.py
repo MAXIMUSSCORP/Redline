@@ -132,7 +132,8 @@ def test_owner_units_win_and_drawing_named(tmp_path, test_cfg):
     assert (v.value, v.confidence, v.source.method) == ("m", Confidence.MEDIUM, Method.CSV)
     assert "the drawing states mm" in v.source.note
     (u,) = listed(p, "sheet")
-    assert "mm" in u.reason and "m" in u.reason.replace("mm", "") and "confirm" in u.reason
+    assert "exits.csv states units m." in u.reason and "header states mm." in u.reason
+    assert "use m." in u.reason and "confirm" in u.reason
     assert u.raw == SHEET and listed(p) == [] and len(p.devices) == 2
     q = run(tmp_path, test_cfg, rows(HEAD + ",units", f"{SHEET},0,0,E1,mm"))
     assert "the drawing states the same" in q.sheet_units[SHEET].source.note
