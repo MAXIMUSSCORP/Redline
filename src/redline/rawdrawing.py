@@ -9,7 +9,7 @@ from typing import Any
 
 from redline.model import MAX_INT
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 ENTITY_TYPES = frozenset(
     {"TEXT", "MTEXT", "INSERT", "ATTRIB", "ACAD_TABLE", "MLEADER", "LINE", "POLYLINE"}
 )
@@ -168,6 +168,8 @@ def _entity_fields(w: str, e: dict[str, Any], errors: list[str]) -> None:
         errors.append(f"{w}.insertion_point must be 2 or 3 finite numbers")
     if e.get("rotation_deg") is not None and not _finite(e["rotation_deg"]):
         errors.append(f"{w}.rotation_deg must be a finite number")
+    if "evaluated" in e and not isinstance(e["evaluated"], bool):
+        errors.append(f"{w}.evaluated must be true or false")
     attrs = e.get("attributes")
     if attrs is None:
         return
@@ -180,6 +182,8 @@ def _entity_fields(w: str, e: dict[str, Any], errors: list[str]) -> None:
             continue
         _str(f"{w}.attributes[{j}].tag", a.get("tag"), errors)
         _str(f"{w}.attributes[{j}].value", a.get("value"), errors)
+        if "evaluated" in a and not isinstance(a["evaluated"], bool):
+            errors.append(f"{w}.attributes[{j}].evaluated must be true or false")
 
 
 def _top_fields(data: dict[str, Any], errors: list[str]) -> None:
@@ -235,7 +239,7 @@ def validate(data: Any) -> Validation:
     want = _version(SCHEMA_VERSION)
     if "schema_version" in data:
         if got is None or want is None:
-            errors.append("schema_version must look like 1.0")
+            errors.append("schema_version must look like 1.1")
         elif got[0] > want[0]:
             errors.append(
                 f"schema_version {data['schema_version']} has a higher major than {SCHEMA_VERSION}"

@@ -16,7 +16,7 @@ using Autodesk.AutoCAD.Runtime;
 
 namespace Redline
 {
-    // A thin dumper: it reads the drawing and writes RawDrawing 1.0 JSON. It decides nothing.
+    // A thin dumper: it reads the drawing and writes RawDrawing 1.1 JSON. It decides nothing.
     public class Dump
     {
         List<string> warnings = new();
@@ -63,7 +63,7 @@ namespace Redline
                 sha = Convert.ToHexString(SHA256.HashData(s)).ToLowerInvariant();
 
             w.WriteStartObject();
-            w.WriteString("schema_version", "1.0");
+            w.WriteString("schema_version", "1.1");
             w.WriteString("extractor", "acad_plugin");
             w.WriteString("extractor_version", asm.GetName().Version!.ToString(3));
             w.WriteString("host_version", "AutoCAD " + acad);
@@ -133,16 +133,17 @@ namespace Redline
             string type, text = null!, blockName = null!;
             Point3d? at = null;
             double? rot = null, height = null;
-            List<(string, string)>? attrs = null;
+            List<(string, string, bool)>? attrs = null;
+            bool? evaluated = null;
             Table? table = null;
             switch (e)
             {
                 case AttributeDefinition:
                     return; // template of an attribute, not drawing text; constants are written with the INSERT
                 case DBText t:
-                    type = "TEXT"; text = t.TextString; at = t.Position; rot = t.Rotation; height = t.Height; break;
+                    type = "TEXT"; evaluated = !t.HasFields; text = t.TextString; at = t.Position; rot = t.Rotation; height = t.Height; break;
                 case MText m:
-                    type = "MTEXT"; text = m.Text; at = m.Location; rot = m.Rotation; height = m.TextHeight; break;
+                    type = "MTEXT"; evaluated = !m.HasFields; text = m.Text; at = m.Location; rot = m.Rotation; height = m.TextHeight; break;
                 case Table tb:
                     type = "ACAD_TABLE"; table = tb; at = tb.Position; rot = tb.Rotation; break;
                 case BlockReference b:
@@ -151,11 +152,11 @@ namespace Redline
                     blockName = def.Name;
                     attrs = new();
                     foreach (ObjectId did in def)
-                        if (tr.GetObject(did, OpenMode.ForRead) is AttributeDefinition ad && ad.Constant) attrs.Add((ad.Tag, ad.TextString));
+                        if (tr.GetObject(did, OpenMode.ForRead) is AttributeDefinition ad && ad.Constant) attrs.Add((ad.Tag, ad.TextString, !ad.HasFields));
                     foreach (ObjectId aid in b.AttributeCollection)
                     {
                         var a = (AttributeReference)tr.GetObject(aid, OpenMode.ForRead);
-                        attrs.Add((a.Tag, a.TextString));
+                        attrs.Add((a.Tag, a.TextString, !a.HasFields));
                     }
                     break;
                 case MLeader ml:
@@ -203,6 +204,7 @@ namespace Redline
             if (rot is double r && Finite(r)) w.WriteNumberValue(r * 180.0 / Math.PI); else w.WriteNullValue();
             w.WritePropertyName("text_height");
             if (height is double h && Finite(h) && h > 0) w.WriteNumberValue(h); else w.WriteNullValue();
+            if (evaluated is bool ev) w.WriteBoolean("evaluated", ev);
             w.WriteString("text", text);
             w.WriteString("block_name", blockName);
             w.WritePropertyName("attributes");
@@ -210,9 +212,9 @@ namespace Redline
             else
             {
                 w.WriteStartArray();
-                foreach (var (tag, value) in attrs)
+                foreach (var (tag, value, ok) in attrs)
                 {
-                    w.WriteStartObject(); w.WriteString("tag", tag); w.WriteString("value", value); w.WriteEndObject();
+                    w.WriteStartObject(); w.WriteString("tag", tag); w.WriteString("value", value); w.WriteBoolean("evaluated", ok); w.WriteEndObject();
                 }
                 w.WriteEndArray();
             }
