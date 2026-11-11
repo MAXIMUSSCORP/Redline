@@ -6,6 +6,7 @@ import math
 from redline.config import (
     FIRE_ALARM_LIMITS,
     FIRE_ALARM_TABLE,
+    MAX_FIRE_ALARM_PAIRS,
     Config,
     device_classes,
     fire_alarm_limit,
@@ -17,8 +18,6 @@ from redline.model import Device, EgressPath, Method, Project, Value
 from redline.units import LENGTH_TOLERANCE_M, METRES_PER_UNIT
 
 ID = "fire_alarm"
-# Design limit on pairs compared per sheet part (memory and time), not a code value.
-MAX_FIRE_ALARM_PAIRS = 2 * 100**3  # 2 million; spelt so to pass test_no_code_values
 FIX_HAND = "Check this item by hand against the drawings."
 FIX_REVIEW = "Reviewer to check this item against the drawings and the configured limits [VERIFY]."
 FIX_FIX = (
@@ -181,7 +180,7 @@ def _exit_unit(
     )
     if best is None:
         msg = (
-            f"{unit}: no {word} block was matched on this sheet, limit {limit:g} m in "
+            f"{unit}: no {word} block placed in model space was matched on this sheet, limit {limit:g} m in "
             f"fire_alarm.yaml ({_units_text(units)}).{_uncertain_note(unsure, cls)} {ref}"
         )
         return Finding(ID, Severity.NEEDS_REVIEW, msg, ref, e.source, inputs_used(req), FIX_REVIEW)
@@ -230,7 +229,7 @@ def _path_unit(
         f"limits in fire_alarm.yaml ({_units_text(units)}).{_uncertain_note(unsure, cls)} {ref}"
     )
     if not sure:
-        msg = f"No {word} block was matched on this sheet. {msg}"
+        msg = f"No {word} block placed in model space was matched on this sheet. {msg}"
         return Finding(ID, Severity.NEEDS_REVIEW, msg, ref, p.source, inputs_used(req), FIX_REVIEW)
     return Finding(ID, _sev(unsure, req), msg, ref, p.source, inputs_used(req), FIX_FIX)
 
