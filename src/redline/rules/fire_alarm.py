@@ -42,7 +42,13 @@ CHECKS = (
 PARTS = {
     "exit_signs": (
         ("Exit signs at exits", "exit", "exit_sign", "max_distance_from_exit_m", None),
-        ("Exit sign spacing along paths", "path", "exit_sign", "max_distance_from_path_to_sign_m", None),
+        (
+            "Exit sign spacing along paths",
+            "path",
+            "exit_sign",
+            "max_distance_from_path_to_sign_m",
+            None,
+        ),
     ),
     "pull_stations": (
         ("Fire alarm pull stations", "exit", "pull_station", "max_distance_from_exit_m", None),
