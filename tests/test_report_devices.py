@@ -119,8 +119,8 @@ def test_devices_section_units_named(test_cfg):
     sec = _section(_html(_plan(), test_cfg), "devices")
     assert "Units: mm" in sec
     assert "document.units" in sec
-    # exits checked and paths, with the LOW path named
-    assert "Exits checked: 1" in sec
+    # exits listed and paths, with the LOW path named
+    assert "Exits listed in exits.csv: 1" in sec
     assert "Paths: 2" in sec
     assert "LOW: P2" in sec
 
@@ -196,3 +196,9 @@ def test_devices_section_missing_sheet_value_kept(test_cfg):
     d = replace(_dev("exit_sign"), sheet=Value.missing())
     sec = _section(_html(_project(devices=[d]), test_cfg), "devices")
     assert "No plan sheet, exits.csv or paths.csv was read." not in sec
+
+
+def test_exits_label_names_the_list(test_cfg):
+    html = _html(_plan(), test_cfg)
+    assert "Exits listed in exits.csv: 1" in _section(html, "devices")
+    assert "Exits checked" not in html
