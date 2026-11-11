@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import os
@@ -635,10 +636,8 @@ def _in_child(job: dict[str, Any]) -> dict[str, Any]:
 
 def _extract(path: Path, cfg: Config, isolated: bool) -> dict[str, Any]:
     path = path.absolute()  # the child runs in the temp folder; no filesystem call is made
-    try:
-        import ezdxf  # noqa: F401
-    except ImportError as e:
-        raise Unavailable("ezdxf not installed: pip install redline[dxf]") from e
+    if importlib.util.find_spec("ezdxf") is None:  # find_spec: `import ezdxf` loads socket (C20)
+        raise Unavailable("ezdxf not installed: pip install redline[dxf]")
     parsing = cfg.column_maps["parsing"]
     suffix = path.suffix.lower()
     if suffix not in (".dwg", ".dxf"):

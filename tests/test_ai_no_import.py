@@ -128,10 +128,8 @@ def test_pdf_run_imports_no_model(tmp_path):
 
 
 def test_plans_run_imports_no_model(tmp_path):
-    # The parent only checks that ezdxf is installed (C20), and `import ezdxf` itself loads
-    # socket. Both are left out until oda_ezdxf.py checks with importlib.util.find_spec
-    # (file request in .unlazy/M5/gates/leaf-L5.5.md); then drop "socket" from this list.
-    blocked = [m for m in BLOCKED if m not in ("ezdxf", "socket")]
+    # The parent checks ezdxf with find_spec (C20), so nothing in BLOCKED loads.
+    blocked = list(BLOCKED)
     args = [
         str(ROOT / "samples/plans"),
         str(ROOT / "tests/test_config"),
