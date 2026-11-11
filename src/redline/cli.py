@@ -118,7 +118,7 @@ def _merge_units(project: Project, parsed: Parsed) -> None:
             project.sheet_units[sheet] = v
             continue
         why = f"sheet {sheet} is read more than once, so its devices are counted twice"
-        note = "sheet read more than once"
+        note = exits.REPEATED_SHEET_NOTE
         base = v.source or project.sheet_units[old].source
         low = dataclasses.replace(base, confidence=Confidence.LOW, note=note)
         project.sheet_units[old] = dataclasses.replace(
