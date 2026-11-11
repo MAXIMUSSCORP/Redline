@@ -328,6 +328,16 @@ def test_path_row_with_bad_sheet_lowers_path(tmp_path):
     assert path.source.confidence == Confidence.LOW and "row 4" in path.source.note
 
 
+def test_path_name_typo_lowers_sheet_paths(tmp_path):
+    text = "sheet,path,seq,x,y\nfa.dxf,P1,1,0,0\nfa.dxf,P1,2,8000,0\nfa.dxf,p1,3,40000,0\n"
+    got = _p1(_paths(tmp_path, text, "ptypo"))
+    assert got and all(r["severity"] == "NEEDS_REVIEW" for r in got)
+    assert any(r["rule_id"] == "fire_alarm" for r in got)
+    p = run(tmp_path, None, text.replace("fa.dxf", SHEET), "paths.csv")
+    p1 = next(x for x in p.paths if x.name == "P1")
+    assert p1.source.confidence == Confidence.LOW and "fewer than two vertex" in p1.source.note
+
+
 def test_paths_row_cap_lowers_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(exits, "MAX_ROWS", 2)
     text = rows(PHEAD, f"{SHEET},P1,1,0,0", f"{SHEET},P1,2,10,0", f"{SHEET},P1,3,20,0")
