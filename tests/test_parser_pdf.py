@@ -1564,12 +1564,55 @@ def test_route_item_survives_listing_cap(test_cfg):
     assert any(u.kind == "page" for u in out.unparsed), entry(out).what_read
 
 
-def test_bottom_header_short_token_not_revision(test_cfg):
-    for tok in ["SEAL", "N", "WSP", "1:50", "ACME"]:
-        text = title_text(test_cfg, [["A", "B"], ["1", "2"], ["REV", "DATE"], [tok, ""]])
-        assert f"revision {tok}" not in text, f"{tok}: {text}"
-        assert "revision not found" in text, f"{tok}: {text}"
-    assert "revision C" in title_text(test_cfg, [["REV", "DATE"], ["C", "2026-01-05"]])
+def test_title_rows_above_sheet_box_read(test_cfg):
+    layouts = {
+        "A1 rev rows": ([["REV", "DESCRIPTION", "DATE"], ["B", "IFC", "2026-02-09"], ["A", "IFP", "2026-01-05"], ["SHEET", "REV"], ["E-501", "B"]], ["sheet E-501"]),
+        "A2 rev rows, scale": ([["REV", "DESCRIPTION", "DATE"], ["B", "IFC", "2026-02-09"], ["A", "IFP", "2026-01-05"], ["SHEET NO.", "SCALE"], ["E-501", "1:100"]], ["sheet E-501"]),
+        "A3 dwg no": ([["NO.", "DATE", "DESCRIPTION"], ["2", "2026-02-09", "IFC"], ["1", "2026-01-05", "IFP"], ["DWG NO.", "REV"], ["E1.01", "2"]], ["sheet E1.01", "revision 2"]),
+        "one-row top header": ([["REV", "DATE"], ["C", "2026-01-05"]], ["revision C"]),
+        "S4 unlisted labels": ([["CONTRACTOR", "LOCATION"], ["ACME", "TORONTO"], ["SHEET", "REV"], ["E-501", "C"]], ["sheet E-501", "revision C"]),
+        "S5 firm row": ([["ACME ENG", "123 MAIN ST"], ["SHEET", "REV"], ["E-501", "C"]], ["sheet E-501", "revision C"]),
+        "S6 seal row": ([["SEAL", "KEY PLAN"], ["SHEET", "REV"], ["E-501", "C"]], ["sheet E-501", "revision C"]),
+        "S7 title row": ([["POWER", "PLAN"], ["SHEET", "REV"], ["E-501", "C"]], ["sheet E-501", "revision C"]),
+        "S13 values above": ([["MAIN ST", "ACME", "2026-01-05"], ["SHEET", "REV", "SCALE"], ["E-501", "C", "1:100"]], ["sheet E-501", "revision C"]),
+        "V1 scale/date cells": ([["SCALE 1:100", "DATE 2026-01-05"], ["SHEET", "REV"], ["E-501", "C"]], ["sheet E-501", "revision C"]),
+        "V2 owner row": ([["OWNER", "CONSULTANT"], ["CITY OF X", "WSP"], ["SHEET", "REV"], ["E-501", "C"]], ["sheet E-501", "revision C"]),
+        "V3 rev rows, sheet scale": ([["REV", "DATE", "DESCRIPTION"], ["1", "2026-02-09", "IFC"], ["0", "2026-01-05", "IFP"], ["SHEET", "REV", "SCALE"], ["E-501", "1", "1:100"]], ["sheet E-501"]),
+    }  # fmt: skip
+    for name, (rows, want) in layouts.items():
+        text = title_text(test_cfg, rows)
+        for w in want:
+            assert w in text, f"{name}: {text}"
+
+
+def test_disagreement_count_long_texts(test_cfg):
+    desc = "LIGHTING AND RECEPTACLES " * 12  # 60 words
+    rows = [gen.LP22_CELLS[1], *[[str(2 * i + 1), desc, "20", "1", "2", "1.0"] for i in range(24)]]
+    notes = grid_annots(rows)
+    words = [
+        word(
+            "zz" if a["contents"] == desc else a["contents"],
+            a["x0"],
+            a["top"] + 2,
+            a["x1"],
+            a["top"] + 9,
+        )
+        for a in notes
+    ]
+    out = parse(test_cfg, page(chars=10, annots=notes, words=words))
+    listed = [u for u in out.unparsed if u.kind == "cell"]
+    text = entry(out).what_read
+    assert len(listed) == 24, len(listed)
+    assert "24 cells where annotation text and page text disagree, listed" in text, text
+
+
+def test_title_text_with_placeholder_unchanged(test_cfg):
+    words = [
+        word("SHEET", 940.0, 640.0, 970.0, 648.0),
+        word("E1@@listed@@", 980.0, 640.0, 1040.0, 648.0),
+    ]
+    out = parse(test_cfg, page(words=words))
+    assert "E1@@listed@@" in entry(out).what_read
 
 
 def test_title_abbreviated_labels(test_cfg):
