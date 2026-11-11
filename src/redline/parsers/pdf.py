@@ -78,6 +78,7 @@ WORDS_NOTE = "read from PDF words, no drawn grid"
 DISAGREE_NOTE = "annotation text and page text disagree"
 _NO_SUMMARY = "HIGH 0, MEDIUM 0, LOW 0, MISSING 0"
 _REASON_LIMIT = 199  # clip() keeps limit + 1 characters, so a reason is at most 200
+_LISTED = "@@listed@@"  # entry() fills in how many disagreements the cap left listed
 MAX_LISTED_PER_PAGE = 50  # items listed per page, of any kind; the rest are only counted
 _TITLE_SHOWN = 3  # values named in the "more than one value" text
 _TITLE_LABELS = {"sheet_number": ("sheet", "sheet number"), "revision": ("revision", "revision")}
@@ -695,7 +696,13 @@ def _read_title(
                 continue
             # Otherwise the value is in the column below. Several values only in a revision table:
             # the label's row is a header of a block and the rows below are full rows of it.
-            if header[r] and r > 0 and full_row(r, r - 1):  # bottom header: nothing below it
+            # bottom header: nothing below it, unless the row above is the values of another header row
+            if (
+                header[r]
+                and r > 0
+                and full_row(r, r - 1)
+                and not (r > 1 and header[r - 2] and full_row(r - 2, r - 1))
+            ):
                 continue
             first = value(key, r + 1, c)
             if not first:
@@ -780,6 +787,7 @@ class _Page:
         self.parts: list[str] = []  # coverage text
         self.pg = f"page={self.n}"
         self.method = Method.PDF_TEXT
+        self.clashes = 0
         self.unread_at = 0  # where the title block "not read" count goes in the coverage text
 
     def unread(self, words: list[_Word]) -> None:
@@ -816,7 +824,9 @@ class _Page:
                 f"{len(items)} items to list ({kinds}), first {MAX_LISTED_PER_PAGE} listed"
             )
             del items[MAX_LISTED_PER_PAGE:]
+        n = sum(u.kind == "cell" and "disagree" in u.reason for u in items)
         text = f"page {self.n}: " + "; ".join(self.parts)
+        text = text.replace(_LISTED, "listed" if n == self.clashes else f"{n} listed")
         return CoverageEntry(self.file, f"page {self.n}", text, self.method.value, _NO_SUMMARY)
 
 
@@ -1060,9 +1070,10 @@ def _annotation_path(pg: _Page, annots: list[_Annot], words: list[_Word]) -> boo
         why = f"annotation text {text!r} and page text {seen!r} disagree"
         pg.unp("cell", text, why, f"{loc}; y={-ys[r]:g}; col={c}")
     if clash:
+        pg.clashes = len(clash)
         pg.parts.append(
             f"{len(clash)} cells where annotation text and page text disagree, "
-            f"{'listed' if len(clash) <= MAX_LISTED_PER_PAGE else f'{MAX_LISTED_PER_PAGE} listed'}; "
+            f"{_LISTED}; "
             f"{capped} values marked LOW"
         )
     if unplaced:

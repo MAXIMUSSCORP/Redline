@@ -1338,10 +1338,39 @@ def test_disagreement_listing_capped_per_page(test_cfg, monkeypatch):
 
     _, listed, text = case(12)
     assert len(listed) == 19  # the page's route item (RV41) holds the 20th place
-    assert "78 cells where annotation text and page text disagree, 20 listed" in text
+    assert "78 cells where annotation text and page text disagree, 19 listed" in text
     _, listed, text = case(2)
     assert len(listed) == 18
     assert "18 cells where annotation text and page text disagree, listed" in text
+
+
+def test_stacked_title_box_rows_read(test_cfg):
+    shapes = [
+        (
+            [["PROJECT", "CLIENT", "DATE"], ["MAIN ST", "ACME", "2026-01-05"]],
+            [["SHEET", "REV", "SCALE"], ["E-501", "C", "1:100"]],
+            ["sheet E-501", "revision C"],
+        ),
+        (
+            [["DRAWN", "CHECKED"], ["AB", "JD"]],
+            [["SHEET NO.", "REV"], ["E-501", "2"]],
+            ["sheet E-501", "revision 2"],
+        ),
+        (
+            [["DWN", "CHK"], ["AB", "JD"]],
+            [["SHEET", "REV"], ["E-501", "C"]],
+            ["sheet E-501", "revision C"],
+        ),
+        (
+            [["REV", "DESCRIPTION", "DATE"], ["C", "IFC", "2026-02-09"]],
+            [["SHEET", "REV"], ["E-501", "C"]],
+            ["sheet E-501", "revision C"],
+        ),
+    ]
+    for top, bottom, want in shapes:
+        text = title_text(test_cfg, [*top, *bottom])
+        for w in want:
+            assert w in text, (top, bottom, text)
 
 
 # (rows, what_read must hold, what_read must not hold); the shape named first in each row
