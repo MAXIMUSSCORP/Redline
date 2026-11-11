@@ -1,0 +1,7 @@
+circuit,description,breaker_a,poles,wire,load_va
+1,Corridor lighting,20 A,1,12 AWG,1350
+2,Office lighting east,15,1,12 AWG,1500
+4,Office receptacles,15,1,12 AWG,1800
+6,Server rack,15,1,12 AWG,2100
+8,Kitchen receptacles,15,1,12 AWG,2400
+10,Storage lighting,15,1,12 AWG,2700
