@@ -206,7 +206,7 @@ def test_nested_device_gives_review_not_violation(test_cfg):
 
 def test_paper_space_device_not_used(test_cfg):
     f = _one(_proj([_exit(), _dev("exit_sign", 1.0, 0.0, det="paper")]), test_cfg, ES_A)
-    assert f.severity == Severity.VIOLATION and "no exit sign was read" in f.message
+    assert f.severity == Severity.NEEDS_REVIEW and "no exit sign block was matched" in f.message
 
 
 def test_unused_exit_doors_not_checked(test_cfg):
@@ -223,7 +223,7 @@ def test_rule_refs_from_fire_alarm_yaml(test_cfg):
     for sec in SECTIONS:
         cfg = _cfg(cfg, sec, "rule_ref", f"REF-{sec}")
     out = run(_proj([_exit()], [_path(LINE)]), cfg, [SPEC]).findings
-    viol = [f for f in out if f.severity == Severity.VIOLATION]
+    viol = [f for f in out if f.severity == Severity.NEEDS_REVIEW]
     assert {f.rule_ref for f in viol} == {f"REF-{s}" for s in SECTIONS}
     assert all(f.message.endswith(f.rule_ref) for f in viol)
 
@@ -286,3 +286,70 @@ def test_rule_fire_alarm_low_input(test_cfg):
     reviews = [f.message for f in out if f.severity == Severity.NEEDS_REVIEW]
     assert any("exit E1" in m and "Input not usable" in m for m in reviews)
     assert any("path P1" in m and "Input not usable" in m for m in reviews)
+
+
+def test_empty_device_class_not_checked(test_cfg):
+    fa = copy.deepcopy(test_cfg.fire_alarm)
+    fa["device_blocks"]["pull_station"] = []
+    cfg = replace(test_cfg, fire_alarm=fa)
+    f = _one(_proj([_exit()]), cfg, text="Fire alarm pull stations: not checked")
+    assert f.severity == Severity.NOT_CHECKED
+    assert "device_blocks" in f.message and "pull_station" in f.message
+    assert not _got(_proj([_exit()]), cfg, PS + " no")
+    assert len(_got(_proj([_exit()]), cfg, "Fire alarm pull stations")) == 1
+
+
+def test_no_matched_device_is_review(test_cfg):
+    f = _one(_proj([_exit()]), test_cfg, ES_A)
+    assert f.severity == Severity.NEEDS_REVIEW and "block was matched" in f.message
+    path = [(0.0, 0.0), (40.0, 0.0)]
+    f = _one(_proj([], [_path(path)]), test_cfg, EL)
+    assert f.severity == Severity.NEEDS_REVIEW and "No emergency light block" in f.message
+
+
+def test_matched_device_over_limit_still_violation(test_cfg):
+    f = _one(_proj([_exit(), _dev("exit_sign", 9.0, 0.0)]), test_cfg, ES_A)
+    assert f.severity == Severity.VIOLATION
+    f = _one(
+        _proj([_dev("emergency_light", 1.0, 0.0)], [_path([(0.0, 0.0), (40.0, 0.0)])]), test_cfg, EL
+    )
+    assert f.severity == Severity.VIOLATION
+
+
+def test_distance_at_limit_passes(test_cfg):
+    units = _units("mm")
+    p = _proj([_exit(), _dev("exit_sign", 2300.0, 0.0)], units=units)
+    cfg = _cfg(test_cfg, "exit_signs", "max_distance_from_exit_m", 2.3)
+    assert not _got(p, cfg, ES_A)
+
+
+def test_gap_at_limit_passes(test_cfg):
+    from redline.rules.fire_alarm import _gaps
+
+    assert not _gaps([(0.0, 0.0), (0.3 + 0.1 + 0.2, 0.0)], [], 0.0, 0.1 + 0.2 + 0.3)
+
+
+def test_pair_cap_not_checked(test_cfg):
+    import time
+
+    devs = [_dev("exit_sign", float(i), 1.0, tag=f"D{i}") for i in range(20000)]
+    path = _path([(float(i), 0.0) for i in range(2000)])
+    t = time.perf_counter()
+    out = _got(_proj(devs, [path]), test_cfg, text="Exit sign spacing along paths")
+    assert time.perf_counter() - t < 5
+    assert len(out) == 1 and out[0].severity == Severity.NOT_CHECKED
+    assert "design cap" in out[0].message
+
+
+def test_gaps_memory_per_segment():
+    import tracemalloc
+
+    from redline.rules.fire_alarm import _gaps
+
+    pts = [(float(i), 0.0) for i in range(1001)]
+    devs = [(500.0, 0.0)] * 1000
+    tracemalloc.start()
+    _gaps(pts, devs, 2000.0, 1.0)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 10_000_000
