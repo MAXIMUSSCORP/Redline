@@ -1067,3 +1067,17 @@ def test_field_own_text_cut_before_strip(monkeypatch):
     got = oda_ezdxf._field_text(_field_db(db), "F", oda_ezdxf._budget(), notes, "w")
     assert len(got) == 100
     assert any("MAX_TEXT" in n for n in notes)
+
+
+def test_oda_entity_at_origin_keeps_its_point(tmp_path, test_cfg):
+    doc = new_doc()
+    doc.blocks.new("DOOR")
+    msp = doc.modelspace()
+    msp.add_blockref("DOOR", (0, 0))
+    msp.add_text("T", height=1, dxfattribs={"insert": (0, 0)})
+    msp.add_line((0, 0), (3, 4))
+    data = oda_ezdxf.extract(save(doc, tmp_path / "origin.dxf"), test_cfg)
+    by_type = {e["type"]: e for e in data["entities"]}
+    for kind in ("INSERT", "TEXT", "LINE"):
+        assert by_type[kind]["insertion_point"][:2] == [0.0, 0.0], kind
+    assert by_type["LINE"]["bbox"] == [0.0, 0.0, 3.0, 4.0]
