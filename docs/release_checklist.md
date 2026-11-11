@@ -33,7 +33,7 @@ Rows the tool cannot produce, kept by hand. State each as found; a licence not c
 | accoreconsole | AutoCAD 2027 core console, owner's seat | no | Autodesk terms; reseller answer open (row 38) |
 | Autodesk assemblies the plugin references | AutoCAD install, referenced and not copied | no | Autodesk terms, as above |
 | Fonts | none ship; the report uses system font stacks | none | not applicable |
-| Weight files | none ship; `config/ai.yaml` lists models with empty hashes and `verified: false` | none | not applicable until M4; this line stays so the M4 release cannot miss it |
+| Weight files (model weight files) | none ship; `config/ai.yaml` lists models with empty hashes and `verified: false` | none | not applicable until M4; this line stays so the M4 release cannot miss it |
 | Sample data origins | `samples/` | yes, in the repo | see the client-data audit |
 
 The plugin DLL SHA-256 is recorded here at release. `redline doctor` printed `0877c3b3a5a9c668c86508be15f4b58add55136f2ec9e0e97e5945b8f0d021d8` on the dev PC on 2026-11-11 for the deployed DLL. That is an observation, not the hash of a release build. Rewrite it at release.
