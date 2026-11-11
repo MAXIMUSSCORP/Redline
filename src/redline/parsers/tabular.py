@@ -16,6 +16,7 @@ from redline.model import (
     Circuit,
     Confidence,
     CoverageEntry,
+    Device,
     Method,
     Panel,
     Source,
@@ -35,6 +36,8 @@ class Parsed:
     unparsed: list[Unparsed] = field(default_factory=list)
     coverage: list[CoverageEntry] = field(default_factory=list)
     provenance: dict[str, str] = field(default_factory=dict)  # file name -> provenance text
+    devices: list[Device] = field(default_factory=list)
+    sheet_units: dict[str, Value] = field(default_factory=dict)
 
 
 def normalize_header(text: str) -> str:
