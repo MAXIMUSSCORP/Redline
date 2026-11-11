@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -51,7 +52,15 @@ def _kill_tree(proc: subprocess.Popen) -> None:
     if sys.platform == "win32":
         try:
             subprocess.run(
-                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                [
+                    os.path.join(
+                        os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe"
+                    ),
+                    "/T",
+                    "/F",
+                    "/PID",
+                    str(proc.pid),
+                ],
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 check=False,
@@ -69,8 +78,10 @@ def _kill_tree(proc: subprocess.Popen) -> None:
         pass
 
 
-def run_tool(name: str, args: list[str], timeout: float, cwd: Path) -> None:
-    """Run a child with no shell. The exit code is ignored: the output file is the signal.
+def run_tool(name: str, args: list[str], timeout: float, cwd: Path) -> int:
+    """Run a child with no shell and return its exit code.
+
+    Extractors ignore the code: the output file is the signal. Doctor reads it.
 
     Output streams go to DEVNULL so a surviving grandchild cannot hold a pipe open.
     """
@@ -86,7 +97,7 @@ def run_tool(name: str, args: list[str], timeout: float, cwd: Path) -> None:
     except OSError as e:
         raise ExtractError(f"{name} could not start ({type(e).__name__})") from e
     try:
-        proc.wait(timeout=timeout)
+        return proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         _kill_tree(proc)
         raise ExtractError(f"{name} timed out after {timeout:g} s") from None
