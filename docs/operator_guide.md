@@ -57,6 +57,58 @@ For a `.dwg` the ODA step and the child each get the full time, so one drawing c
 Each drawing pays the cost of starting a child process. It was about 1.5 seconds per drawing over a corpus of 616 gold drawings (review-M2 round 6).
 The child needs ezdxf in the same venv as Redline. ezdxf that sits only in a user site folder or on `PYTHONPATH` is not seen.
 
+## Check a PDF
+
+    redline check samples/pdf --config tests/test_config/ --out report.html
+
+Redline reads `.pdf` sheets and schedules. No real owner sheet has been run through the PDF reader yet, and every `pdf_*` value under `parsing:` in `config/column_maps.yaml` is a starting value to tune on real sheets.
+
+### Install
+
+The reader needs the `[pdf]` extra: `pip install -e ".[pdf]"`. It installs `pdfplumber>=0.11.9,<0.12` and, through it, pdfminer.six at 20251230 or later. The `[dev]` extra carries the same line. On a machine with no internet, download the wheels for pdfplumber and its dependencies on another machine, then install with `pip install --no-index --find-links <wheel folder> "pdfplumber>=0.11.9,<0.12"`.
+Without the extra, a PDF is listed in "Needs manual check" with "pip install redline[pdf]", and the other files are still read. A password protected PDF is listed as not read.
+
+### The three page classes
+
+Each page is put in one class, shown in the page's coverage entry. The thresholds are `pdf_text_page_min_chars` (1 to 10000) and `pdf_scanned_image_area_fraction`.
+
+- TEXT: the page has a text layer. Redline reads the title block, then ruled tables, then text laid out as a table. A table ruled by drawn lines is read like a CSV, so an exact header can be HIGH. Text laid out with no drawn grid is MEDIUM at most, and the note says "no drawn grid". A ruled table that sits in the title block corner is read too. Annotations on a TEXT page are counted, not read.
+- VECTOR_NO_TEXT: the page has no text layer, only strokes. This is how AutoCAD plots SHX fonts. If the page has annotation text, Redline reads a table from the annotations (see "SHX annotation text"). A page with annotations that gives no circuit, or a page with no annotations, is listed in "Needs manual check" with a note to re-plot with TrueType substitution, or to use OCR or vision. A page with some text but under `pdf_text_page_min_chars` is listed as having too little text.
+- SCANNED: a full-page image covers the page. The page is listed as needing OCR or vision. A scan that carries an OCR text layer is classed the same way and its text is not read, because an OCR layer is not a stored value.
+
+Ask for TrueType re-plots of SHX sheets. In AutoCAD, plot with TrueType substitution so the text stays text in the PDF. A page listed as VECTOR_NO_TEXT or SCANNED is never read as empty; it is listed as not checked.
+A PDF that opens counts as read, even when every page is listed. The run still exits 0.
+
+### SHX annotation text
+
+When AutoCAD plots an SHX font with `PDFSHX` set to 1, each text string is also stored as a `/Square` annotation named `AutoCAD SHX Text`. With `PDFSHX` set to 0 the PDF holds no text at all (`docs/research/pdf_verification.md`, sections 3 and 4). Redline reads the annotation text as a source. Annotation values are MEDIUM at most.
+Where annotation text and the page's own text disagree, the cell is LOW and one item is listed with both texts and the cell locator. Page words outside the title block that no annotation covers are listed. The annotation count is a count of strings, not of cells.
+The plot `samples/pdf/acad/acad_pdfshx.pdf`, made by AutoCAD 2027 with `PDFSHX` 1, reads panel LP-11 with no circuits and the "needs OCR or vision" note. Its side-by-side panels merge in one grid.
+
+### The title block
+
+The title block is read from a crop at the bottom right of each page. The crop size is `pdf_title_block_width_fraction` and `pdf_title_block_height_fraction` under `parsing:`. A page that is rotated is not read for a title block and says so.
+The keys are the aliases under `title_block:` in the same file: `sheet_number`, `revision` and `other_labels`. A label that is not an alias is not read. `other_labels` lists title box labels such as date, scale and drawn by; a label there is never taken as a value. Add the labels your sheets use.
+A value must have the shape of its key. A revision is one token of at most `pdf_title_revision_max_chars` characters. A sheet number with no digit is one token of at most `pdf_title_sheet_max_chars_without_digit` characters. A cell that fails is not a value, and the coverage says "not found". A revision column that holds more than one value is named as such, not read as its first value.
+A short token directly under the REV cell of a bottom-header revision table can still be read as the revision. Crop words the title reader did not use are counted in the page's coverage, not dropped.
+The report footer names each PDF's reader, its pdfplumber and pdfminer.six versions and the full SHA-256 of the file.
+
+### What is listed, not read
+
+Each of these is listed with the file and page, never dropped: a page in the SCANNED or VECTOR_NO_TEXT class that gives no table, rotated words not clustered, ruled tables that are not a panel, word regions with no header, cells where annotation and page text disagree, and warnings the reader wrote. At most 50 items are listed per page. The page's coverage line gives the full count.
+A page past a cap is listed and not read: more than 100000 words, 10000 annotations or 1000000 characters on one page. A PDF over 256 MiB is not read. Pages past 1000 are listed with their total.
+
+### The child process
+
+The reader runs in a child process, as the DXF fallback does, so a crafted PDF can be stopped. The child has `pdf_timeout_s` seconds under `parsing:`, 300 in the shipped config, a placeholder until measured on real sheets. On timeout the file is listed with the reason. The config check rejects `pdf_timeout_s` and `dxf_extractor_timeout_s` above 86400.
+On Windows the child also runs under a Job Object with a memory ceiling of 4096 MB (`MAX_CHILD_MEMORY_MB` in `src/redline/parsers/pdf.py`). A PDF that needs more is listed as not read. On another platform there is no ceiling, and the report lists a warning saying so. pdfminer is stopped at 200000 entries in one array or dictionary.
+The child needs pdfplumber in the same venv as Redline. The child is started with `-I`, so a package that sits only in a user site folder or on `PYTHONPATH` is not seen.
+The `samples/pdf/acad/` sub-folder holds real AutoCAD plots for developers. A folder run lists a sub-folder and does not read it.
+
+### Tests that time the reader
+
+Some tests in `tests/test_parser_pdf.py` assert that a crafted PDF is read within 1 or 2 seconds. They fail when the PC is on battery in Silent mode, and pass on mains power. Run `pytest -q` on mains power.
+
 ## Compare the two extractors
 
     redline xcheck plan.dwg --config config/

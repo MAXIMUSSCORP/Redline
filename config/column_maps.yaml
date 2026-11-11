@@ -44,9 +44,22 @@ parsing:                      # lengths relative to text height, never absolute 
   dxf_extractor_timeout_s: 120         # measured: plugin 2.17 s max, ODA 1.32 s max; owner accepted (G7.11)
   pdf_text_page_min_chars: 200         # below this: VECTOR_NO_TEXT or SCANNED (tune on real sheets)
   pdf_scanned_image_area_fraction: 0.8
+  pdf_row_tolerance_word_heights: 0.6    # same start as DXF, tuned apart on real sheets
+  pdf_column_gap_fraction: 0.5
+  pdf_region_gap_word_heights: 3.0       # a blank gap this tall starts a new text region; tune on real sheets
+  pdf_title_block_width_fraction: 0.25   # bottom-right crop, fraction of page width; tune on real sheets
+  pdf_title_block_height_fraction: 0.2   # fraction of page height
+  pdf_title_revision_max_chars: 4          # a revision is one token this short; tune on real sheets
+  pdf_title_sheet_max_chars_without_digit: 4  # a sheet number with no digit is one token this short; tune on real sheets
+  pdf_timeout_s: 300                     # placeholder until measured on real sheets
   render_dpi: 250
   crop_long_edge_px: 2500
   tile_overlap_fraction: 0.10
   accoreconsole_path: C:/Program Files/Autodesk/AutoCAD 2027/accoreconsole.exe   # D6; %VAR% expanded
   acad_plugin_dll: C:/Users/Zaidz/redline/plugin/RedlinePlugin.dll # path must hold no space (unquoted NETLOAD)
   odafc_path: C:/Program Files/ODA/ODAFileConverter 27.10.0/ODAFileConverter.exe # ODAFileConverter.exe
+
+title_block:                             # exact alias after normalize_header; owner adds from real sheets
+  sheet_number: ["sheet", "sheet no", "sheet number", "dwg no", "drawing no", "drawing number"]
+  revision:     ["rev", "revision", "rev no"]
+  other_labels: ["date", "scale", "by", "description", "drawn", "drawn by", "checked", "checked by", "approved", "approved by", "designed", "designed by", "project", "title", "client", "issue", "issued for", "project no", "project number", "project name", "job no", "job number", "sheet title", "drawing title", "of", "sheet of", "issue date", "date issued", "revision date", "rev date", "page", "file", "file name", "dwn", "drn", "chk", "chkd", "app", "appd", "dsgn", "eng"]   # labels that are never a value
