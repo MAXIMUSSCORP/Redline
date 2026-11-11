@@ -18,6 +18,13 @@ CONFIG_FILES = ("cec_tables.yaml", "column_maps.yaml", "ai.yaml", "fire_alarm.ya
 RF_DETR_SIZES = ("nano", "small", "medium", "large")
 _RF_DETR = "rf-detr-"
 _REF_MISSING = "rule_ref missing in config [VERIFY]"
+FIRE_ALARM_TABLE = "fire_alarm.yaml"  # a tables_used name for the gate
+FIRE_ALARM_LIMITS = {
+    "exit_signs": ("require_at_each_exit", "max_distance_from_exit_m", "max_spacing_along_path_m"),
+    "pull_stations": ("max_distance_from_exit_m",),
+    "emergency_lighting": ("coverage_radius_m", "max_gap_along_path_m"),
+}
+DEVICE_CLASSES_USED = ("exit_sign", "pull_station", "emergency_light", "exit_door")
 
 
 class ConfigError(Exception):
@@ -333,12 +340,73 @@ def _check_column_maps(cm: dict[str, Any]) -> None:
         )
 
 
+def _check_fire_alarm(fa: dict[str, Any]) -> None:
+    def bad(path: str, why: str) -> ConfigError:
+        return ConfigError(f"fire_alarm.yaml: {path} must be {why}")
+
+    if not isinstance(fa.get("verified"), bool):
+        raise bad("verified", "true or false")
+    for k in ("source", "config_version"):
+        if not isinstance(fa.get(k), str):
+            raise bad(k, "text")
+    blocks = fa.get("device_blocks")
+    if not isinstance(blocks, dict):
+        raise bad("device_blocks", "a mapping of class to a list of names")
+    for cls, names in blocks.items():
+        if not isinstance(names, list) or not all(isinstance(n, str) and n.strip() for n in names):
+            raise bad(f"device_blocks.{cls}", "a list of non-empty text names")
+    if missing := [c for c in DEVICE_CLASSES_USED if c not in blocks]:
+        raise bad("device_blocks", f"holding the classes {', '.join(missing)}")
+    owner: dict[str, str] = {}
+    for cls, names in blocks.items():
+        for n in names:
+            key = n.strip().casefold()
+            if key in owner and owner[key] != cls:
+                raise ConfigError(
+                    f"fire_alarm.yaml: device_blocks name {n!r} is under two classes,"
+                    f" {owner[key]} and {cls}"
+                )
+            owner[key] = cls
+    for sec, keys in FIRE_ALARM_LIMITS.items():
+        node = fa.get(sec)
+        if not isinstance(node, dict):
+            raise bad(sec, "a mapping")
+        if not isinstance(node.get("rule_ref"), str):
+            raise bad(f"{sec}.rule_ref", "text")
+        for k in keys:
+            if k not in node:
+                raise bad(f"{sec}.{k}", "present, null when not filled")
+            v = node[k]
+            if v is None:
+                continue
+            if k == "require_at_each_exit":
+                if not isinstance(v, bool):
+                    raise bad(f"{sec}.{k}", "null, true or false")
+            elif isinstance(v, bool) or not isinstance(v, int | float) or not 0 < v < math.inf:
+                raise bad(f"{sec}.{k}", "null or " + _POS)
+
+
+def device_classes(cfg: Config) -> dict[str, str]:
+    """Block name, trimmed and without case, to its device class."""
+    return {
+        n.strip().casefold(): cls
+        for cls, names in cfg.fire_alarm["device_blocks"].items()
+        for n in names
+    }
+
+
+def fire_alarm_limit(cfg: Config, section: str, key: str) -> float | bool | None:
+    """A configured limit, or None when it is not filled."""
+    return (cfg.fire_alarm.get(section) or {}).get(key)
+
+
 def load_config(config_dir: str | Path) -> Config:
     d = Path(config_dir)
     docs = {f: _read(d / f) for f in CONFIG_FILES}
     _check_cec(docs["cec_tables.yaml"])
     _check_ai(docs["ai.yaml"])
     _check_column_maps(docs["column_maps.yaml"])
+    _check_fire_alarm(docs["fire_alarm.yaml"])
     return Config(
         dir=d,
         cec=docs["cec_tables.yaml"],
@@ -398,6 +466,9 @@ def _has_bad_null(name: str, t: dict) -> bool:
 
 
 def table_verified(cfg: Config, name: str) -> bool:
+    if name == FIRE_ALARM_TABLE:
+        fa = cfg.fire_alarm
+        return fa.get("verified") is True and bool(str(fa.get("source") or "").strip())
     t = cfg.cec["tables"].get(name)
     return (
         isinstance(t, dict)
@@ -436,6 +507,8 @@ def default_value(cfg: Config, key: str) -> Value:
 
 
 def rule_ref(cfg: Config, key: str) -> str:
+    if key in FIRE_ALARM_LIMITS:
+        return (cfg.fire_alarm.get(key) or {}).get("rule_ref") or _REF_MISSING
     return (cfg.cec.get("rule_refs") or {}).get(key) or _REF_MISSING
 
 

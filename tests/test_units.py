@@ -1,6 +1,6 @@
 import pytest
 
-from redline.units import MATERIAL_TABLE_KEY, normalize_size
+from redline.units import MATERIAL_TABLE_KEY, METRES_PER_UNIT, length_unit, normalize_size
 
 
 @pytest.mark.parametrize(
@@ -34,3 +34,32 @@ def test_unknown_size_returns_none(text):
 
 def test_material_table_key():
     assert MATERIAL_TABLE_KEY == {"Cu": "copper", "Al": "aluminum"}
+
+
+@pytest.mark.parametrize(
+    ("word", "unit"),
+    [
+        ("millimeters", "mm"),
+        ("Millimeters", "mm"),
+        ("mm", "mm"),
+        (" MM ", "mm"),
+        ("centimeters", "cm"),
+        ("cm", "cm"),
+        ("meters", "m"),
+        ("m", "m"),
+        ("inches", "in"),
+        ("in", "in"),
+        ("feet", "ft"),
+        ("ft", "ft"),
+    ],
+)
+def test_length_units_both_spellings(word, unit):
+    assert length_unit(word) == unit
+    assert unit in METRES_PER_UNIT
+
+
+@pytest.mark.parametrize(
+    "word", [None, "", "  ", "unitless", "undefined", "yards", "miles", "kilometers", "mm2", "m/s"]
+)
+def test_unknown_unit_word_not_converted(word):
+    assert length_unit(word) is None
