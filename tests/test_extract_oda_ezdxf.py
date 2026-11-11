@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -423,6 +424,112 @@ def test_extract_both_unavailable_names_both(tmp_path, test_cfg, monkeypatch):
         extract_pkg.extract(tmp_path / "a.dwg", test_cfg)
     assert not isinstance(err.value, Unavailable)
     assert "timed out after 5 s" in str(err.value) and "ezdxf not installed" in str(err.value)
+
+
+def _with_field(e):
+    e.new_extension_dict().add_dictionary("ACAD_FIELD")
+    return e
+
+
+def _by_handle(data):
+    return {e["handle"]: e for e in data["entities"]}
+
+
+def test_oda_text_field_not_evaluated(tmp_path, test_cfg):
+    doc = new_doc()
+    msp = doc.modelspace()
+    t = _with_field(msp.add_text("FIELD TEXT", dxfattribs={"insert": (0, 0)}))
+    m = _with_field(msp.add_mtext("FIELD MTEXT", dxfattribs={"insert": (0, 5)}))
+    data = oda_ezdxf.extract(save(doc, tmp_path / "f.dxf"), test_cfg)
+    ents = _by_handle(data)
+    assert ents[t.dxf.handle]["evaluated"] is False
+    assert ents[m.dxf.handle]["evaluated"] is False
+    assert rawdrawing.validate(data).ok
+
+
+def test_oda_attribute_field_not_evaluated(tmp_path, test_cfg):
+    doc = new_doc()
+    doc.blocks.new("PNL").add_attdef("NAME", (0, 0))
+    doc.blocks.get("PNL").add_attdef("PLAIN", (0, 1))
+    ref = (
+        doc.modelspace()
+        .add_blockref("PNL", (3, 3))
+        .add_auto_attribs({"NAME": "LP-1", "PLAIN": "x"})
+    )
+    _with_field(next(a for a in ref.attribs if a.dxf.tag == "NAME"))
+    data = oda_ezdxf.extract(save(doc, tmp_path / "a.dxf"), test_cfg)
+    (insert,) = [e for e in data["entities"] if e["type"] == "INSERT"]
+    got = {a["tag"]: a.get("evaluated") for a in insert["attributes"]}
+    assert got == {"NAME": False, "PLAIN": None}
+    assert rawdrawing.validate(data).ok
+
+
+def test_oda_text_without_field_has_no_flag(tmp_path, test_cfg):
+    doc = new_doc()
+    msp = doc.modelspace()
+    msp.add_text("PLAIN", dxfattribs={"insert": (0, 0)})
+    msp.add_mtext("PLAIN TOO", dxfattribs={"insert": (0, 5)})
+    # An extension dictionary without ACAD_FIELD is not a field.
+    other = msp.add_text("DICT ONLY", dxfattribs={"insert": (0, 9)})
+    other.new_extension_dict().add_dictionary("ACAD_OTHER")
+    data = oda_ezdxf.extract(save(doc, tmp_path / "p.dxf"), test_cfg)
+    texts = [e for e in data["entities"] if e["type"] in ("TEXT", "MTEXT")]
+    assert len(texts) == 3 and all("evaluated" not in e for e in texts)
+
+
+def _dynamic_doc(*, point_at_source=True):
+    doc = new_doc()
+    doc.blocks.new("DOOR")
+    doc.appids.add("AcDbBlockRepBTag")
+    anon = doc.blocks.new("*U1")
+    if point_at_source:
+        src = doc.block_records.get("DOOR")
+        anon.block_record.set_xdata("AcDbBlockRepBTag", [(1005, src.dxf.handle)])
+    doc.modelspace().add_blockref("*U1", (0, 0))
+    return doc
+
+
+def test_oda_dynamic_block_source_name(tmp_path, test_cfg):
+    data = oda_ezdxf.extract(save(_dynamic_doc(), tmp_path / "d.dxf"), test_cfg)
+    (insert,) = [e for e in data["entities"] if e["type"] == "INSERT"]
+    assert insert["block_name"] == "DOOR"
+
+
+def test_oda_unresolved_dynamic_keeps_u_name(tmp_path, test_cfg):
+    data = oda_ezdxf.extract(
+        save(_dynamic_doc(point_at_source=False), tmp_path / "u.dxf"), test_cfg
+    )
+    (insert,) = [e for e in data["entities"] if e["type"] == "INSERT"]
+    assert insert["block_name"] == "*U1"
+
+
+def _flags(data):
+    """Text and attribute flags of the host layouts, matched by content: the fixtures use
+    synthetic handles. Table render blocks (block:*) are left out."""
+    out = Counter()
+    for e in data["entities"]:
+        if e["layout"].startswith("block:"):
+            continue
+        if e["type"] in ("TEXT", "MTEXT"):
+            out[(e["type"], e["text"], e.get("evaluated"))] += 1
+        for a in e.get("attributes") or []:
+            out[(e["block_name"], a["tag"], a["value"], a.get("evaluated"))] += 1
+    return out
+
+
+@pytest.mark.live
+def test_live_oda_ezdxf_text_flags():
+    cfg = load_config(ROOT / "config")
+    sample = ROOT / "samples" / "dwg" / "panel_sheet.dwg"
+    try:
+        data = oda_ezdxf.extract(sample, cfg)
+    except Unavailable as e:
+        pytest.skip(str(e))
+    assert data["schema_version"] == "1.1"
+    want = json.loads(FIXTURE.with_name("panel_sheet.oda_ezdxf.rawdrawing.json").read_text("utf-8"))
+    assert _flags(data) == _flags(want)
+    # The LP-12 FIELD cells leave their render text in table blocks, flagged not evaluated.
+    assert any(e.get("evaluated") is False for e in data["entities"])
 
 
 @pytest.mark.live

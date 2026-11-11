@@ -71,6 +71,27 @@ def _probe(fn: Any) -> Any:
         return None
 
 
+def _has_field(e: Any) -> bool:
+    """True when the entity's extension dictionary holds ACAD_FIELD (its text comes from a FIELD)."""
+    return bool(_probe(lambda: e.has_extension_dict and "ACAD_FIELD" in e.get_extension_dict()))
+
+
+def _source_name(e: Any, name: str) -> str:
+    """A dynamic block insert is written against an anonymous *U block. Its record keeps the
+    source block's handle in AcDbBlockRepBTag XDATA (code 1005). Any miss keeps the *U name."""
+    if not name.startswith("*U"):
+        return name
+
+    def find() -> str:
+        doc = e.doc
+        for code, value in doc.block_records.get(name).get_xdata("AcDbBlockRepBTag"):
+            if code == 1005:
+                return str(doc.entitydb.get(value).dxf.name) or name
+        return name
+
+    return _probe(find) or name
+
+
 def _table_counts(e: Any) -> tuple[int, int] | None:
     """Declared rows and columns as written, or None when the table has no size tags."""
     sub = _probe(lambda: e.xtags.get_subclass("AcDbTable"))
@@ -336,6 +357,8 @@ def convert(
         out["text_height"] = _pos(g("height"))
         out["insertion_point"] = _pt(g("insert") or ())
         out["rotation_deg"] = _num(g("rotation", 0))
+        if _has_field(e):
+            out["evaluated"] = False
     elif kind == "MTEXT":
         from ezdxf.tools.text import plain_mtext
 
@@ -343,12 +366,15 @@ def convert(
         out["text_height"] = _pos(g("char_height"))
         out["insertion_point"] = _pt(g("insert") or ())
         out["rotation_deg"] = _num(g("rotation", 0))
+        if _has_field(e):
+            out["evaluated"] = False
     elif kind == "INSERT":
-        out["block_name"] = _cut(g("name", ""), handle, notes)
+        out["block_name"] = _cut(_source_name(e, g("name", "")), handle, notes)
         out["attributes"] = [
             {
                 "tag": _cut(a.dxf.get("tag", ""), handle, notes),
                 "value": _cut(a.dxf.get("text", ""), handle, notes),
+                **({"evaluated": False} if _has_field(a) else {}),
             }
             for a in e.attribs
         ]
