@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from collections import Counter
 from collections.abc import Iterable
 from itertools import islice
@@ -11,6 +10,7 @@ from redline.config import FIRE_ALARM_TABLE, Config, is_test_config, table_verif
 from redline.engine import RunResult
 from redline.findings import Finding, Severity
 from redline.model import Confidence, Project, Unparsed, Value, clip
+from redline.parsers.dxf import read_block_counts
 from redline.report.csv_out import format_inputs
 
 LIABILITY_SENTENCE = (
@@ -64,9 +64,6 @@ def _text(items: Iterable[object], total: int, noun: str, limit: int = 200) -> s
     if total > MAX_ROWS:
         out.append(f"and {total - MAX_ROWS} more {noun}")
     return "; ".join(out)
-
-
-_PLACED = re.compile(r"(\d+) placed, (\d+) inside")
 
 
 def _units_text(v: Value | None) -> str:
@@ -130,12 +127,12 @@ def _devices(project: Project, cfg: Config) -> dict:
         items.sort(key=lambda u: u.raw.casefold())
         rows = []
         for u in items[:BLOCK_LIMIT]:
-            m = _PLACED.search(u.reason)
+            counts = read_block_counts(u.reason)
             rows.append(
                 {
                     "name": clip(u.raw, 200),
-                    "placed": m.group(1) if m else EMPTY,
-                    "nested": m.group(2) if m else EMPTY,
+                    "placed": str(counts[0]) if counts else EMPTY,
+                    "nested": str(counts[1]) if counts else EMPTY,
                 }
             )
         hidden = max(0, len(items) - BLOCK_LIMIT)

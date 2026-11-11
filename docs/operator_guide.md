@@ -2,9 +2,58 @@
 
 ## Setup
 
-The venv lives outside OneDrive, at `%LOCALAPPDATA%\redline\venv`. Install from the repo root:
+The venv lives outside OneDrive, at `%LOCALAPPDATA%\redline\venv`. Python 3.12 or later is needed. These are the steps a new machine follows, from the repo folder (the tracked files, for example a `git archive` export):
 
-    %LOCALAPPDATA%\redline\venv\Scripts\python.exe -m pip install -e ".[dev]"
+1. Make the venv: `python -m venv %LOCALAPPDATA%\redline\venv`
+2. Install Redline, not editable, with the tested versions:
+
+        %LOCALAPPDATA%\redline\venv\Scripts\python.exe -m pip install . -c constraints.txt
+
+   `constraints.txt` lists the exact versions of the tested set. The base install is PyYAML, Jinja2 and openpyxl. It reads CSV, TXT and XLSX schedules and runs the demo, `redline doctor` and `redline gold eval` on CSV sources. Build needs `setuptools>=64`, which pip fetches; `constraints.txt` does not pin it.
+3. Add the extras you need. Each is an extra of the same package:
+   - `[dxf]` adds ezdxf, for the DXF and ODA route: `pip install ".[dxf]" -c constraints.txt`
+   - `[pdf]` adds pdfplumber, for PDF sheets: `pip install ".[pdf]" -c constraints.txt`
+   - `[dev]` adds pytest, ruff and both extras above, for developers.
+4. Check the machine:
+
+        redline doctor --config config/
+        redline check samples/csv --config tests/test_config/ --out report.html
+
+5. When AutoCAD and the plugin are set up (see "Check a drawing"), run the smoke run on a drawing:
+
+        redline doctor --drawing samples/dwg/panel_sheet.dwg --config config/
+
+Developers install editable instead: `pip install -e ".[dev]"`.
+
+### A machine with no internet
+
+On a machine that can reach PyPI, download the wheels once: `pip download . -c constraints.txt -d wheels` (add `".[dxf]"` and `".[pdf]"` as needed). Copy the `wheels` folder over. Then install with `pip install . -c constraints.txt --no-index --find-links wheels`. The `setuptools` wheel must be in the folder too, because the build needs it.
+
+### Clean machine tiers
+
+Tier A is what an agent can run. It exports the tracked files with `git archive` into a new folder, makes a new venv, runs the install line above, then `redline doctor` and the CSV check line. It proves the tracked files and this guide are enough for the Python side. It does not prove a new PC.
+Tier B is the owner's. On a second Windows PC, or in a new Windows user account on this PC, follow only this guide: Python, the venv, the extras, ODA File Converter, AutoCAD's first launch, the plugin folder and TRUSTEDPATHS. Then run `redline doctor --drawing samples/dwg/panel_sheet.dwg` and report its output. Redline never changes TRUSTEDPATHS or SECURELOAD, and `redline doctor` never starts AutoCAD's window.
+
+## Check the machine: redline doctor
+
+    redline doctor --config config/
+
+Doctor prints one line per check: a status word, the check name, then the detail. It ends with a count line, for example `PASS 8, WARN 14, FAIL 0, NOT CHECKED 2`. It writes no file, opens no socket and imports no model library.
+
+- PASS: the check held.
+- WARN: a choice or a gap, such as an extra not installed, a tool path not set, or a config table not verified. The skeleton config ships unverified, so every table shows WARN.
+- FAIL: a fault, such as a path that is set and points at nothing, or a version outside its range.
+- NOT CHECKED: doctor could not tell. The line gives the reason. The AI line reads NOT CHECKED while the AI module is not built.
+
+"Passes doctor" means the output has no FAIL line. Doctor exits 0 whenever it ran to the end, with FAIL lines or not. It exits 2 only when the config folder cannot be loaded. Checks that need no config print first.
+
+Flags:
+
+- `--config DIR`: the config folder, default `config`.
+- `--drawing FILE`: a drawing for the plugin smoke run. Doctor copies it to a temp folder, runs the dump on the copy, and reads the plugin and host versions from the dump. Setup uses `--drawing samples/dwg/panel_sheet.dwg`. Without it the plugin line is NOT CHECKED, because NETLOAD refusal cannot be seen without a drawing.
+- `--licences`: print the licence table as CSV and nothing else (see `docs/release_checklist.md`). The release commits it as `docs/licences.csv`.
+
+Doctor never starts `ODAFileConverter.exe`. It checks that the file exists. The core console smoke run is on by default.
 
 ## Run the demo
 
@@ -132,8 +181,66 @@ Devices read from blocks are never worse than their confidence: a block inside a
 ## Compare the two extractors
 
     redline xcheck plan.dwg --config config/
+    redline xcheck --batch drawings/ --config config/ --out xcheck-out
 
 `xcheck` runs both extractors on each file and prints a table of what each one found (entity counts, tables, cells, evaluated cells, attributes, cells whose text differs). A file that one extractor could not read shows its reason under the table. It exits 2 only when no extractor read any file.
+With `--batch`, give files or folders. Redline reads many drawings, prints a summary, and writes `xcheck.csv` (columns `file`, `item`, `primary`, `fallback`) into the `--out` folder, the current folder when `--out` is not given. Without `--batch` nothing is written.
+
+## Measure the readers: redline gold eval
+
+    redline gold eval samples/gold/tables --config tests/test_config/ --out results
+
+`gold eval` reads `manifest.csv` in the folder you give, parses each source with the reader `redline check` uses, and compares the cells with a transcribed truth file. It prints the table counts, the silent wrong passes and the silent missing rows, then the results folder. It exits 0 when it completes. It exits 2 on a config failure, when no manifest can be read, when no truth file can be read, or when the `--out` folder cannot be made or written; then it writes nothing and parses nothing. `--out` defaults to `results` inside the gold folder.
+The committed set `samples/gold/tables/` is synthetic and tests the tool. The owner's real set goes in `gold/tables/`, which git ignores and which is never committed, because the results quote client text.
+`--out` writes client cell values and source names (`cells.csv`, `run.json`), and the default results folder is git-ignored, so `--out` must not point at a folder that git tracks.
+
+### The layout
+
+    gold/tables/
+      manifest.csv
+      sources/<source file>
+      truth/<table_id>.csv
+      check/<table_id>.csv
+      results/            (written by the tool)
+
+`manifest.csv` is UTF-8, one row per table, with nine columns:
+
+- `table_id`: a short id with no spaces. It names the truth file.
+- `source_file`: the path under the manifest's folder.
+- `page_or_layout`: the PDF page number or the DWG layout name. Blank for a CSV.
+- `panel`: the panel name as drawn.
+- `kind`: `csv`, `dwg`, `dwg_pdf`, `flat_pdf`, `scan_150` or `scan_300`.
+- `tags`: optional, separated by `;`, such as `vertical_text` or `dense`.
+- `transcribed_by` and `checked_by`: initials. `checked_by` is blank when the table was not checked.
+- `notes`: free text.
+
+`truth/<table_id>.csv` has a header row and one row per circuit row in drawn order, spares and spaces included. The columns are `circuit`, `description`, `breaker_a`, `poles`, `wire` and `load_va`. Type each cell as drawn. Leave a cell empty when the sheet is empty there. Write `[unreadable]` for a cell you cannot read. Do not convert units and do not fix a drawing error.
+The second check: a second person transcribes about one table in five again, from the source alone, without seeing the truth file. The tables at positions 1, 6, 11 and so on in `table_id` order are used. The result goes in `check/<table_id>.csv`, in the same format. The tool reports the cells that differ between the two files and the rows present in one only. The owner settles each difference in the truth file.
+
+### The outputs
+
+The results folder holds four files:
+
+- `results.csv`: counts and ratios per table and column. It holds no time, so it repeats byte for byte.
+- `cells.csv`: every cell that is not correct, with table, circuit, column, gold, predicted, confidence and outcome.
+- `run.json`: the tool version, config hashes, extractor versions, and the SHA-256 of the manifest and each source.
+- `timing.csv`: seconds to parse each source.
+
+Each ratio is written beside its two counts. The metrics are cell accuracy by column, row recall, row hallucination rate (extra rows over predicted rows), the unreadable-flag rate, wrong cells by confidence, and human disagreement when check files exist. A table whose two reads differ is named "repeat run differs".
+A truth file that is missing or has a wrong header row is named in the line `truth file not read` and has a `truth_read` row of 0 over 1 in `results.csv`. The other tables are still scored. A `table_id` that is not letters, digits, `_`, `.` or `-`, or that holds `..`, is not read and is named in the line `table_id not allowed, not read`. If one output file cannot be written after the run, the text ends with the line `not written`, naming it.
+A truth row whose circuit number is `[unreadable]` cannot be paired with a row the tool read. Such a row, and one unpaired row the tool read, are counted as `gold_row_not_pairable` and left out of the row counts. The text then prints `gold rows not pairable`. Read it beside `silent missing rows`: the true number of missing rows lies from the first count up to the sum of the two. `cells.csv` lists these rows as `circuit unreadable` and `unpaired row` for a person to compare.
+A silent wrong pass is a wrong cell in `breaker_a`, `wire` or `load_va` whose confidence is HIGH or MEDIUM, so a rule would compute on it. A silent missing row is a missed row the run did not list. The target for both is zero. A count above zero is a measured fault in a reader, not a pass.
+Numbers are normalized before comparing: case and spacing for text, units and thousands commas for numbers, the size normalizer for wire.
+
+## Repeat runs
+
+The same input bytes, config bytes, Redline version, dependency versions and machine give the same bytes in `findings.csv` and `report.html`. `tests/test_determinism.py` checks this by running `redline check` twice in separate interpreters with different hash seeds, folders and `--out` folders.
+This is not claimed across operating systems (the report is written with platform newlines) or across dependency versions. The RawDrawing dump holds an extraction time and is not compared. The report and `findings.csv` carry no clock time, run id, user name or absolute path.
+
+## Limits on fire alarm checks
+
+Two limits bound the pair comparisons in the fire alarm rule: 2000000 pairs per sheet part, and 20000000 over the whole run. When the run limit is spent, each later check is NOT_CHECKED with the reason "the run's limit of pair comparisons was reached; check by hand". Sheets are taken in a fixed order, so repeat runs match.
+Type numbers in `exits.csv` and `paths.csv` with no thousands separator, or quote the cell. An unquoted comma inside a number shifts the cells, and the shifted row can still be read at HIGH when it fits the header. Redline does not guess what was meant. Excel quotes such cells, so only hand-typed files are exposed.
 
 ## AutoCAD Electrical project files
 

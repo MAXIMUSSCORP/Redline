@@ -7,6 +7,7 @@ from redline.config import (
     FIRE_ALARM_LIMITS,
     FIRE_ALARM_TABLE,
     MAX_FIRE_ALARM_PAIRS,
+    MAX_FIRE_ALARM_RUN_PAIRS,
     Config,
     device_classes,
     fire_alarm_limit,
@@ -240,7 +241,9 @@ def _path_unit(
     return Finding(ID, _sev(unsure, req), msg, ref, p.source, inputs_used(req), FIX_FIX)
 
 
-def _run_part(part: tuple, lims: dict, ref: str, data: dict, units: Value) -> list[Finding]:
+def _run_part(
+    part: tuple, lims: dict, ref: str, data: dict, units: Value, used: list[int]
+) -> list[Finding]:
     label, kind, cls, rkey, gkey = part
     sheet = data["name"]
     items = data[kind]
@@ -258,6 +261,13 @@ def _run_part(part: tuple, lims: dict, ref: str, data: dict, units: Value) -> li
             f"of {MAX_FIRE_ALARM_PAIRS}; check by hand."
         )
         return [_nc(ref, msg)]
+    if used[0] + segs * len(sure) > MAX_FIRE_ALARM_RUN_PAIRS:
+        msg = (
+            f"{sheet}: {label} not checked. Checking this part would pass "
+            "the run's limit of pair comparisons; check by hand."
+        )
+        return [_nc(ref, msg)]
+    used[0] += segs * len(sure)
     out: list[Finding] = []
     for it in items:
         if kind == "exit":
@@ -281,6 +291,7 @@ def _run_part(part: tuple, lims: dict, ref: str, data: dict, units: Value) -> li
 def check(project: Project, cfg: Config) -> list[Finding]:
     out: list[Finding] = []
     sheets = _by_sheet(project)
+    used = [0]  # pair comparisons spent so far, over all sheets, parts and sections
     unit_of = {k.casefold(): v for k, v in project.sheet_units.items()}
     for section, name, none_read in CHECKS:
         ref = rule_ref(cfg, section)
@@ -308,7 +319,7 @@ def check(project: Project, cfg: Config) -> list[Finding]:
                     continue
                 for key, data in sheets.items():
                     units = unit_of.get(key, Value.missing())
-                    out += _run_part(part, lims, ref, data, units)
+                    out += _run_part(part, lims, ref, data, units, used)
     return out
 
 

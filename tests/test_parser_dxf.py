@@ -110,7 +110,7 @@ def test_native_table_matches_csv(test_cfg, tmp_path):
     with path.open("w", newline="", encoding="utf-8") as f:
         csv.writer(f).writerows(grid)
     want = csv_xlsx.parse_file(path, test_cfg).panels[0]
-    got = dxf.parse_rawdrawing(load(), test_cfg).panels[0]
+    got = dxf.parse_rawdrawing(load(), test_cfg, list_blocks=False).panels[0]
     assert (got.name, len(got.circuits)) == (want.name, 20)
     seen = set()
     for g, w in [(got, want), *zip(got.circuits, want.circuits, strict=True)]:
@@ -125,7 +125,7 @@ def test_native_table_matches_csv(test_cfg, tmp_path):
 
 def test_no_row_count_is_low_unparsed(test_cfg):
     d = drawing([table(schedule(), handle="B7", counts=False)])
-    out = dxf.parse_rawdrawing(d, test_cfg)
+    out = dxf.parse_rawdrawing(d, test_cfg, list_blocks=False)
     assert out.panels == []
     [u] = [u for u in out.unparsed if u.kind == "table"]
     assert u.source.confidence == Confidence.LOW
@@ -138,7 +138,7 @@ def test_unevaluated_field_is_low(test_cfg):
     for c in t["table"]["cells"]:
         if c["c"] == 2 and c["r"] >= 2:
             c["evaluated"] = False
-    [p] = dxf.parse_rawdrawing(drawing([t]), test_cfg).panels
+    [p] = dxf.parse_rawdrawing(drawing([t]), test_cfg, list_blocks=False).panels
     for c in p.circuits:
         assert c.load_va.confidence == Confidence.LOW
         assert c.load_va.value is not None
@@ -147,8 +147,8 @@ def test_unevaluated_field_is_low(test_cfg):
 
 
 def test_field_table_plugin_vs_fallback(test_cfg):
-    a = dxf.parse_rawdrawing(load(PLUGIN), test_cfg).panels[1]
-    b = dxf.parse_rawdrawing(load(FALLBACK), test_cfg).panels[1]
+    a = dxf.parse_rawdrawing(load(PLUGIN), test_cfg, list_blocks=False).panels[1]
+    b = dxf.parse_rawdrawing(load(FALLBACK), test_cfg, list_blocks=False).panels[1]
     assert a.name == b.name == "LP-12"
     for ca, cb in zip(a.circuits, b.circuits, strict=True):
         for k, va in values(ca).items():
@@ -164,7 +164,7 @@ def test_field_table_plugin_vs_fallback(test_cfg):
 
 def test_dwg_fixture_counts(test_cfg):
     for path in (PLUGIN, FALLBACK):
-        out = dxf.parse_rawdrawing(load(path), test_cfg)
+        out = dxf.parse_rawdrawing(load(path), test_cfg, list_blocks=False)
         assert [(p.name, len(p.circuits)) for p in out.panels] == [
             ("LP-11", 20),
             ("LP-12", 6),
@@ -176,7 +176,9 @@ def test_dwg_fixture_counts(test_cfg):
 
 
 def test_small_table_listed(test_cfg):
-    out = dxf.parse_rawdrawing(drawing([table([["Panel", "LP-1"], ["x", ""]])]), test_cfg)
+    out = dxf.parse_rawdrawing(
+        drawing([table([["Panel", "LP-1"], ["x", ""]])]), test_cfg, list_blocks=False
+    )
     assert out.panels == []
     [u] = [u for u in out.unparsed if u.kind == "table"]
     assert u.reason == "too few cells to be a schedule"
@@ -185,12 +187,14 @@ def test_small_table_listed(test_cfg):
 def test_oversized_table_listed_not_allocated(test_cfg):
     t = table([["a", "b", "c", "d"]])
     t["table"]["rows"], t["table"]["cols"] = 10**9, 10**9
-    out = dxf.parse_rawdrawing(drawing([t]), test_cfg)
+    out = dxf.parse_rawdrawing(drawing([t]), test_cfg, list_blocks=False)
     assert [u.kind for u in out.unparsed] == ["table"] and "cell cap" in out.unparsed[0].reason
 
 
 def test_table_in_xref_names_its_path(test_cfg):
-    out = dxf.parse_rawdrawing(drawing([table(schedule(), xref_path="X.dwg")]), test_cfg)
+    out = dxf.parse_rawdrawing(
+        drawing([table(schedule(), xref_path="X.dwg")]), test_cfg, list_blocks=False
+    )
     assert "xref=X.dwg" in out.panels[0].circuits[0].source.locator
 
 
@@ -198,7 +202,7 @@ def test_table_in_xref_names_its_path(test_cfg):
 
 
 def test_loose_text_schedule_medium(test_cfg):
-    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg, list_blocks=False)
     [p] = out.panels
     assert (p.name, len(p.circuits)) == ("LP-9", 3)
     confs = {v.confidence for c in p.circuits for v in values(c).values() if v.source}
@@ -210,18 +214,18 @@ def test_loose_text_schedule_medium(test_cfg):
 
 
 def test_loose_coverage_summary_matches_values(test_cfg):
-    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg, list_blocks=False)
     entry = next(c for c in out.coverage if c.unit == "LP-9")
     assert "HIGH 0" in entry.confidence_summary and "MEDIUM 0" not in entry.confidence_summary
 
 
 def test_loose_title_line_split(test_cfg):
-    [p] = dxf.parse_rawdrawing(drawing(loose("RP-4")), test_cfg).panels
+    [p] = dxf.parse_rawdrawing(drawing(loose("RP-4")), test_cfg, list_blocks=False).panels
     assert p.name == "RP-4"
 
 
 def test_anonymous_t_block_medium(test_cfg):
-    out = dxf.parse_rawdrawing(drawing(loose(layout="block:*T3")), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(loose(layout="block:*T3")), test_cfg, list_blocks=False)
     [p] = out.panels
     assert len(p.circuits) == 3
     top = max(v.confidence for c in p.circuits for v in values(c).values() if v.source)
@@ -230,22 +234,22 @@ def test_anonymous_t_block_medium(test_cfg):
 
 
 def test_named_block_text_is_counted_not_read(test_cfg):
-    out = dxf.parse_rawdrawing(drawing(loose(layout="block:SYM")), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(loose(layout="block:SYM")), test_cfg, list_blocks=False)
     assert out.panels == []
     assert "texts in other block definitions not read" in out.coverage[-1].what_read
 
 
 def test_rotated_text_not_clustered(test_cfg):
-    out = dxf.parse_rawdrawing(drawing(loose(rot=90)), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(loose(rot=90)), test_cfg, list_blocks=False)
     assert out.panels == [] and out.unparsed == []
     assert "25 texts not clustered" in out.coverage[-1].what_read
-    upside = dxf.parse_rawdrawing(drawing(loose(rot=180)), test_cfg)
+    upside = dxf.parse_rawdrawing(drawing(loose(rot=180)), test_cfg, list_blocks=False)
     assert len(upside.panels) == 1
 
 
 def test_loose_text_without_header_is_one_item(test_cfg):
     notes = [text(s, 0, 50 - 5 * i) for i, s in enumerate(["NOTES", "a b", "c d", "e f"])]
-    out = dxf.parse_rawdrawing(drawing(notes), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(notes), test_cfg, list_blocks=False)
     assert out.panels == []
     [u] = out.unparsed
     assert u.kind == "table" and "no panel schedule header" in u.reason
@@ -256,7 +260,7 @@ def test_unresolved_xref_unparsed(test_cfg):
         {"name": "A-BASE", "path": "..\\A-BASE.dwg", "resolved": False},
         {"name": "B", "path": "B.dwg", "resolved": True},
     ]
-    out = dxf.parse_rawdrawing(drawing(xrefs=xr), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(xrefs=xr), test_cfg, list_blocks=False)
     [u] = out.unparsed
     assert (u.kind, u.raw) == ("xref", "A-BASE")
     assert "A-BASE.dwg" in u.reason and u.source.confidence == Confidence.LOW
@@ -275,7 +279,7 @@ def test_device_inserts_counted(test_cfg):
         for i in range(3)
     ]
     ins.append(dict(ins[0], id="plain", handle="FF", attributes=[]))
-    out = dxf.parse_rawdrawing(drawing(ins), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(ins), test_cfg, list_blocks=False)
     assert out.unparsed == []
     assert "3 block references with attributes not read as schedules" in out.coverage[-1].what_read
 
@@ -296,7 +300,7 @@ def wd_drawing() -> dict:
 
 
 def test_wd_m_empty_map_lists_attributes(test_cfg):
-    out = dxf.parse_rawdrawing(wd_drawing(), test_cfg)
+    out = dxf.parse_rawdrawing(wd_drawing(), test_cfg, list_blocks=False)
     assert [(u.kind, u.raw) for u in out.unparsed] == [
         ("column", "SHEET=E-101"),
         ("column", "DWGDESC=Lighting"),
@@ -309,7 +313,7 @@ def test_wd_m_empty_map_lists_attributes(test_cfg):
 def test_wd_m_map_reads_sheet(test_cfg):
     maps = copy.deepcopy(test_cfg.column_maps)
     maps["aecad_project"]["wd_m_attribute_map"] = {"sheet": ["sheet"]}
-    out = dxf.parse_rawdrawing(wd_drawing(), replace(test_cfg, column_maps=maps))
+    out = dxf.parse_rawdrawing(wd_drawing(), replace(test_cfg, column_maps=maps), list_blocks=False)
     assert "WD_M values sheet E-101" in out.coverage[-1].what_read
     assert [u.raw for u in out.unparsed] == ["DWGDESC=Lighting"]
 
@@ -318,7 +322,7 @@ def test_wd_m_map_reads_sheet(test_cfg):
 
 
 def test_source_extractor_stamped(test_cfg):
-    out = dxf.parse_rawdrawing(load(), test_cfg)
+    out = dxf.parse_rawdrawing(load(), test_cfg, list_blocks=False)
     srcs = list(all_sources(out))
     assert len(srcs) > 100
     assert {s.extractor for s in srcs} == {"acad_plugin@0.1.0"}
@@ -328,21 +332,21 @@ def test_provenance_string(test_cfg):
     d = drawing()
     want = "acad_plugin 0.1.0, host AutoCAD 2026, SHA-256 " + "ab" * 32
     assert dxf.provenance(d) == want
-    assert dxf.parse_rawdrawing(d, test_cfg).provenance == {"t.dwg": want}
+    assert dxf.parse_rawdrawing(d, test_cfg, list_blocks=False).provenance == {"t.dwg": want}
 
 
 def test_drawing_coverage_entry(test_cfg):
-    empty = dxf.parse_rawdrawing(drawing(), test_cfg)
+    empty = dxf.parse_rawdrawing(drawing(), test_cfg, list_blocks=False)
     [e] = [c for c in empty.coverage if c.unit == "drawing"]
     assert e.file == "t.dwg" and "acad_plugin 0.1.0" in e.what_read
-    full = dxf.parse_rawdrawing(load(), test_cfg)
+    full = dxf.parse_rawdrawing(load(), test_cfg, list_blocks=False)
     assert [c.unit for c in full.coverage].count("drawing") == 1
     assert "2 tables read, 1 listed" in full.coverage[-1].what_read
     assert "1 loose-text clusters read" in full.coverage[-1].what_read
 
 
 def test_layout_and_handle_in_locator(test_cfg):
-    out = dxf.parse_rawdrawing(load(), test_cfg)
+    out = dxf.parse_rawdrawing(load(), test_cfg, list_blocks=False)
     c = out.panels[0].circuits[0]
     assert c.source.locator == "layout=E-101; handle=2F01; r=2"
     assert c.load_va.source.locator.startswith("layout=E-101; handle=2F01; r=2; col=")
@@ -434,21 +438,21 @@ def test_parse_never_raises_on_odd_content(test_cfg):
         drawing(xrefs=[{"name": "", "path": "", "resolved": False}]),
     ]
     for d in odd:
-        out = dxf.parse_rawdrawing(d, test_cfg)
+        out = dxf.parse_rawdrawing(d, test_cfg, list_blocks=False)
         assert out.coverage[-1].unit == "drawing"
 
 
 def test_loose_title_without_digit_is_not_split(test_cfg):
     d = drawing(loose("RP-4"))
     d["entities"][0]["text"] = "LIGHTING PANEL SCHEDULE"
-    out = dxf.parse_rawdrawing(d, test_cfg)
+    out = dxf.parse_rawdrawing(d, test_cfg, list_blocks=False)
     assert out.panels == [] or all(p.name != "SCHEDULE" for p in out.panels)
     assert any(u.raw == "LIGHTING PANEL SCHEDULE" for u in out.unparsed)
 
 
 def test_table_render_block_text_is_not_read_again(test_cfg):
     d = drawing(loose(layout="block:*T2") + [table(schedule())])
-    out = dxf.parse_rawdrawing(d, test_cfg)
+    out = dxf.parse_rawdrawing(d, test_cfg, list_blocks=False)
     assert not any("block:*T" in c.source.locator for p in out.panels for c in p.circuits)
     assert "texts in table render blocks not read twice" in out.coverage[-1].what_read
 
@@ -464,21 +468,21 @@ def test_orphan_table_render_block_is_still_read(test_cfg):
         ["9", "Pump", "600", "20", "2", "10 AWG"],
     ]
     d = drawing(loose(name="LP-9", layout="block:*T2") + [table(schedule("LP-7", other))])
-    names = _lp(dxf.parse_rawdrawing(d, test_cfg))
+    names = _lp(dxf.parse_rawdrawing(d, test_cfg, list_blocks=False))
     assert names.count("LP-9") == 1 and names.count("LP-7") == 1
 
 
 def test_unread_table_render_block_is_still_read(test_cfg):
     blank = table([[""] * 6 for _ in range(3)])
     d = drawing(loose(layout="block:*T2") + [blank])
-    out = dxf.parse_rawdrawing(d, test_cfg)
+    out = dxf.parse_rawdrawing(d, test_cfg, list_blocks=False)
     assert _lp(out).count("LP-9") == 1
     assert "not read twice" not in out.coverage[-1].what_read
 
 
 def _seconds(d, cfg) -> float:
     t0 = time.perf_counter()
-    dxf.parse_rawdrawing(d, cfg)
+    dxf.parse_rawdrawing(d, cfg, list_blocks=False)
     return time.perf_counter() - t0
 
 
@@ -493,7 +497,7 @@ def test_many_layouts_is_linear(test_cfg):
 
 
 def test_loose_text_summary_counts_capped_values(test_cfg):
-    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg, list_blocks=False)
     [p] = out.panels
     n = sum(1 for c in p.circuits for v in values(c).values() if v.source)
     entry = next(c for c in out.coverage if c.unit == "LP-9")
@@ -513,13 +517,13 @@ def test_loose_text_summary_error_keeps_cluster(test_cfg, monkeypatch):
         return part
 
     monkeypatch.setattr(dxf, "rows_to_panels", bad)
-    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(loose()), test_cfg, list_blocks=False)
     assert [p.name for p in out.panels] == ["LP-9"]
 
 
 def test_xref_text_not_reported_as_block_definition_text(test_cfg):
     ents = loose(layout="block:SYM", xref_path="x/plan.dwg")
-    what = dxf.parse_rawdrawing(drawing(ents), test_cfg).coverage[-1].what_read
+    what = dxf.parse_rawdrawing(drawing(ents), test_cfg, list_blocks=False).coverage[-1].what_read
     assert "texts in other block definitions not read" not in what
     assert "texts in xref x/plan.dwg not read" in what
 
@@ -529,7 +533,7 @@ def test_loose_text_oversize_grid_listed_not_built(test_cfg):
     ents = [text("h", float(i), 0.0) for i in range(m)]
     ents += [text("r", 0.0, -10.0 * (i + 1)) for i in range(m)]
     t0 = time.perf_counter()
-    out = dxf.parse_rawdrawing(drawing(ents), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(ents), test_cfg, list_blocks=False)
     assert time.perf_counter() - t0 < 1.0
     assert out.panels == []
     assert any("over the cell cap" in u.reason for u in out.unparsed)
@@ -537,7 +541,7 @@ def test_loose_text_oversize_grid_listed_not_built(test_cfg):
 
 def test_loose_text_repeated_panel_coverage_counts_own_panel(test_cfg):
     two = loose("LP-9", ROWS[:1]) + loose("LP-9", ROWS, y0=-200.0)
-    out = dxf.parse_rawdrawing(drawing(two), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(two), test_cfg, list_blocks=False)
     ps = [p for p in out.panels if p.name == "LP-9"]
     cov = [c for c in out.coverage if c.unit == "LP-9"]
     assert len(ps) == len(cov) == 2
@@ -569,7 +573,7 @@ def test_declared_cells_capped_per_drawing_parse(test_cfg):
         }
 
     t0 = time.perf_counter()
-    out = dxf.parse_rawdrawing(drawing([big(i) for i in range(100)]), test_cfg)
+    out = dxf.parse_rawdrawing(drawing([big(i) for i in range(100)]), test_cfg, list_blocks=False)
     assert time.perf_counter() - t0 < 3.0
     capped = [u for u in out.unparsed if "cell cap" in u.reason and "drawing" in u.reason]
     assert len(capped) >= 90
@@ -578,7 +582,7 @@ def test_declared_cells_capped_per_drawing_parse(test_cfg):
 def test_document_warnings_listed_in_unparsed(test_cfg):
     d = drawing()
     d["document"]["warnings"] = ["table A1 not read: size invalid", "skipped 2 VIEWPORT"]
-    out = dxf.parse_rawdrawing(d, test_cfg)
+    out = dxf.parse_rawdrawing(d, test_cfg, list_blocks=False)
     reasons = [u.reason for u in out.unparsed]
     for w in d["document"]["warnings"]:
         assert any(w in r and "t.dwg" in u.source.file for r, u in zip(reasons, out.unparsed))
@@ -603,7 +607,7 @@ def test_loose_text_merge_is_linear(test_cfg):
         for i in range(20000)
     ]
     t0 = time.perf_counter()
-    dxf.parse_rawdrawing(drawing(ents), test_cfg)
+    dxf.parse_rawdrawing(drawing(ents), test_cfg, list_blocks=False)
     assert time.perf_counter() - t0 < 5.0
 
 
@@ -624,7 +628,7 @@ def test_star_t_matching_budget_distinct_tables(test_cfg):
     base = min(_seconds(drawing(tables), test_cfg) for _ in range(2))  # best of two, against noise
     with_stars = min(_seconds(d, test_cfg) for _ in range(2))
     assert with_stars - base < 1.0
-    out = dxf.parse_rawdrawing(d, test_cfg)
+    out = dxf.parse_rawdrawing(d, test_cfg, list_blocks=False)
     assert "table render blocks not read twice" not in out.coverage[-1].what_read
 
 
@@ -632,7 +636,7 @@ def test_star_t_budget_keeps_real_render_block_matched(test_cfg):
     rows = [[str(i), "Lighting", "1350", "20 A", "1", "12 AWG"] for i in range(1, 50)]
     tables = [table(schedule(f"LP-{k}", rows), handle=f"{k:X}") for k in range(20)]
     render = loose("LP-0", rows, layout="block:*T1")
-    out = dxf.parse_rawdrawing(drawing(tables + render), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(tables + render), test_cfg, list_blocks=False)
     assert [p.name for p in out.panels].count("LP-0") == 1
     assert "texts in table render blocks not read twice" in out.coverage[-1].what_read
 
@@ -649,7 +653,7 @@ def test_star_t_many_similar_schedules_not_doubled(test_cfg):
             for c, t in enumerate(row)
             if t
         ]
-    out = dxf.parse_rawdrawing(drawing(ents), test_cfg)
+    out = dxf.parse_rawdrawing(drawing(ents), test_cfg, list_blocks=False)
     names = [p.name for p in out.panels]
     assert len(names) == 100 and len(set(names)) == 100
     assert "texts in table render blocks not read twice" in out.coverage[-1].what_read
@@ -671,7 +675,7 @@ def _load_value(out):
 
 
 def test_unevaluated_text_is_low(test_cfg):
-    out = dxf.parse_rawdrawing(_flagged(False), test_cfg)
+    out = dxf.parse_rawdrawing(_flagged(False), test_cfg, list_blocks=False)
     v = _load_value(out)
     assert v.confidence == Confidence.LOW and dxf.STALE_NOTE in v.source.note
     assert out.panels[0].circuits[1].load_va.confidence == Confidence.MEDIUM
@@ -680,11 +684,21 @@ def test_unevaluated_text_is_low(test_cfg):
 def test_unevaluated_attribute_noted(test_cfg):
     d = wd_drawing()
     d["entities"][0]["attributes"][0]["evaluated"] = False
-    out = dxf.parse_rawdrawing(d, test_cfg)
+    out = dxf.parse_rawdrawing(d, test_cfg, list_blocks=False)
     assert "WD_M value SHEET from a field, may be stale" in out.coverage[-1].what_read
 
 
 def test_absent_flag_keeps_medium(test_cfg):
     for flag in (None, True):
-        v = _load_value(dxf.parse_rawdrawing(_flagged(flag), test_cfg))
+        v = _load_value(dxf.parse_rawdrawing(_flagged(flag), test_cfg, list_blocks=False))
         assert v.confidence == Confidence.MEDIUM
+
+
+def test_list_blocks_keyword_required(test_cfg):
+    import pytest
+
+    parse = dxf.parse_rawdrawing  # a bare name, so a call without the keyword stays visible here
+    with pytest.raises(TypeError):
+        parse(drawing(), test_cfg)
+    with pytest.raises(TypeError):
+        parse(drawing(), test_cfg, False)
