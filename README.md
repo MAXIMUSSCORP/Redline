@@ -84,7 +84,7 @@ The reviewer fills the values from the code book and marks each table verified. 
 
 ## Optional local AI
 
-Not built yet. `config/ai.yaml` holds the planned settings: models run locally, network access is refused, and AI-derived values are never rated above medium confidence. The `check` command has no `--ai` or `--detect` flag today. Scanned PDF pages are listed as not read until this is built. The plan is in `docs/PLAN.md`.
+Not built yet. `config/ai.yaml` holds the planned settings: models run locally, network access is refused, and AI-derived values are never rated above medium confidence. The `check` command has no `--ai` or `--detect` flag today. Scanned PDF pages are listed as not read until this is built.
 
 ## Project layout
 
